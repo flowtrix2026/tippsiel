@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Tippstube — Design-Guide</title>
+<style>
+  :root{
+    --bg:#0b160f; --panel:#122417; --panel2:#1a331f; --line:#2a4a30;
+    --txt:#f3ead9; --muted:#a7b89f; --accent:#d9a441; --accent-hi:#f2c66b; --accent2:#7cc98a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:-apple-system,system-ui,"Segoe UI",Roboto,Arial,sans-serif;padding:0 0 60px}
+  .headline{font-family:Georgia,'Iowan Old Style','Palatino Linotype',serif}
+  header{background:linear-gradient(125deg,#0a1f10 0%,#123a1c 55%,#0d2e15 100%);padding:50px 30px;text-align:center;border-bottom:1px solid var(--line)}
+  header h1{margin:0;font-size:38px;font-weight:700}
+  header .sub{color:var(--accent2);margin-top:8px;font-size:15px}
+  .wrap{max-width:960px;margin:0 auto;padding:40px 24px}
+  section{margin-bottom:56px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.12em;color:var(--accent);margin:0 0 20px;font-weight:700}
+  .logos{display:flex;gap:24px;align-items:center;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:32px}
+  .logo-item{text-align:center}
+  .logo-item .cap{color:var(--muted);font-size:12px;margin-top:10px}
+  .lockup{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px 32px;margin-top:20px}
+  .lockup .name{font-size:34px;font-weight:700}
+  .swatches{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px}
+  .swatch{border-radius:14px;overflow:hidden;border:1px solid var(--line)}
+  .swatch .fill{height:80px}
+  .swatch .info{background:var(--panel);padding:12px 14px}
+  .swatch .info .n{font-weight:700;font-size:13px}
+  .swatch .info .h{color:var(--muted);font-size:12px;font-family:ui-monospace,monospace;margin-top:2px}
+  .type-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:28px 32px}
+  .type-row{display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--line);padding:18px 0}
+  .type-row:last-child{border-bottom:none}
+  .type-row .sample{font-size:26px}
+  .type-row .meta{color:var(--muted);font-size:12px;text-align:right;line-height:1.5}
+  .ui-demo{display:flex;gap:20px;flex-wrap:wrap}
+  .card-demo{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;flex:1;min-width:260px;box-shadow:0 1px 2px rgba(0,0,0,.25),0 10px 26px -16px rgba(0,0,0,.55)}
+  .card-demo h3{margin:0 0 10px;color:var(--accent2);font-size:14px;border-left:3px solid var(--accent2);padding-left:9px}
+  .btn{background:var(--accent);color:#241a05;border:none;border-radius:9px;padding:10px 18px;font-weight:700;font-size:14px;cursor:pointer;box-shadow:0 4px 14px -6px rgba(217,164,65,.5)}
+  .pill{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:11px;color:var(--muted);margin-top:10px}
+  .pill.good{color:#4caf6e;border-color:#1e4a2a}
+  .row{display:flex;gap:10px;align-items:center;margin-top:12px}
+  input{background:#0d190f;border:1px solid var(--line);color:var(--txt);border-radius:8px;padding:8px 10px;font-size:14px}
+  .principles{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+  .principle{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .principle .t{font-weight:700;color:var(--accent);margin-bottom:6px;font-size:14px}
+  .principle p{margin:0;color:var(--muted);font-size:13px;line-height:1.5}
+  @media print{
+    @page{ margin:14mm; }
+    body{ padding-bottom:0; }
+    section{ break-inside:avoid; page-break-inside:avoid; }
+    .logos,.lockup,.type-card,.card-demo,.principle,.swatch{ break-inside:avoid; page-break-inside:avoid; }
+    h2{ break-after:avoid; page-break-after:avoid; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div style="display:flex;justify-content:center;margin-bottom:16px">
+    <svg width="64" height="70" viewBox="0 0 240 260" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="g0" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#173a22"/><stop offset="100%" stop-color="#0d2116"/></linearGradient>
+        <radialGradient id="w0" cx="50%" cy="35%" r="75%"><stop offset="0%" stop-color="#ffe9b8"/><stop offset="55%" stop-color="#e3a83f"/><stop offset="100%" stop-color="#7a5320"/></radialGradient>
+      </defs>
+      <path d="M20 30 Q20 20 30 20 L210 20 Q220 20 220 30 L220 130 Q220 190 170 220 L120 250 L70 220 Q20 190 20 130 Z" fill="url(#g0)" stroke="#d9a441" stroke-width="5" stroke-linejoin="round"/>
+      <path d="M70 150 L70 100 Q70 60 120 60 Q170 60 170 100 L170 150 Z" fill="url(#w0)"/>
+      <line x1="120" y1="62" x2="120" y2="150" stroke="#d9a441" stroke-width="4"/>
+      <line x1="73" y1="112" x2="167" y2="112" stroke="#d9a441" stroke-width="4"/>
+      <circle cx="120" cy="112" r="26" fill="#f3ead9" stroke="#1c4127" stroke-width="2"/>
+      <path d="M120,101.5 L129,108 L125.7,118.6 L114.3,118.6 L111,108 Z" fill="#1c4127"/>
+      <circle cx="138" cy="100" r="5" fill="#1c4127"/><circle cx="101" cy="126" r="5" fill="#1c4127"/>
+      <path d="M70 150 L70 100 Q70 60 120 60 Q170 60 170 100 L170 150 Z" fill="none" stroke="#d9a441" stroke-width="5" stroke-linejoin="round"/>
+    </svg>
+  </div>
+  <h1 class="headline">Tippstube</h1>
+  <div class="sub">Design-Guide · Marke &amp; Optik</div>
+</header>
+
+<div class="wrap">
+
+  <section>
+    <h2>Logo</h2>
+    <div class="logos">
+      <div class="logo-item">
+        <svg width="140" height="152" viewBox="0 0 240 260" xmlns="http://www.w3.org/2000/svg">
+          <defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#173a22"/><stop offset="100%" stop-color="#0d2116"/></linearGradient>
+          <radialGradient id="w1" cx="50%" cy="35%" r="75%"><stop offset="0%" stop-color="#ffe9b8"/><stop offset="55%" stop-color="#e3a83f"/><stop offset="100%" stop-color="#7a5320"/></radialGradient></defs>
+          <path d="M20 30 Q20 20 30 20 L210 20 Q220 20 220 30 L220 130 Q220 190 170 220 L120 250 L70 220 Q20 190 20 130 Z" fill="url(#g1)" stroke="#d9a441" stroke-width="5" stroke-linejoin="round"/>
+          <path d="M70 150 L70 100 Q70 60 120 60 Q170 60 170 100 L170 150 Z" fill="url(#w1)"/>
+          <line x1="120" y1="62" x2="120" y2="150" stroke="#d9a441" stroke-width="4"/><line x1="73" y1="112" x2="167" y2="112" stroke="#d9a441" stroke-width="4"/>
+          <circle cx="120" cy="112" r="26" fill="#f3ead9" stroke="#1c4127" stroke-width="2"/>
+          <path d="M120,101.5 L129,108 L125.7,118.6 L114.3,118.6 L111,108 Z" fill="#1c4127"/>
+          <circle cx="138" cy="100" r="5" fill="#1c4127"/><circle cx="101" cy="126" r="5" fill="#1c4127"/>
+          <path d="M70 150 L70 100 Q70 60 120 60 Q170 60 170 100 L170 150 Z" fill="none" stroke="#d9a441" stroke-width="5" stroke-linejoin="round"/>
+        </svg>
+        <div class="cap">Standard (App-Icon)</div>
+      </div>
+      <div class="logo-item">
+        <svg width="64" height="70" viewBox="0 0 240 260" xmlns="http://www.w3.org/2000/svg">
+          <defs><linearGradient id="g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#173a22"/><stop offset="100%" stop-color="#0d2116"/></linearGradient>
+          <radialGradient id="w2" cx="50%" cy="35%" r="75%"><stop offset="0%" stop-color="#ffe9b8"/><stop offset="55%" stop-color="#e3a83f"/><stop offset="100%" stop-color="#7a5320"/></radialGradient></defs>
+          <path d="M20 30 Q20 20 30 20 L210 20 Q220 20 220 30 L220 130 Q220 190 170 220 L120 250 L70 220 Q20 190 20 130 Z" fill="url(#g2)" stroke="#d9a441" stroke-width="5" stroke-linejoin="round"/>
+          <path d="M70 150 L70 100 Q70 60 120 60 Q170 60 170 100 L170 150 Z" fill="url(#w2)"/>
+          <line x1="120" y1="62" x2="120" y2="150" stroke="#d9a441" stroke-width="4"/><line x1="73" y1="112" x2="167" y2="112" stroke="#d9a441" stroke-width="4"/>
+          <circle cx="120" cy="112" r="26" fill="#f3ead9" stroke="#1c4127" stroke-width="2"/>
+          <path d="M120,101.5 L129,108 L125.7,118.6 L114.3,118.6 L111,108 Z" fill="#1c4127"/>
+          <circle cx="138" cy="100" r="5" fill="#1c4127"/><circle cx="101" cy="126" r="5" fill="#1c4127"/>
+          <path d="M70 150 L70 100 Q70 60 120 60 Q170 60 170 100 L170 150 Z" fill="none" stroke="#d9a441" stroke-width="5" stroke-linejoin="round"/>
+        </svg>
+        <div class="cap">Klein (Header)</div>
+      </div>
+      <div class="logo-item">
+        <svg width="32" height="35" viewBox="0 0 240 260" xmlns="http://www.w3.org/2000/svg">
+          <path d="M20 30 Q20 20 30 20 L210 20 Q220 20 220 30 L220 130 Q220 190 170 220 L120 250 L70 220 Q20 190 20 130 Z" fill="#173a22" stroke="#d9a441" stroke-width="8"/>
+          <path d="M70 150 L70 100 Q70 60 120 60 Q170 60 170 100 L170 150 Z" fill="#e3a83f"/>
+          <line x1="120" y1="62" x2="120" y2="150" stroke="#d9a441" stroke-width="6"/><line x1="73" y1="112" x2="167" y2="112" stroke="#d9a441" stroke-width="6"/>
+          <circle cx="120" cy="112" r="27" fill="#f3ead9"/>
+          <path d="M120,101.5 L129,108 L125.7,118.6 L114.3,118.6 L111,108 Z" fill="#1c4127"/>
+        </svg>
+        <div class="cap">Favicon (16–32px)</div>
+      </div>
+    </div>
+    <div class="lockup">
+      <svg width="52" height="56" viewBox="0 0 240 260" xmlns="http://www.w3.org/2000/svg">
+        <defs><linearGradient id="g3" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#173a22"/><stop offset="100%" stop-color="#0d2116"/></linearGradient>
+        <radialGradient id="w3" cx="50%" cy="35%" r="75%"><stop offset="0%" stop-color="#ffe9b8"/><stop offset="55%" stop-color="#e3a83f"/><stop offset="100%" stop-color="#7a5320"/></radialGradient></defs>
+        <path d="M20 30 Q20 20 30 20 L210 20 Q220 20 220 30 L220 130 Q220 190 170 220 L120 250 L70 220 Q20 190 20 130 Z" fill="url(#g3)" stroke="#d9a441" stroke-width="5" stroke-linejoin="round"/>
+        <path d="M70 150 L70 100 Q70 60 120 60 Q170 60 170 100 L170 150 Z" fill="url(#w3)"/>
+        <line x1="120" y1="62" x2="120" y2="150" stroke="#d9a441" stroke-width="4"/><line x1="73" y1="112" x2="167" y2="112" stroke="#d9a441" stroke-width="4"/>
+        <circle cx="120" cy="112" r="26" fill="#f3ead9" stroke="#1c4127" stroke-width="2"/>
+        <path d="M120,101.5 L129,108 L125.7,118.6 L114.3,118.6 L111,108 Z" fill="#1c4127"/>
+        <circle cx="138" cy="100" r="5" fill="#1c4127"/><circle cx="101" cy="126" r="5" fill="#1c4127"/>
+        <path d="M70 150 L70 100 Q70 60 120 60 Q170 60 170 100 L170 150 Z" fill="none" stroke="#d9a441" stroke-width="5" stroke-linejoin="round"/>
+      </svg>
+      <div class="name headline">Tippstube</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Farbpalette</h2>
+    <div class="swatches">
+      <div class="swatch"><div class="fill" style="background:#0b160f"></div><div class="info"><div class="n">Hintergrund</div><div class="h">#0b160f</div></div></div>
+      <div class="swatch"><div class="fill" style="background:#122417"></div><div class="info"><div class="n">Karten</div><div class="h">#122417</div></div></div>
+      <div class="swatch"><div class="fill" style="background:#d9a441"></div><div class="info"><div class="n">Akzent (Gold)</div><div class="h">#d9a441</div></div></div>
+      <div class="swatch"><div class="fill" style="background:#f2c66b"></div><div class="info"><div class="n">Akzent hell</div><div class="h">#f2c66b</div></div></div>
+      <div class="swatch"><div class="fill" style="background:#7cc98a"></div><div class="info"><div class="n">Akzent 2 (Grün)</div><div class="h">#7cc98a</div></div></div>
+      <div class="swatch"><div class="fill" style="background:#f3ead9"></div><div class="info"><div class="n">Text</div><div class="h">#f3ead9</div></div></div>
+      <div class="swatch"><div class="fill" style="background:#a7b89f"></div><div class="info"><div class="n">Text gedämpft</div><div class="h">#a7b89f</div></div></div>
+      <div class="swatch"><div class="fill" style="background:#2a4a30"></div><div class="info"><div class="n">Rahmen</div><div class="h">#2a4a30</div></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Typografie</h2>
+    <div class="type-card">
+      <div class="type-row">
+        <span class="sample headline">Tippstube</span>
+        <span class="meta">Headline / Logo<br>Georgia, serif · 700</span>
+      </div>
+      <div class="type-row">
+        <span class="sample headline">Spieltag 1</span>
+        <span class="meta">Abschnitts-Überschriften<br>Georgia, serif · 700</span>
+      </div>
+      <div class="type-row">
+        <span class="sample">Ich bin Frank, ich tippe 2:1.</span>
+        <span class="meta">Fließtext / Formulare<br>System-Sans · 400–600</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Anwendung in der App</h2>
+    <div class="ui-demo">
+      <div class="card-demo">
+        <h3>Spieltag 1</h3>
+        <div>Bayern München <b style="color:var(--accent)">2:1</b> Bayer Leverkusen</div>
+        <div class="row"><input value="2" style="width:44px;text-align:center"><span>:</span><input value="1" style="width:44px;text-align:center"><button class="btn">Tipp abgeben</button></div>
+        <div class="pill good">exakt · +3 P</div>
+      </div>
+      <div class="card-demo">
+        <h3>Rangliste</h3>
+        <div style="display:flex;justify-content:space-between;padding:6px 0"><span style="color:var(--accent);font-weight:700">1. Florian</span><b>42 P</b></div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid var(--line)"><span>2. Anna</span><b>39 P</b></div>
+        <div class="pill">6× Spieltags-Sieger</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Prinzipien</h2>
+    <div class="principles">
+      <div class="principle"><div class="t">Warm, nicht kalt</div><p>Rasengrün und Bernstein statt technischem Navy/Türkis — fühlt sich nach Stammtisch an, nicht nach Dashboard.</p></div>
+      <div class="principle"><div class="t">Charakter oben, Klarheit unten</div><p>Die Serif-Headline gibt der Marke ein Gesicht. Formulare und Buttons bleiben neutral-lesbar.</p></div>
+      <div class="principle"><div class="t">Ein Gold, konsequent</div><p>Bernstein/Gold ist der einzige Akzent für Aktionen und Hervorhebungen — kein zweiter konkurrierender Ton.</p></div>
+      <div class="principle"><div class="t">Generisch, nicht persönlich</div><p>Das Wappen trägt bewusst keinen Namen — es soll für jede Tippstube-Runde passen, nicht nur für eine.</p></div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>
