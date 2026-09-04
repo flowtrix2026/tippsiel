@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       Tippstube
- * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2. Bundesliga via OpenLigaDB (aktuelle Saison, gratis), DFB-Pokal/CL/EL/Nations League via API-Football.
- * Version:           0.8.12
+ * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2. Bundesliga + DFB-Pokal via OpenLigaDB (aktuelle Saison, gratis), CL/EL/Nations League via API-Football.
+ * Version:           0.8.21
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Tippstube
@@ -12,8 +12,8 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '0.8.12' );
-define( 'FTIPP_DB_VERSION', '5' );
+define( 'FTIPP_VERSION', '0.8.21' );
+define( 'FTIPP_DB_VERSION', '7' );
 
 /** Wettbewerbe: interne ID => [Name, API-Football Liga-ID, Art] */
 function ftipp_leagues() {
@@ -82,6 +82,16 @@ function ftipp_install() {
         PRIMARY KEY  (user_id,comp_id)
     ) $charset_collate;" );
 
+    // Ab v0.8.14: Wettbewerbs-Abo ist pro Runde statt global (ftipp_subs bleibt bestehen, wird aber nicht
+    // mehr aktiv genutzt — nur noch als Migrationsquelle beim Upgrade, siehe ftipp_migrate_round_subs()).
+    dbDelta( "CREATE TABLE {$p}ftipp_round_subs (
+        round_id BIGINT UNSIGNED NOT NULL,
+        user_id BIGINT UNSIGNED NOT NULL,
+        comp_id VARCHAR(10) NOT NULL,
+        active TINYINT NOT NULL DEFAULT 0,
+        PRIMARY KEY  (round_id,user_id,comp_id)
+    ) $charset_collate;" );
+
     dbDelta( "CREATE TABLE {$p}ftipp_tips (
         user_id BIGINT UNSIGNED NOT NULL,
         comp_id VARCHAR(10) NOT NULL,
@@ -111,6 +121,7 @@ function ftipp_install() {
         special_id BIGINT UNSIGNED NOT NULL,
         user_id BIGINT UNSIGNED NOT NULL,
         value VARCHAR(190) NULL,
+        override TINYINT NULL,
         PRIMARY KEY  (special_id,user_id)
     ) $charset_collate;" );
 
@@ -133,6 +144,31 @@ function ftipp_install() {
     ) $charset_collate;" );
 
     update_option( 'ftipp_db_version', FTIPP_DB_VERSION );
+    ftipp_migrate_round_subs();
+}
+
+/**
+ * Einmalige Migration beim Umstieg von globalem auf Pro-Runde-Wettbewerbs-Abo (v0.8.14): für jede bestehende
+ * Rundenmitgliedschaft werden die bisherigen globalen Abos (ftipp_subs) als Startwert in die neue
+ * ftipp_round_subs übernommen — damit niemandem beim Update plötzlich Wettbewerbe aus seinen Runden
+ * verschwinden. Läuft nur einmal (Flag in wp_options), danach ist jede Runde unabhängig anpassbar.
+ */
+function ftipp_migrate_round_subs() {
+    if ( '1' === get_option( 'ftipp_round_subs_migrated' ) ) { return; }
+    global $wpdb;
+    $memberships = $wpdb->get_results( "SELECT round_id, user_id FROM {$wpdb->prefix}ftipp_round_members", ARRAY_A );
+    foreach ( $memberships as $rm ) {
+        $subs = $wpdb->get_results( $wpdb->prepare(
+            "SELECT comp_id, active FROM {$wpdb->prefix}ftipp_subs WHERE user_id=%d", $rm['user_id']
+        ), ARRAY_A );
+        foreach ( $subs as $s ) {
+            if ( ! intval( $s['active'] ) ) { continue; }
+            $wpdb->replace( "{$wpdb->prefix}ftipp_round_subs", array(
+                'round_id' => $rm['round_id'], 'user_id' => $rm['user_id'], 'comp_id' => $s['comp_id'], 'active' => 1,
+            ) );
+        }
+    }
+    update_option( 'ftipp_round_subs_migrated', '1' );
 }
 add_filter( 'cron_schedules', function ( $s ) {
     $s['ftipp_15min'] = array( 'interval' => 15 * 60, 'display' => 'Alle 15 Minuten (Tippstube)' );
@@ -164,19 +200,23 @@ register_deactivation_hook( __FILE__, function () {
 
 /* ============================================================
  * Spieldaten-Abruf — Hybrid:
- *   1. Bundesliga + 2. Bundesliga  -> OpenLigaDB (aktuelle Saison, gratis, ohne Key)
- *   DFB-Pokal + CL + EL + Nations League -> API-Football (verlässliche n.V./Elfmeter-Kennung)
- * Grund für den Split: OpenLigaDB liefert bei Pokal-/K.o.-Spielen keine zuverlässige
- * Kennzeichnung "nach Verlängerung/Elfmeterschießen" — das würde den K.o.-Zusatztipp
- * (Punkte für richtig getippte Verlängerung/Elfmeterschießen) riskant/falsch machen.
- * Bei BL1/BL2 gibt es diese Mehrdeutigkeit nicht (normale Ligaspiele ohne Verlängerung).
+ *   1./2. Bundesliga + DFB-Pokal -> OpenLigaDB (aktuelle Saison, gratis, ohne Key)
+ *   CL + EL + Nations League -> API-Football (Gratis-Tarif nur alte Test-Saisons 2021–2023)
+ * DFB-Pokal bewusst seit v0.8.17 auf OpenLigaDB umgestellt (Nutzerentscheidung): einzige Quelle,
+ * die den Pokal in der AKTUELLEN Saison kostenlos abdeckt. Nachteil bekannt und akzeptiert:
+ * OpenLigaDB kennzeichnet "nach Verlängerung/Elfmeterschießen" bei K.o.-Spielen nicht immer
+ * zuverlässig (stichprobenartig geprüft) — deshalb bekommt der DFB-Pokal keinen K.o.-Zusatztipp
+ * mehr (siehe ftipp_fetch_openligadb(): Score-Extraktion bevorzugt "nach 90 Minuten", um wenigstens
+ * den normalen Tendenz/Exakt-Tipp so korrekt wie möglich zu halten). CL/EL/NL bleiben bei
+ * API-Football, weil deren aktuelle Saison ohnehin nur mit Bezahltarif ginge — Umstieg auf
+ * OpenLigaDB würde dort keinen Vorteil bringen (keine aktuelle Gratis-Saison verfügbar).
  * ============================================================ */
 function ftipp_current_de_season() {
     $m = intval( gmdate( 'n' ) ); $y = intval( gmdate( 'Y' ) );
     return ( $m >= 7 ) ? $y : ( $y - 1 );
 }
 function ftipp_openligadb_shortcut( $comp_id ) {
-    $map = array( 'BL1' => 'bl1', 'BL2' => 'bl2' );
+    $map = array( 'BL1' => 'bl1', 'BL2' => 'bl2', 'DFB' => 'dfb' );
     return isset( $map[ $comp_id ] ) ? $map[ $comp_id ] : null;
 }
 
@@ -220,7 +260,7 @@ function ftipp_translate_team( $name ) {
     return isset( $map[ $name ] ) ? $map[ $name ] : $name;
 }
 
-/** OpenLigaDB-Abruf für eine deutsche Liga (bl1/bl2), gratis, ohne Auth. */
+/** OpenLigaDB-Abruf für eine deutsche Liga/den DFB-Pokal (bl1/bl2/dfb), gratis, ohne Auth. */
 function ftipp_fetch_openligadb( $shortcut, $season ) {
     $url  = "https://api.openligadb.de/getmatchdata/{$shortcut}/{$season}";
     $resp = wp_remote_get( $url, array( 'timeout' => 25 ) );
@@ -232,12 +272,18 @@ function ftipp_fetch_openligadb( $shortcut, $season ) {
     $fx = array();
     foreach ( $body as $m ) {
         $finished = ! empty( $m['matchIsFinished'] );
-        $hg = null; $ag = null;
+        $hg = null; $ag = null; $hg90 = null; $ag90 = null;
         if ( ! empty( $m['matchResults'] ) && is_array( $m['matchResults'] ) ) {
             foreach ( $m['matchResults'] as $r ) {
                 if ( 2 === intval( $r['resultTypeID'] ) ) { $hg = intval( $r['pointsTeam1'] ); $ag = intval( $r['pointsTeam2'] ); }
+                // resultTypeID 3 = "nach 90 Minuten" — bei K.o.-Spielen (DFB-Pokal), die in Verlängerung/
+                // Elfmeterschießen gehen, ist NUR das der korrekte Stand für den normalen Tendenz/Exakt-Tipp;
+                // "Endergebnis" (Typ 2) würde dort fälschlich den Elfmeterschießen-Stand mitzählen. Bei
+                // normalen Ligaspielen (BL1/BL2) gibt es diesen Fall nicht, dort bleibt Typ 2 maßgeblich.
+                if ( 3 === intval( $r['resultTypeID'] ) ) { $hg90 = intval( $r['pointsTeam1'] ); $ag90 = intval( $r['pointsTeam2'] ); }
             }
         }
+        if ( null !== $hg90 ) { $hg = $hg90; $ag = $ag90; }
         $rawDate = isset( $m['matchDateTime'] ) ? $m['matchDateTime'] : '';
         $date = substr( str_replace( ' ', 'T', $rawDate ), 0, 16 );
         $fx[] = array(
@@ -262,8 +308,8 @@ function ftipp_fetch_all() {
 
     $all = array(); $counts = array(); $errors = array(); $sources = array();
 
-    // 1) Deutsche Ligen zuerst über OpenLigaDB (aktuelle Saison, gratis).
-    foreach ( array( 'BL1', 'BL2' ) as $cid ) {
+    // 1) Deutsche Ligen + DFB-Pokal zuerst über OpenLigaDB (aktuelle Saison, gratis).
+    foreach ( array( 'BL1', 'BL2', 'DFB' ) as $cid ) {
         $r = ftipp_fetch_openligadb( ftipp_openligadb_shortcut( $cid ), $de_season );
         if ( $r['ok'] && count( $r['fixtures'] ) > 0 ) {
             $all[ $cid ] = $r['fixtures']; $counts[ $cid ] = count( $r['fixtures'] );
@@ -405,6 +451,30 @@ function ftipp_fixtures_for( $comp_id ) {
 }
 function ftipp_kickoff_ts( $fixture ) { return strtotime( $fixture['date'] ); }
 function ftipp_has_result( $fixture ) { return isset( $fixture['hg'], $fixture['ag'] ) && null !== $fixture['hg'] && null !== $fixture['ag'] && 'FT' === $fixture['status']; }
+
+/**
+ * Findet Tipps, deren fixture_id in der AKTUELL geladenen Spielliste nicht mehr vorkommt — das passiert,
+ * wenn sich für einen Wettbewerb die Datenquelle ändert (z.B. DFB-Pokal: API-Football -> OpenLigaDB, v0.8.17)
+ * und dadurch neue Spiel-IDs vergeben werden. Die Tipp-Rohdaten gehen dabei NICHT verloren, sind nur nicht
+ * mehr automatisch zuordenbar — diese Liste macht sie sichtbar, damit nichts stillschweigend verschwindet.
+ */
+function ftipp_orphaned_tips() {
+    global $wpdb;
+    $out = array();
+    foreach ( ftipp_comp_ids() as $cid ) {
+        $validIds = array();
+        foreach ( ftipp_fixtures_for( $cid ) as $f ) { $validIds[ $f['id'] ] = true; }
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT user_id, fixture_id, hg, ag, ko_decided, ko_winner, committed, updated_at FROM {$wpdb->prefix}ftipp_tips WHERE comp_id=%s ORDER BY updated_at DESC", $cid
+        ), ARRAY_A );
+        foreach ( $rows as $r ) {
+            if ( isset( $validIds[ $r['fixture_id'] ] ) ) { continue; }
+            $u = get_userdata( $r['user_id'] );
+            $out[] = array_merge( $r, array( 'comp_id' => $cid, 'user_name' => $u ? ftipp_public_name( $u ) : ( 'Nutzer #' . $r['user_id'] ) ) );
+        }
+    }
+    return $out;
+}
 
 /* ============================================================
  * Punkte-Logik (Server, Spiegel der Client-Logik in app/index.html)
@@ -614,15 +684,31 @@ function ftipp_seed_default_specials( $round_id, $comp_id ) {
     }
 }
 
-/** Globale Wettbewerbs-Abos eines Nutzers inkl. DFB-Automatik */
-function ftipp_effective_subs( $user_id ) {
+/** Wettbewerbs-Abo eines Nutzers INNERHALB einer bestimmten Runde, inkl. DFB-Automatik. */
+function ftipp_round_subs( $round_id, $user_id ) {
     global $wpdb;
     $rows = $wpdb->get_results( $wpdb->prepare(
-        "SELECT comp_id, active FROM {$wpdb->prefix}ftipp_subs WHERE user_id=%d", $user_id
+        "SELECT comp_id, active FROM {$wpdb->prefix}ftipp_round_subs WHERE round_id=%d AND user_id=%d", $round_id, $user_id
     ), ARRAY_A );
     $subs = array();
     foreach ( ftipp_comp_ids() as $cid ) { $subs[ $cid ] = false; }
     foreach ( $rows as $r ) { $subs[ $r['comp_id'] ] = (bool) intval( $r['active'] ); }
+    if ( $subs['BL1'] && $subs['BL2'] ) { $subs['DFB'] = true; }
+    return $subs;
+}
+/**
+ * Ist ein Wettbewerb für einen Nutzer in IRGENDEINER seiner Runden aktiv? Tipps selbst sind pro Nutzer+
+ * Wettbewerb global (nicht pro Runde) — für die Fristen-Erinnerung reicht daher "in mindestens einer Runde
+ * dabei", unabhängig davon, in welcher genau.
+ */
+function ftipp_user_active_comps( $user_id ) {
+    global $wpdb;
+    $rows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT DISTINCT comp_id FROM {$wpdb->prefix}ftipp_round_subs WHERE user_id=%d AND active=1", $user_id
+    ), ARRAY_A );
+    $subs = array();
+    foreach ( ftipp_comp_ids() as $cid ) { $subs[ $cid ] = false; }
+    foreach ( $rows as $r ) { $subs[ $r['comp_id'] ] = true; }
     if ( $subs['BL1'] && $subs['BL2'] ) { $subs['DFB'] = true; }
     return $subs;
 }
@@ -686,15 +772,29 @@ function ftipp_round_members( $round_id ) {
     }
     return $out;
 }
+/** Welche Wettbewerbe hat mindestens ein Mitglied dieser Runde abonniert (für die Kurzübersicht in der Runden-Karte). */
+function ftipp_round_active_comps( $round_id ) {
+    $members = ftipp_round_members( $round_id );
+    $active = array();
+    foreach ( ftipp_comp_ids() as $cid ) {
+        foreach ( $members as $m ) {
+            $subs = ftipp_round_subs( $round_id, $m['id'] );
+            if ( ! empty( $subs[ $cid ] ) ) { $active[] = $cid; break; }
+        }
+    }
+    return $active;
+}
 function ftipp_round_object( $round_row, $user_id ) {
     return array(
-        'id'       => intval( $round_row['id'] ),
-        'name'     => $round_row['name'],
-        'code'     => $round_row['code'],
-        'mode'     => $round_row['mode'],
-        'is_admin' => ftipp_is_round_admin( $round_row['id'], $user_id ),
-        'members'  => ftipp_round_members( $round_row['id'] ),
-        'config'   => ftipp_round_cfg_all( $round_row['id'] ),
+        'id'           => intval( $round_row['id'] ),
+        'name'         => $round_row['name'],
+        'code'         => $round_row['code'],
+        'mode'         => $round_row['mode'],
+        'is_admin'     => ftipp_is_round_admin( $round_row['id'], $user_id ),
+        'members'      => ftipp_round_members( $round_row['id'] ),
+        'config'       => ftipp_round_cfg_all( $round_row['id'] ),
+        'active_comps' => ftipp_round_active_comps( $round_row['id'] ),
+        'my_subs'      => ftipp_round_subs( $round_row['id'], $user_id ),
     );
 }
 /** Rangliste einer Runde für einen Wettbewerb — genutzt von REST /leaderboard und vom Newsletter-Versand. */
@@ -712,7 +812,7 @@ function ftipp_compute_leaderboard( $rid, $comp ) {
 
     $rows = array();
     foreach ( $members as $m ) {
-        $subs = ftipp_effective_subs( $m['id'] );
+        $subs = ftipp_round_subs( $rid, $m['id'] );
         if ( empty( $subs[ $comp ] ) ) { continue; }
 
         $tipRows = $wpdb->get_results( $wpdb->prepare(
@@ -736,10 +836,17 @@ function ftipp_compute_leaderboard( $rid, $comp ) {
         $special = 0;
         foreach ( $bets as $b ) {
             if ( null === $b['result'] || '' === trim( (string) $b['result'] ) ) { continue; }
-            $mv = $wpdb->get_var( $wpdb->prepare(
-                "SELECT value FROM {$wpdb->prefix}ftipp_special_tips WHERE special_id=%d AND user_id=%d", $b['id'], $m['id']
-            ) );
-            if ( $mv !== null && strcasecmp( trim( $mv ), trim( $b['result'] ) ) === 0 ) { $total += intval( $b['points'] ); $special += intval( $b['points'] ); }
+            $st = $wpdb->get_row( $wpdb->prepare(
+                "SELECT value, override FROM {$wpdb->prefix}ftipp_special_tips WHERE special_id=%d AND user_id=%d", $b['id'], $m['id']
+            ), ARRAY_A );
+            // Admin-Override hat Vorrang vor dem automatischen Textvergleich — nötig, weil "St. Pauli" und
+            // "FC St. Pauli" inhaltlich dasselbe meinen, aber per Textvergleich nicht übereinstimmen würden.
+            if ( $st && null !== $st['override'] ) {
+                $isCorrect = (bool) intval( $st['override'] );
+            } else {
+                $isCorrect = $st && null !== $st['value'] && strcasecmp( trim( $st['value'] ), trim( $b['result'] ) ) === 0;
+            }
+            if ( $isCorrect ) { $total += intval( $b['points'] ); $special += intval( $b['points'] ); }
         }
         $rows[] = array( 'user_id' => $m['id'], 'name' => $m['name'], 'total' => $total, 'exact' => $exact, 'tend' => $tend, 'ko' => $koPts, 'special' => $special, 'missed' => $missed );
     }
@@ -796,7 +903,7 @@ function ftipp_run_reminder_check() {
     if ( ! get_option( 'ftipp_notify_reminders', true ) ) { return; }
     global $wpdb;
     $now = time(); $until = $now + 3 * HOUR_IN_SECONDS;
-    $candidates = $wpdb->get_col( "SELECT DISTINCT user_id FROM {$wpdb->prefix}ftipp_subs WHERE active=1" );
+    $candidates = $wpdb->get_col( "SELECT DISTINCT user_id FROM {$wpdb->prefix}ftipp_round_subs WHERE active=1" );
     if ( ! $candidates ) { return; }
 
     $duePerUser = array();
@@ -807,7 +914,7 @@ function ftipp_run_reminder_check() {
             $ko = strtotime( $f['date'] );
             if ( ! $ko || $ko < $now || $ko > $until ) { continue; }
             foreach ( $candidates as $uid ) {
-                $subs = ftipp_effective_subs( $uid );
+                $subs = ftipp_user_active_comps( $uid );
                 if ( empty( $subs[ $cid ] ) ) { continue; }
                 $already = $wpdb->get_var( $wpdb->prepare(
                     "SELECT 1 FROM {$wpdb->prefix}ftipp_notified WHERE fixture_id=%s AND user_id=%d AND type='reminder'",
@@ -867,8 +974,8 @@ function ftipp_run_newsletter_check( $force = false ) {
     foreach ( $rounds as $round ) {
         $members = ftipp_round_members( $round['id'] );
         foreach ( ftipp_leagues() as $cid => $lg ) {
-            $relevant = array_values( array_filter( $members, function ( $m ) use ( $cid ) {
-                $s = ftipp_effective_subs( $m['id'] ); return ! empty( $s[ $cid ] );
+            $relevant = array_values( array_filter( $members, function ( $m ) use ( $cid, $round ) {
+                $s = ftipp_round_subs( $round['id'], $m['id'] ); return ! empty( $s[ $cid ] );
             } ) );
             if ( count( $relevant ) < 2 ) { continue; }
             $rows = ftipp_compute_leaderboard( $round['id'], $cid );
@@ -950,19 +1057,24 @@ add_action( 'rest_api_init', function () {
         },
     ) );
 
-    register_rest_route( 'ftipp/v1', '/subs', array(
+    register_rest_route( 'ftipp/v1', '/rounds/(?P<id>\d+)/subs', array(
         'methods' => 'GET', 'permission_callback' => $auth,
-        'callback' => function () { return array( 'subs' => ftipp_effective_subs( get_current_user_id() ) ); },
+        'callback' => function ( $req ) {
+            $uid = get_current_user_id(); $rid = intval( $req['id'] );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            return array( 'subs' => ftipp_round_subs( $rid, $uid ) );
+        },
     ) );
-    register_rest_route( 'ftipp/v1', '/subs', array(
+    register_rest_route( 'ftipp/v1', '/rounds/(?P<id>\d+)/subs', array(
         'methods' => 'POST', 'permission_callback' => $auth,
         'args' => array( 'comp_id' => array( 'required' => true ), 'active' => array( 'required' => true ) ),
         'callback' => function ( $req ) {
-            global $wpdb; $uid = get_current_user_id();
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['id'] );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
             $comp = sanitize_text_field( $req['comp_id'] );
             if ( ! in_array( $comp, ftipp_comp_ids(), true ) ) { return new WP_Error( 'bad_comp', 'Unbekannter Wettbewerb.', array( 'status' => 400 ) ); }
-            $wpdb->replace( "{$wpdb->prefix}ftipp_subs", array( 'user_id' => $uid, 'comp_id' => $comp, 'active' => $req['active'] ? 1 : 0 ) );
-            return array( 'subs' => ftipp_effective_subs( $uid ) );
+            $wpdb->replace( "{$wpdb->prefix}ftipp_round_subs", array( 'round_id' => $rid, 'user_id' => $uid, 'comp_id' => $comp, 'active' => $req['active'] ? 1 : 0 ) );
+            return array( 'subs' => ftipp_round_subs( $rid, $uid ) );
         },
     ) );
 
@@ -1078,12 +1190,17 @@ add_action( 'rest_api_init', function () {
 
             $members = ftipp_round_members( $rid );
             $memberIds = array_map( function ( $m ) { return $m['id']; }, $members );
+            // Abos je Mitglied mit exportieren, sonst fehlt bei einer Wiederherstellung die Info, wer in
+            // dieser Runde welchen Wettbewerb überhaupt mitspielt.
+            $membersWithSubs = array_map( function ( $m ) use ( $rid ) {
+                return array_merge( $m, array( 'abos' => ftipp_round_subs( $rid, $m['id'] ) ) );
+            }, $members );
 
             $tipsByComp = array();
             $specialByComp = array();
             foreach ( ftipp_comp_ids() as $cid ) {
-                $relevant = array_values( array_filter( $members, function ( $m ) use ( $cid ) {
-                    $s = ftipp_effective_subs( $m['id'] ); return ! empty( $s[ $cid ] );
+                $relevant = array_values( array_filter( $members, function ( $m ) use ( $cid, $rid ) {
+                    $s = ftipp_round_subs( $rid, $m['id'] ); return ! empty( $s[ $cid ] );
                 } ) );
                 if ( ! $relevant ) { continue; }
                 $relevantIds = array_map( function ( $m ) { return $m['id']; }, $relevant );
@@ -1113,7 +1230,7 @@ add_action( 'rest_api_init', function () {
             return array(
                 'exportiert_am' => current_time( 'mysql' ),
                 'runde'         => array( 'id' => intval( $round['id'] ), 'name' => $round['name'], 'code' => $round['code'], 'modus' => $round['mode'], 'erstellt_am' => $round['created_at'] ),
-                'mitglieder'    => $members,
+                'mitglieder'    => $membersWithSubs,
                 'regeln'        => ftipp_round_cfg_all( $rid ),
                 'ranglisten'    => $ranglisten,
                 'tipps'         => $tipsByComp,
@@ -1122,6 +1239,103 @@ add_action( 'rest_api_init', function () {
                     "SELECT c.user_id, c.message, c.created_at FROM {$wpdb->prefix}ftipp_chat c WHERE c.round_id=%d ORDER BY c.id ASC", $rid
                 ), ARRAY_A ),
             );
+        },
+    ) );
+
+    /**
+     * Wiederherstellung aus einer zuvor exportierten JSON-Datei (siehe /rounds/{id}/export) — legt eine NEUE
+     * Runde an (nicht die alte überschreiben, falls die noch existiert) mit denselben Regeln, Mitgliedern
+     * (nur soweit deren WordPress-Konto noch existiert — sonst werden sie übersprungen und gemeldet),
+     * Sonderwertungen samt Tipps, Spieltipps und Pinnwand-Nachrichten.
+     */
+    register_rest_route( 'ftipp/v1', '/rounds/import', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id();
+            $data = $req->get_json_params();
+            if ( ! is_array( $data ) || empty( $data['runde']['name'] ) || ! isset( $data['mitglieder'] ) ) {
+                return new WP_Error( 'bad_data', 'Das sieht nicht nach einer gültigen Tippstube-Export-Datei aus.', array( 'status' => 400 ) );
+            }
+
+            $wpdb->insert( "{$wpdb->prefix}ftipp_rounds", array(
+                'name' => sanitize_text_field( $data['runde']['name'] ),
+                'code' => ftipp_generate_code(),
+                'mode' => in_array( ( $data['runde']['modus'] ?? '' ), array( 'friendly', 'challenge' ), true ) ? $data['runde']['modus'] : 'friendly',
+                'admin_user_id' => $uid, 'created_at' => current_time( 'mysql' ),
+            ) );
+            $newRid = $wpdb->insert_id;
+
+            $skipped = array(); $idMap = array(); $importerIncluded = false;
+            foreach ( (array) $data['mitglieder'] as $m ) {
+                $mid = intval( $m['id'] ?? 0 );
+                if ( ! $mid ) { continue; }
+                $u = get_userdata( $mid );
+                if ( ! $u ) { $skipped[] = isset( $m['name'] ) ? sanitize_text_field( $m['name'] ) : ( 'Nutzer #' . $mid ); continue; }
+                $idMap[ $mid ] = true;
+                if ( $mid === $uid ) { $importerIncluded = true; }
+                $wpdb->replace( "{$wpdb->prefix}ftipp_round_members", array( 'round_id' => $newRid, 'user_id' => $mid, 'joined_at' => current_time( 'mysql' ) ) );
+                foreach ( (array) ( $m['abos'] ?? array() ) as $cid => $active ) {
+                    if ( ! in_array( $cid, ftipp_comp_ids(), true ) || ! $active ) { continue; }
+                    $wpdb->replace( "{$wpdb->prefix}ftipp_round_subs", array( 'round_id' => $newRid, 'user_id' => $mid, 'comp_id' => $cid, 'active' => 1 ) );
+                }
+            }
+            if ( ! $importerIncluded ) {
+                $wpdb->replace( "{$wpdb->prefix}ftipp_round_members", array( 'round_id' => $newRid, 'user_id' => $uid, 'joined_at' => current_time( 'mysql' ) ) );
+            }
+
+            foreach ( (array) ( $data['regeln'] ?? array() ) as $cid => $cfg ) {
+                if ( ! in_array( $cid, ftipp_comp_ids(), true ) || ! is_array( $cfg ) ) { continue; }
+                $wpdb->replace( "{$wpdb->prefix}ftipp_round_config", array(
+                    'round_id' => $newRid, 'comp_id' => $cid,
+                    'p_tend' => intval( $cfg['pTend'] ?? 1 ), 'p_exact' => intval( $cfg['pExact'] ?? 3 ), 'p_ko' => intval( $cfg['pKO'] ?? 3 ),
+                    'malus_on' => ! empty( $cfg['malusOn'] ) ? 1 : 0, 'malus' => intval( $cfg['malus'] ?? -1 ), 'deadline_min' => intval( $cfg['deadlineMin'] ?? 60 ),
+                ) );
+            }
+
+            foreach ( (array) ( $data['sonderwertungen'] ?? array() ) as $cid => $bets ) {
+                if ( ! in_array( $cid, ftipp_comp_ids(), true ) ) { continue; }
+                foreach ( (array) $bets as $b ) {
+                    $wpdb->insert( "{$wpdb->prefix}ftipp_special", array(
+                        'round_id' => $newRid, 'comp_id' => $cid,
+                        'label' => sanitize_text_field( $b['label'] ?? 'Sonderwertung' ), 'type' => sanitize_text_field( $b['type'] ?? 'custom' ),
+                        'points' => intval( $b['points'] ?? 10 ), 'deadline' => $b['deadline'] ?? null, 'result' => $b['result'] ?? null,
+                    ) );
+                    $newSpecialId = $wpdb->insert_id;
+                    foreach ( (array) ( $b['tipps'] ?? array() ) as $t ) {
+                        $tuid = intval( $t['user_id'] ?? 0 );
+                        if ( ! $tuid || ! isset( $idMap[ $tuid ] ) ) { continue; }
+                        $wpdb->replace( "{$wpdb->prefix}ftipp_special_tips", array( 'special_id' => $newSpecialId, 'user_id' => $tuid, 'value' => $t['value'] ?? null ) );
+                    }
+                }
+            }
+
+            foreach ( (array) ( $data['tipps'] ?? array() ) as $cid => $rows ) {
+                if ( ! in_array( $cid, ftipp_comp_ids(), true ) ) { continue; }
+                foreach ( (array) $rows as $t ) {
+                    $tuid = intval( $t['user_id'] ?? 0 );
+                    if ( ! $tuid || ! isset( $idMap[ $tuid ] ) || empty( $t['fixture_id'] ) ) { continue; }
+                    $wpdb->replace( "{$wpdb->prefix}ftipp_tips", array(
+                        'user_id' => $tuid, 'comp_id' => $cid, 'fixture_id' => sanitize_text_field( $t['fixture_id'] ),
+                        'hg' => $t['hg'] ?? null, 'ag' => $t['ag'] ?? null,
+                        'ko_decided' => $t['ko_decided'] ?? null, 'ko_winner' => $t['ko_winner'] ?? null,
+                        'committed' => ! empty( $t['committed'] ) ? 1 : 0, 'updated_at' => $t['updated_at'] ?? current_time( 'mysql' ),
+                    ) );
+                }
+            }
+
+            foreach ( (array) ( $data['pinnwand'] ?? array() ) as $msg ) {
+                $muid = intval( $msg['user_id'] ?? 0 );
+                if ( ! $muid || ! isset( $idMap[ $muid ] ) || empty( $msg['message'] ) ) { continue; }
+                $wpdb->insert( "{$wpdb->prefix}ftipp_chat", array(
+                    'round_id' => $newRid, 'user_id' => $muid, 'message' => sanitize_text_field( $msg['message'] ),
+                    'created_at' => $msg['created_at'] ?? current_time( 'mysql' ),
+                ) );
+            }
+
+            $row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}ftipp_rounds WHERE id=%d", $newRid ), ARRAY_A );
+            $result = ftipp_round_object( $row, $uid );
+            $result['skipped_members'] = $skipped;
+            return $result;
         },
     ) );
 
@@ -1313,6 +1527,56 @@ add_action( 'rest_api_init', function () {
         },
     ) );
 
+    /**
+     * Admin-Ansicht aller abgegebenen Tipps zu einer Sonderwertung — Grundlage für die manuelle Korrektur,
+     * falls jemand z.B. "St. Pauli" statt "FC St. Pauli" getippt hat und der reine Textvergleich das nicht
+     * als richtig erkennen würde.
+     */
+    register_rest_route( 'ftipp/v1', '/special/(?P<id>\d+)/tipps', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $id = intval( $req['id'] );
+            $bet = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}ftipp_special WHERE id=%d", $id ), ARRAY_A );
+            if ( ! $bet ) { return new WP_Error( 'not_found', 'Nicht gefunden.', array( 'status' => 404 ) ); }
+            if ( ! ftipp_is_round_admin( $bet['round_id'], $uid ) ) { return new WP_Error( 'forbidden', 'Nur der Runden-Admin darf alle Tipps sehen.', array( 'status' => 403 ) ); }
+            $members = ftipp_round_members( $bet['round_id'] );
+            $rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT user_id, value, override FROM {$wpdb->prefix}ftipp_special_tips WHERE special_id=%d", $id
+            ), ARRAY_A );
+            $byUser = array();
+            foreach ( $rows as $r ) { $byUser[ intval( $r['user_id'] ) ] = $r; }
+            $out = array();
+            foreach ( $members as $m ) {
+                $r = isset( $byUser[ $m['id'] ] ) ? $byUser[ $m['id'] ] : null;
+                $out[] = array(
+                    'user_id' => $m['id'], 'name' => $m['name'],
+                    'value' => $r ? $r['value'] : null,
+                    'override' => ( $r && null !== $r['override'] ) ? (bool) intval( $r['override'] ) : null,
+                );
+            }
+            return array( 'tipps' => $out );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/special/(?P<id>\d+)/tipps/(?P<uid>\d+)/override', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $id = intval( $req['id'] ); $targetUid = intval( $req['uid'] );
+            $bet = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}ftipp_special WHERE id=%d", $id ), ARRAY_A );
+            if ( ! $bet ) { return new WP_Error( 'not_found', 'Nicht gefunden.', array( 'status' => 404 ) ); }
+            if ( ! ftipp_is_round_admin( $bet['round_id'], $uid ) ) { return new WP_Error( 'forbidden', 'Nur der Runden-Admin darf das korrigieren.', array( 'status' => 403 ) ); }
+            $override = $req->get_param( 'override' ); // true/false = erzwingen, null = zurück auf automatischen Textvergleich
+            $existing = $wpdb->get_row( $wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}ftipp_special_tips WHERE special_id=%d AND user_id=%d", $id, $targetUid
+            ), ARRAY_A );
+            $wpdb->replace( "{$wpdb->prefix}ftipp_special_tips", array(
+                'special_id' => $id, 'user_id' => $targetUid,
+                'value' => $existing ? $existing['value'] : null,
+                'override' => null === $override ? null : ( $override ? 1 : 0 ),
+            ) );
+            return array( 'ok' => true );
+        },
+    ) );
+
     /* -------- Statistik, Ranglisten-Verlauf & Achievements -------- */
     register_rest_route( 'ftipp/v1', '/roundstats', array(
         'methods' => 'GET', 'permission_callback' => $auth,
@@ -1325,10 +1589,10 @@ add_action( 'rest_api_init', function () {
             $cfg = ftipp_round_cfg( $rid, $comp );
             $fixtures = ftipp_fixtures_for( $comp );
             $members = ftipp_round_members( $rid );
-            $members = array_values( array_filter( $members, function ( $m ) use ( $comp ) {
-                $s = ftipp_effective_subs( $m['id'] ); return ! empty( $s[ $comp ] );
+            $members = array_values( array_filter( $members, function ( $m ) use ( $comp, $rid ) {
+                $s = ftipp_round_subs( $rid, $m['id'] ); return ! empty( $s[ $comp ] );
             } ) );
-            if ( ! $members ) { return array( 'history' => array(), 'mine' => null, 'badges' => array() ); }
+            if ( ! $members ) { return array( 'history' => array(), 'mine' => null, 'badges' => array(), 'matches' => array() ); }
 
             $memberIds = array_map( function ( $m ) { return $m['id']; }, $members );
             $placeholders = implode( ',', array_fill( 0, count( $memberIds ), '%d' ) );
@@ -1380,7 +1644,7 @@ add_action( 'rest_api_init', function () {
                 $history[] = array( 'round' => $rn, 'rows' => $rowsOut );
             }
 
-            $mine = null; $badges = array();
+            $mine = null; $badges = array(); $matches = array();
             if ( in_array( $uid, $memberIds, true ) ) {
                 $tips = isset( $byUserFixture[ $uid ] ) ? $byUserFixture[ $uid ] : array();
                 $exact = 0; $tend = 0; $miss = 0; $finished = 0; $streak = 0; $maxStreak = 0;
@@ -1396,13 +1660,26 @@ add_action( 'rest_api_init', function () {
                             $sum += $r['pts'] + $r['ko'];
                             if ( 'exakt' === $r['kind'] ) { $exact++; $streak++; $maxStreak = max( $maxStreak, $streak ); }
                             else { $streak = 0; if ( 'tendenz' === $r['kind'] ) { $tend++; } }
+                            $matches[] = array(
+                                'round' => $rn, 'date' => $f['date'], 'home' => $f['home'], 'away' => $f['away'],
+                                'hg' => intval( $f['hg'] ), 'ag' => intval( $f['ag'] ),
+                                'my_h' => intval( $t['hg'] ), 'my_a' => intval( $t['ag'] ),
+                                'kind' => $r['kind'], 'pts' => $r['pts'] + $r['ko'],
+                            );
                         } else {
                             $streak = 0; $miss++;
                             if ( $cfg['malusOn'] ) { $sum += $cfg['malus']; }
+                            $matches[] = array(
+                                'round' => $rn, 'date' => $f['date'], 'home' => $f['home'], 'away' => $f['away'],
+                                'hg' => intval( $f['hg'] ), 'ag' => intval( $f['ag'] ),
+                                'my_h' => null, 'my_a' => null,
+                                'kind' => 'verpasst', 'pts' => $cfg['malusOn'] ? $cfg['malus'] : 0,
+                            );
                         }
                     }
                     if ( $any ) { $roundTotals[ $rn ] = $sum; }
                 }
+                $matches = array_reverse( $matches ); // neueste zuerst, wie ein Verlauf/Feed
                 $bestRound = null; $worstRound = null;
                 foreach ( $roundTotals as $rn => $sum ) {
                     if ( null === $bestRound || $sum > $roundTotals[ $bestRound ] ) { $bestRound = $rn; }
@@ -1425,7 +1702,7 @@ add_action( 'rest_api_init', function () {
                 if ( $total >= 100 ) { $badges[] = array( 'key' => 'p100', 'icon' => '🌟', 'label' => '100-Punkte-Marke geknackt' ); }
             }
 
-            return array( 'history' => $history, 'mine' => $mine, 'badges' => $badges );
+            return array( 'history' => $history, 'mine' => $mine, 'badges' => $badges, 'matches' => $matches );
         },
     ) );
 
@@ -1477,7 +1754,7 @@ add_action( 'rest_api_init', function () {
             $out = array(
                 'exportiert_am' => current_time( 'mysql' ),
                 'konto'         => array( 'anzeigename' => $u->display_name, 'benutzername' => $u->user_login, 'registriert_am' => $u->user_registered ),
-                'wettbewerbs_abos' => $wpdb->get_results( $wpdb->prepare( "SELECT comp_id, active FROM {$wpdb->prefix}ftipp_subs WHERE user_id=%d", $uid ), ARRAY_A ),
+                'wettbewerbs_abos' => $wpdb->get_results( $wpdb->prepare( "SELECT round_id, comp_id, active FROM {$wpdb->prefix}ftipp_round_subs WHERE user_id=%d", $uid ), ARRAY_A ),
                 'tipps'         => $wpdb->get_results( $wpdb->prepare( "SELECT comp_id, fixture_id, hg, ag, ko_decided, ko_winner, committed, updated_at FROM {$wpdb->prefix}ftipp_tips WHERE user_id=%d", $uid ), ARRAY_A ),
                 'sonder_tipps'  => $wpdb->get_results( $wpdb->prepare( "SELECT special_id, value FROM {$wpdb->prefix}ftipp_special_tips WHERE user_id=%d", $uid ), ARRAY_A ),
                 'runden'        => $wpdb->get_results( $wpdb->prepare(
@@ -1495,11 +1772,16 @@ add_action( 'rest_api_init', function () {
             global $wpdb; $uid = get_current_user_id();
             $adminOf = $wpdb->get_col( $wpdb->prepare( "SELECT name FROM {$wpdb->prefix}ftipp_rounds WHERE admin_user_id=%d", $uid ) );
 
-            $wpdb->delete( "{$wpdb->prefix}ftipp_subs", array( 'user_id' => $uid ) );
             $wpdb->delete( "{$wpdb->prefix}ftipp_tips", array( 'user_id' => $uid ) );
             $wpdb->delete( "{$wpdb->prefix}ftipp_special_tips", array( 'user_id' => $uid ) );
             $wpdb->delete( "{$wpdb->prefix}ftipp_chat", array( 'user_id' => $uid ) );
-            // Aus allen Runden austreten, in denen der Nutzer NICHT Admin ist (Admin-Runden zuerst übertragen/löschen).
+            // Aus allen Runden austreten, in denen der Nutzer NICHT Admin ist (Admin-Runden zuerst übertragen/löschen)
+            // — Wettbewerbs-Abos genauso nur für diese Runden löschen, in Admin-Runden bleiben sie erhalten.
+            $wpdb->query( $wpdb->prepare(
+                "DELETE rs FROM {$wpdb->prefix}ftipp_round_subs rs
+                 JOIN {$wpdb->prefix}ftipp_rounds r ON r.id=rs.round_id
+                 WHERE rs.user_id=%d AND r.admin_user_id<>%d", $uid, $uid
+            ) );
             $wpdb->query( $wpdb->prepare(
                 "DELETE rm FROM {$wpdb->prefix}ftipp_round_members rm
                  JOIN {$wpdb->prefix}ftipp_rounds r ON r.id=rm.round_id
@@ -1731,11 +2013,13 @@ function ftipp_settings_page() {
     ?>
     <div class="wrap">
         <h1>🏠⚽ Tippstube</h1>
-        <p><strong>1. &amp; 2. Bundesliga</strong> kommen automatisch über <strong>OpenLigaDB</strong> — gratis, ohne Key,
-           immer die <strong>aktuelle Saison</strong>. Für <strong>DFB-Pokal, Champions League, Europa League und
+        <p><strong>1./2. Bundesliga und DFB-Pokal</strong> kommen automatisch über <strong>OpenLigaDB</strong> — gratis, ohne Key,
+           immer die <strong>aktuelle Saison</strong>. Beim DFB-Pokal gibt es dafür bewusst <strong>keinen K.o.-Zusatztipp</strong>
+           (Verlängerung/Elfmeterschießen) mehr — OpenLigaDB kennzeichnet das nicht zuverlässig genug, der normale
+           Tendenz/Exakt-Tipp funktioniert aber einwandfrei. Für <strong>Champions League, Europa League und
            Nations League</strong> brauchst du zusätzlich einen kostenlosen <strong>API-Football</strong>-Key.
            <strong>Hinweis:</strong> der Gratis-Tarif von API-Football deckt dort nur die Saisons 2021–2023 ab — für
-           die aktuelle Saison dieser vier Wettbewerbe ist (noch) ein Bezahltarif nötig, oder du nutzt zum Testen
+           die aktuelle Saison dieser drei Wettbewerbe ist (noch) ein Bezahltarif nötig, oder du nutzt zum Testen
            „🎲 Test-Spiele laden" weiter unten.</p>
 
         <?php if ( isset( $_GET['ftipp_done'] ) ) : ?>
@@ -1753,11 +2037,11 @@ function ftipp_settings_page() {
                                value="<?php echo esc_attr( get_option( 'ftipp_api_key', '' ) ); ?>" autocomplete="off" placeholder="dein Key von api-football.com" /></td>
                 </tr>
                 <tr>
-                    <th scope="row"><label for="ftipp_season">Saison (DFB-Pokal/CL/EL/Nations League)</label></th>
+                    <th scope="row"><label for="ftipp_season">Saison (Champions League/Europa League/Nations League)</label></th>
                     <td><input name="ftipp_season" id="ftipp_season" type="number" value="<?php echo esc_attr( get_option( 'ftipp_season', 2026 ) ); ?>" style="width:110px" />
-                        <p class="description">Gilt nur für die vier API-Football-Wettbewerbe. Startjahr der Saison. 2026 = Saison 2026/27.
-                        Zum Testen mit vollständigen Ergebnissen: 2023. 1./2. Bundesliga laufen unabhängig davon immer
-                        auf der aktuellen Saison via OpenLigaDB.</p></td>
+                        <p class="description">Gilt nur für die drei API-Football-Wettbewerbe. Startjahr der Saison. 2026 = Saison 2026/27.
+                        Zum Testen mit vollständigen Ergebnissen: 2023. 1./2. Bundesliga und DFB-Pokal laufen unabhängig davon
+                        immer auf der aktuellen Saison via OpenLigaDB.</p></td>
                 </tr>
             </table>
             <?php submit_button( 'Speichern' ); ?>
@@ -1799,6 +2083,33 @@ function ftipp_settings_page() {
                     $e = isset( $meta['errors'][ $cid ] ) ? $meta['errors'][ $cid ] : '';
                     $s = isset( $meta['sources'][ $cid ] ) ? $meta['sources'][ $cid ] : '—'; ?>
                     <tr><td><?php echo esc_html( $lg['name'] ); ?></td><td><?php echo esc_html( $s ); ?></td><td><?php echo esc_html( $c ); ?></td><td style="color:#b32d2e"><?php echo esc_html( $e ); ?></td></tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+
+        <?php $orphaned = ftipp_orphaned_tips(); if ( $orphaned ) : ?>
+            <h2 style="color:#b32d2e">⚠️ Verwaiste Tipps gefunden</h2>
+            <p>Diese Tipps gehören zu einem Spiel, das in der aktuell geladenen Spielliste nicht mehr unter
+               derselben ID vorkommt — meistens, weil sich für den Wettbewerb die Datenquelle geändert hat
+               (z.B. DFB-Pokal: früher API-Football, jetzt OpenLigaDB). <strong>Die Daten sind nicht gelöscht</strong>,
+               nur nicht mehr automatisch zuordenbar. Bitte mit den Mitspielern abgleichen, zu welchem echten Spiel
+               der jeweilige Tipp gehörte, und ihn dort manuell neu eintragen — sofern die Frist des neuen Spiels
+               noch nicht abgelaufen ist.</p>
+            <table class="widefat striped" style="max-width:900px">
+                <thead><tr><th>Wettbewerb</th><th>Spieler</th><th>Getippt</th><th>K.o.-Tipp</th><th>Zuletzt geändert</th><th>Interne Spiel-ID</th></tr></thead>
+                <tbody>
+                <?php foreach ( $orphaned as $o ) :
+                    $lg = ftipp_leagues();
+                    $compName = isset( $lg[ $o['comp_id'] ] ) ? $lg[ $o['comp_id'] ]['name'] : $o['comp_id']; ?>
+                    <tr>
+                        <td><?php echo esc_html( $compName ); ?></td>
+                        <td><?php echo esc_html( $o['user_name'] ); ?></td>
+                        <td><?php echo ( null !== $o['hg'] && null !== $o['ag'] ) ? esc_html( $o['hg'] . ':' . $o['ag'] ) : '—'; ?><?php echo $o['committed'] ? ' <span style="color:#2e7d32">(fix)</span>' : ''; ?></td>
+                        <td><?php echo esc_html( $o['ko_decided'] ? $o['ko_decided'] . ' · ' . $o['ko_winner'] : '—' ); ?></td>
+                        <td><?php echo esc_html( $o['updated_at'] ); ?></td>
+                        <td><code style="font-size:11px"><?php echo esc_html( $o['fixture_id'] ); ?></code></td>
+                    </tr>
                 <?php endforeach; ?>
                 </tbody>
             </table>

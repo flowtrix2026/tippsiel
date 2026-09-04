@@ -684,6 +684,307 @@ Ergebnisse kommen **automatisch per API**.
 - *Noch nicht live getestet:* Plugin-Update einspielen, eingeloggt auf dem Handy prüfen dass (a) kein weißer
   Rand mehr um das App-Fenster sichtbar ist und (b) nach "Tipp abgeben" keine Text-Überlappung mehr auftritt.
 
+## Projekt auf GitHub veröffentlicht
+- **Repo:** [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel) (öffentlich).
+- **Vor dem Push geprüft:** keine hartcodierten API-Keys/Secrets im Code (echter API-Key liegt ausschließlich
+  in der WordPress-Datenbank auf Hostinger, nie im Code). Zwei echte E-Mail-Adressen im Journal gefunden und
+  entfernt, bevor irgendwas hochging — Nutzer hatte explizit nach "keine echten Nutzerdaten/Zugangsdaten"
+  gefragt. Lokale Claude-Code-Konfiguration (`.claude/`) per `.gitignore` ausgeschlossen (lokale Rechte-
+  Freigaben mit Pfaden, gehört nicht ins Repo).
+  - Für den Push auf den `flowtrix2026`-GitHub-Account gewechselt (der vorher aktive Account `kubus-concept`
+    hatte nur Lesezugriff auf das Zielrepo).
+- **Initial-Commit (v0.8.12):** Plugin-Code, App, Journal, Glossar (`CONTEXT.md`), Design-Unterlagen (PDFs).
+- **Zukunftsplan (Notiz):** Nutzer will Tippstube perspektivisch als kostenloses Downloadprojekt auf seiner
+  Firmenwebseite zeigen (eigene Unterseite, Download über GitHub oder direkt von der Seite) — noch nicht
+  begonnen, kommt später.
+- **Hinweis:** künftige Plugin-Updates werden NICHT automatisch auf GitHub gepusht — nur auf explizite
+  Anfrage, damit kein Push ungefragt passiert.
+
+## v0.8.13 — Wettbewerbe der Runde auf einen Blick
+- **Anfrage:** Neue Testrunde "Fam" angelegt, Nutzer fragte: "Sollte da nicht drinstehen, welche Wettbewerbe
+  dabei sind?" — die Runden-Karte zeigte bisher nur Einladungs-Code + Mitgliederliste, nicht welche der 6
+  Wettbewerbe für diese Runde überhaupt relevant sind (das ergibt sich implizit daraus, welche Mitglieder
+  welche Wettbewerbe global abonniert haben — "Wettbewerbs-Abo" ist pro Nutzer, nicht pro Runde).
+- **Umgesetzt:**
+  - Neue Server-Funktion `ftipp_round_active_comps()`: prüft für jeden der 6 Wettbewerbe, ob mindestens ein
+    Mitglied der Runde ihn abonniert hat — als neues Feld `active_comps` im Runden-Objekt (`ftipp_round_object()`).
+  - Neue Zeile in der Runden-Karte: "Wettbewerbe in dieser Runde: 1. Bundesliga · DFB-Pokal · …" direkt unter
+    Einladungs-Code/Mitglieder. Zeigt einen Hinweistext, falls noch niemand einen Wettbewerb abonniert hat.
+  - JS-Syntax per `node --check` geprüft, PHP-Klammerbalance geprüft (identischer Kontrollwert).
+- *Noch nicht live getestet:* Plugin-Update einspielen, Runden-Karte "Fam" ansehen — sollte jetzt die
+  abonnierten Wettbewerbe der Mitglieder auflisten.
+
+## v0.8.14 — Wettbewerbs-Abo von global auf pro Runde umgestellt
+- **Anfrage:** "Wenn ich eine Gruppe mit BL1/DFB/CL/NL habe, aber ein eingeladener Mitspieler will nur BL1 und
+  DFB-Pokal mitmachen — wie geht das?" Antwort war zunächst: geht schon, über die globale "Meine
+  Wettbewerbe"-Auswahl — aber die gilt kontoweit, nicht pro Runde. Nutzer fand das unpraktisch: "Ich möchte mit
+  meinen Eltern spielen, die spielen 1./2. Bundesliga, ich will da aber nur 2. Bundesliga mitspielen" — mit
+  mehreren Runden mit unterschiedlichem Wettbewerbs-Wunsch reicht eine globale Einstellung nicht. Vor dem Umbau
+  kurz nachgefragt, ob die globale Auswahl komplett ersetzt oder als Vorauswahl erhalten bleiben soll — Nutzer:
+  **komplett ersetzen**, einfacher zu verstehen.
+- **Größter Umbau bisher an der Kernlogik.** Wettbewerbs-Abo (`Abo`) ist jetzt **pro Tipprunde**, nicht mehr
+  global fürs Konto — Glossar (`CONTEXT.md`) entsprechend aktualisiert. Wichtig dabei: der **Tipp selbst**
+  (die getippte Torzahl) bleibt weiterhin global pro Nutzer+Wettbewerb gespeichert — nur ob ein Wettbewerb in
+  einer bestimmten Runde überhaupt "zählt", ist jetzt pro Runde einstellbar. Ist man mit demselben Wettbewerb
+  in zwei Runden dabei, ist es also weiterhin derselbe Tipp in beiden — nur die Teilnahme selbst ist getrennt.
+- **Datenbank:** neue Tabelle `ftipp_round_subs` (round_id, user_id, comp_id, active), DB-Version 5→6. Alte
+  `ftipp_subs`-Tabelle bleibt bestehen (nur noch als Migrationsquelle, nicht mehr aktiv genutzt).
+  **Einmalige Migration** (`ftipp_migrate_round_subs()`, Flag in `wp_options`): für jede bestehende
+  Rundenmitgliedschaft werden die bisherigen globalen Abos als Startwert in die neue Tabelle übernommen — damit
+  niemandem beim Update plötzlich ein Wettbewerb aus seinen Runden verschwindet.
+- **Backend:** `ftipp_effective_subs($user_id)` ersetzt durch `ftipp_round_subs($round_id, $user_id)` (inkl.
+  DFB-Automatik, unverändert: 1.+2. Bundesliga zusammen → automatisch DFB-Pokal). Alle Aufrufstellen
+  durchgegangen und umgestellt: Rangliste (`ftipp_compute_leaderboard`), Runden-Export, Statistik/Achievements
+  (`/roundstats`), Ranking-Newsletter. Für die **Fristen-Erinnerung** (läuft pro Nutzer, nicht pro Runde, weil
+  Tipps ja rundenübergreifend derselbe Wert sind) neue Funktion `ftipp_user_active_comps()`: "ist dieser
+  Wettbewerb in IRGENDEINER Runde des Nutzers aktiv" — reicht dafür, da die Erinnerung nur "hast du getippt"
+  prüft, unabhängig davon, für welche Runde es zählt.
+  - `/subs`-REST-Routen (GET/POST) ersetzt durch `/rounds/{id}/subs` — jedes Rundenmitglied darf seine eigene
+    Teilnahme für diese eine Runde setzen (nicht nur der Admin).
+  - `account/export`: `wettbewerbs_abos` zeigt jetzt pro Runde, welche Wettbewerbe abonniert sind (statt
+    einer flachen globalen Liste).
+  - `account/delete`: löscht Wettbewerbs-Abos jetzt nur noch für Runden, in denen der Nutzer NICHT Admin ist
+    (analog zur bereits bestehenden Logik bei `round_members`) — Admin-Runden bleiben unangetastet.
+- **Frontend:** globale "⚽ Meine Wettbewerbe"-Karte im Runden-Tab komplett entfernt. Stattdessen: in **jeder
+  einzelnen Runden-Karte** eine neue Sektion "Meine Wettbewerbe in „[Rundenname]"" mit denselben Auswahl-Kacheln
+  wie vorher, aber jetzt pro Runde gespeichert (`POST rounds/{id}/subs`). Die "Tippen"-Ansicht filtert die
+  Wettbewerbs-Auswahl jetzt aus `round.my_subs` der aktuell gewählten Runde statt aus einem globalen Zustand —
+  wechselt man die Runde, ändert sich die Wettbewerbsliste entsprechend mit.
+  - Globaler JS-Zustand `MY_SUBS`/`myEffectiveSubs()` komplett entfernt, `GET bootstrap`-Aufruf für Abos
+    entfällt (jedes Runden-Objekt liefert jetzt sein eigenes `my_subs`-Feld gleich mit).
+  - JS-Syntax per `node --check` geprüft, PHP-Klammerbalance geprüft (identischer Kontrollwert), keine
+    doppelten Funktionsdefinitionen, keine verbliebenen Referenzen auf die alte globale Logik (per Sweep-Suche
+    bestätigt).
+- *Noch nicht live getestet:* Plugin-Update einspielen (Datenbank-Migration läuft automatisch), prüfen dass
+  bestehende Runden ("Fam", "TEST" etc.) ihre bisherigen Wettbewerbe weiterhin zeigen (Migration gegriffen),
+  dann in einer Runde testweise einen Wettbewerb ab-/anhaken und prüfen, dass eine ANDERE Runde davon
+  unberührt bleibt.
+- **Kritischer Vorfall gemeldet:** "Jetzt geht gar nichts mehr" — die Tippstube-Seite zeigte WordPress' eigene
+  "Keine Ergebnisse gefunden"-Themenseite (404/Suche-Template) statt der App, Seite auch im wp-admin nicht
+  mehr bearbeitbar.
+- **Root-Cause-Suche:** erstmals **echtes PHP lokal installiert** (`brew install php`, vorher nie verfügbar,
+  Prüfungen liefen bisher nur über einen selbstgebauten Klammern-Zähler) — `php -l` bestätigte: **keine
+  Syntax-Fehler**, zusätzlicher Cross-Check bestätigte auch keine Aufrufe nicht-existierender Funktionen. Der
+  entscheidende Test: Nutzer hat das Plugin **deaktiviert** — die Original-Seite blieb trotzdem kaputt. Das
+  beweist zweifelsfrei: **nicht das Plugin war die Ursache**, sondern etwas an der einen WordPress-Seite selbst
+  (Datenbank/Permalink/Hosting-seitig) — außerhalb dessen, was der Plugin-Code beeinflusst.
+  - **Workaround:** neue WordPress-Seite mit `[tippspiel]`-Shortcode angelegt, Plugin wieder aktiviert — läuft
+    seitdem einwandfrei. Die alte kaputte Seite bleibt ungenutzt liegen (kein Datenverlust, da alle Tippstube-
+    Daten in eigenen DB-Tabellen liegen, nicht am WordPress-Post selbst hängen).
+  - **Lehre für künftige Fehlerdiagnosen:** ab jetzt bei Verdacht auf einen Plugin-Bug immer zuerst `php -l`
+    lokal laufen lassen (jetzt möglich, PHP ist installiert) statt nur die bisherige Klammernbalance-Heuristik
+    — echte Syntaxprüfung statt Annäherung.
+- **Vollständiger Testdurchlauf der v0.8.14-Checkliste (7 Punkte) — alle bestanden ✅:** Migration, Pro-Runde-
+  Trennung, neue Runde manuell einstellbar, Tippen-Tab reagiert auf Rundenwechsel, Rangliste korrekt gefiltert,
+  Runden-Export funktioniert, Konto-Export zeigt Abos jetzt pro Runde.
+
+## v0.8.15 — Runden-Import (Backup-Wiederherstellung)
+- **Anfrage im Anschluss an den Export-Test:** "der die Gruppe erstellt hat, müsste dann noch [...]
+  Gruppendaten importieren [können]" — Gegenfrage geklärt: Backup-Wiederherstellung (nicht Vorlage für neue
+  Saison).
+- **Umgesetzt:**
+  - `GET /rounds/{id}/export` liefert jetzt zusätzlich pro Mitglied dessen Wettbewerbs-Abos in dieser Runde
+    (`abos`) mit — fehlte vorher, wäre für eine vollständige Wiederherstellung nötig gewesen.
+  - Neuer Endpunkt `POST /rounds/import`: legt aus einer hochgeladenen Export-JSON-Datei eine **komplett neue**
+    Runde an (überschreibt nie eine bestehende) — mit Regeln, Mitgliedern + deren Abos, Sonderwertungen samt
+    Tipps, Spieltipps und Pinnwand-Chronik. Mitglieder, deren WordPress-Konto nicht mehr existiert, werden
+    übersprungen und in der Antwort gemeldet (`skipped_members`), statt den Import scheitern zu lassen.
+  - Neuer Button "⬆️ Rundendaten importieren (JSON)" direkt unter "Runde erstellen oder beitreten" — liest die
+    Datei lokal im Browser (`FileReader`), keine Zwischenspeicherung nötig.
+  - Ranglisten werden bewusst NICHT importiert (sind reine Berechnungsergebnisse aus Tipps+Spieldaten, kein
+    Quelldatum — berechnen sich nach dem Import automatisch neu).
+  - PHP-Syntax jetzt **wirklich** mit `php -l` geprüft (nicht mehr nur die Klammernbalance-Heuristik).
+- *Noch nicht live getestet:* eine bestehende Runde exportieren, über den neuen Import-Button wieder einspielen
+  und prüfen, dass die neue Runde Regeln/Mitglieder/Sonderwertungen/Tipps korrekt übernimmt.
+
+## v0.8.16 — "Tipps der Mitspieler" bei vielen Mitgliedern einklappbar
+- **Anfrage:** "Tipps der Mitspieler" zeigt alle Mitspieler-Tipps direkt inline an — bei aktuell wenigen
+  Mitgliedern unproblematisch, aber Nutzer fragte vorausschauend: bei z.B. 50 Mitspielern müsste man sonst bei
+  jedem einzelnen Spiel durch eine riesige Liste scrollen. Wunsch: ab einer gewissen Anzahl hinter einem
+  "+"-Ausklapper verstecken.
+- **Umgesetzt:** ab mehr als 5 Mitspieler-Tipps werden nur noch die ersten 5 direkt angezeigt, der Rest steckt
+  hinter einem `<details>`-Ausklapper ("+N weitere anzeigen") — bei 5 oder weniger bleibt es wie bisher, keine
+  Verhaltensänderung. In beiden Rendering-Pfaden umgesetzt: `mkMatchRowConnected` (WordPress-Modus) und
+  `mkOthers` (Standalone-Demo-Modus, aus Konsistenzgründen mitgemacht).
+  - JS-Syntax per `node --check` geprüft.
+- *Noch nicht live getestet:* bräuchte eigentlich >5 Mitspieler in einer Runde zum echten Testen — mit aktuell
+  wenigen Mitgliedern bleibt die Liste ohnehin unter dem Limit und sieht unverändert aus (kein Regressionsrisiko
+  für die bestehende Anzeige).
+- **Frage:** "API zieht die DFB-Pokal-Spiele nicht" — Screenshot zeigte "Saison"-Feld auf "0" statt einer echten
+  Jahreszahl, dadurch 0 Spiele für alle vier API-Football-Wettbewerbe. Direkt behoben (Saison auf 2023 stellen).
+  Anschließend Anschlussfrage: "Wo bekomme ich DFB-Spiele kostenlos her" (für die AKTUELLE Saison, nicht nur
+  zum Testen mit alten 2023er-Daten).
+- **Recherche (mit WebSearch/WebFetch, nicht nur aus dem Gedächtnis):** OpenLigaDB hat den DFB-Pokal tatsächlich
+  für die aktuelle Saison 2026/27 im Angebot (Shortcut "dfb", League-ID 4945) — kostenlos, kein Key. Stichprobe
+  der Vorsaison (2025/26) direkt gegen die echte API geprüft: von 47 abgeschlossenen Spielen hatten nur 5 die
+  vollständige 5-Werte-Ergebnisstruktur (inkl. "nach Verlängerung"/"nach Elfmeterschießen"), mehrere Spiele mit
+  bekannter Verlängerung fehlte diese Kennzeichnung — bestätigt die schon früher (v0.4.0) getroffene Einschätzung
+  "nicht zuverlässig", nicht nur eine alte Vermutung. football-data.org zusätzlich geprüft: deren Gratis-Tarif
+  enthält den DFB-Pokal gar nicht (nur Liga-Wettbewerbe).
+- **Entscheidung (mit Nutzer abgestimmt):** DFB-Pokal auf OpenLigaDB umstellen (echte aktuelle Saison, gratis),
+  dafür K.o.-Zusatztipp beim DFB-Pokal abschalten (Datenqualität reicht dafür nicht) — statt weiter auf
+  API-Football zu setzen, das den Pokal nur für alte Test-Saisons 2021–2023 kostenlos hergibt.
+- **v0.8.17 — DFB-Pokal-Datenquelle umgestellt:**
+  - `ftipp_openligadb_shortcut()`: `DFB => 'dfb'` ergänzt. `ftipp_fetch_all()`: DFB-Pokal jetzt im selben
+    OpenLigaDB-Loop wie BL1/BL2 (mit automatischem Fallback auf API-Football, falls OpenLigaDB mal ausfällt —
+    bestehendes Verhalten, unverändert übernommen).
+  - **Wichtiger technischer Zusatzfund beim Umbau:** OpenLigaDB liefert bei "Endergebnis" (resultTypeID 2) für
+    Spiele, die in Verlängerung/Elfmeterschießen gingen, den Elfmeterschießen-Stand OBENDRAUF (z.B. 7:5 statt
+    3:3 nach 90 Minuten) — hätte bei direkter Übernahme nicht nur den K.o.-Zusatztipp verfälscht, sondern auch
+    den normalen Tendenz/Exakt-Tipp. `ftipp_fetch_openligadb()` bevorzugt jetzt explizit resultTypeID 3
+    ("nach 90 Minuten"), fällt nur auf "Endergebnis" zurück, wenn dieser Wert fehlt (bei normalen
+    Ligaspielen ohnehin identisch, kein Verhaltensunterschied für BL1/BL2).
+  - K.o.-Zusatztipp für DFB-Pokal entfällt automatisch (OpenLigaDB-Pfad setzt `ko: false` grundsätzlich für
+    alle Spiele) — keine separate Änderung an `kind` nötig, DFB bleibt in `ftipp_leagues()` weiterhin als
+    `kind: 'cup'` gekennzeichnet (bleibt inhaltlich korrekt, betrifft nur noch den API-Football-Fallback-Pfad).
+  - **Bekannter Restrisiko, transparent dokumentiert (Code-Kommentar):** für die seltenen Fälle, in denen ein
+    Spiel in Verlängerung geht UND OpenLigaDB die 90-Minuten-Aufschlüsselung nicht liefert, könnte auch der
+    normale Tendenz/Exakt-Tipp betroffen sein — inhärente Grenze einer kostenlosen, community-gepflegten
+    Datenquelle, kein Plugin-Bug.
+  - Texte angepasst: Plugin-Beschreibung, Einstellungsseiten-Hinweistext, Saison-Feld-Label (jetzt nur noch
+    "Champions League/Europa League/Nations League" statt vier Wettbewerbe).
+  - Nebenbei entdeckten Fehler im Glossar (`CONTEXT.md`) gefixt: "Conference League" stand dort noch als einer
+    der sechs Wettbewerbe, obwohl schon seit v0.8.0 durch Nations League ersetzt — war bei der Umstellung
+    damals übersehen worden.
+  - PHP-Syntax mit `php -l` geprüft (kein Syntaxfehler).
+- *Noch nicht live getestet:* Plugin-Update einspielen, "📥 Spieldaten jetzt abrufen" klicken, prüfen dass
+  DFB-Pokal jetzt echte aktuelle Spiele zeigt (Quelle-Spalte sollte "OpenLigaDB (aktuelle Saison)" zeigen statt
+  "API-Football" bzw. "—"), und dass beim DFB-Pokal kein K.o.-Zusatztipp-Kasten mehr erscheint.
+- **Frage:** "Muss ich beim Update wieder auf 'Aktualisieren' klicken, oder wie läuft das? Wo werden die
+  Ergebnisse angezeigt?" — beantwortet: automatischer WP-Cron läuft aktuell nur **wöchentlich**
+  (`ftipp_weekly_fetch`), zusätzlich manuell per Button erzwingbar. Ergebnisse erscheinen im "Tippen"-Tab pro
+  Spiel + in der "Auswertung"-Rangliste. Vorschlag gemacht, die Frequenz auf mehrmals täglich zu erhöhen
+  (analog zur schon bestehenden 15-Minuten-Fristen-Erinnerung) — **noch keine Entscheidung des Nutzers dazu,
+  offen für nächstes Mal.**
+- **Zwei Anschlussfragen zu Sonderwertungen (Screenshot "DFB-Pokalsieger"):** (1) Frist-Sperre nach Ablauf
+  bestätigt (schon vorhanden, keine Änderung nötig). (2) "Wenn jemand 'St. Pauli' statt 'FC St. Pauli' tippt
+  und das gewinnt — kann man das nachträglich manuell als richtig markieren?" — echte Lücke im Code gefunden:
+  Punktevergabe lief bisher über exakten Textvergleich (`strcasecmp`), keine Fuzzy-Logik, keine manuelle
+  Korrektur möglich.
+- **v0.8.18 — Admin-Korrektur für Sonderwertungen-Tipps:**
+  - Neue Spalte `override` (nullable TINYINT) in `ftipp_special_tips` — NULL = automatischer Textvergleich
+    (unverändertes Verhalten), 1 = zählt erzwungen als richtig, 0 = zählt erzwungen als falsch. DB-Version 6→7.
+  - `ftipp_compute_leaderboard()`: Override hat jetzt Vorrang vor dem Textvergleich bei der Punkteberechnung.
+  - Zwei neue Admin-only-Endpunkte: `GET /special/{id}/tipps` (listet alle Mitglieder-Tipps zu einer
+    Sonderwertung samt aktuellem Override-Status) und `POST /special/{id}/tipps/{user_id}/override` (setzt/
+    löscht den Override für eine Person). Beide nur für den Runden-Admin zugänglich.
+  - **Bewusste Erweiterung der bisherigen Geheimhaltung:** bislang sah niemand (auch der Admin nicht) die
+    Sonderwertungs-Tipps anderer Mitglieder. Jetzt kann der Runden-Admin sie über einen neuen, standardmäßig
+    eingeklappten Bereich "👀 Alle Tipps ansehen & korrigieren" pro Sonderwertung einsehen — nötig, damit er
+    überhaupt weiß, wessen Tipp er korrigieren soll. Bewusst NUR für den Admin, normale Mitglieder sehen
+    weiterhin nur ihren eigenen Tipp.
+  - Frontend: neuer `<details>`-Bereich je Sonderwertungs-Karte (nur für Admin sichtbar), lazy-geladen beim
+    Aufklappen (gleiches Muster wie die Pinnwand), pro Mitglied ein Dropdown "Automatisch / ✅ zählt trotzdem
+    als richtig / ❌ zählt trotzdem als falsch".
+  - Glossar (`CONTEXT.md`) ergänzt: Sonderwertung-Eintrag erklärt jetzt den Textvergleich + die
+    Korrekturmöglichkeit.
+  - PHP-Syntax mit `php -l` geprüft, JS-Syntax per `node --check` geprüft.
+- *Noch nicht live getestet:* Plugin-Update einspielen, bei einer Sonderwertung "👀 Alle Tipps ansehen &
+  korrigieren" aufklappen, einen Tipp auf "zählt trotzdem als richtig" stellen und prüfen, dass die Punkte in
+  der Rangliste entsprechend gezählt werden.
+- **Frage/Feedback:** "Wo sehe ich, ob mein 0:4-Tipp beim DFB-Pokal-Spiel eingetroffen ist? Steht das in der
+  Auswertung?" — beantwortet: nein, "Auswertung" zeigte bisher nur die aggregierte Rangliste + Statistik-Kennzahlen,
+  keine Spiel-für-Spiel-Aufschlüsselung; einzelne Ergebnisse waren nur im "Tippen"-Tab pro Spiel sichtbar.
+  Nutzer-Wunsch direkt danach: "Die müssten unter Statistik und Verlauf dann komplett stehen."
+- **v0.8.19 — Meine Tipp-Historie unter Statistik & Verlauf:**
+  - `GET /roundstats` liefert jetzt zusätzlich ein `matches`-Array: für jedes abgeschlossene Spiel des
+    aktuellen Nutzers in diesem Wettbewerb — Spieltag, Teams, echtes Ergebnis, eigener Tipp, erzielte Punkte
+    und Treffer-Art (exakt/tendenz/verpasst). Neueste Spiele zuerst (wie ein Feed/Verlauf).
+  - Baut auf bereits vorhandener Berechnung auf (dieselbe Schleife, die schon Trefferquote/Exakt/Tendenz für
+    "Meine Statistik" ermittelt) — kein doppelter Rechenaufwand, nur zusätzlich pro Spiel mitgeschrieben.
+  - Frontend: neue Tabelle "Meine Tipp-Historie" unter dem Ranglisten-Verlauf-Diagramm in "🏆 Auswertung" →
+    "📊 Statistik & Verlauf" — Spieltag, Spielpaarung, Ergebnis, eigener Tipp, farbige Punkte-Pille (grün/gelb/rot
+    wie im Tippen-Tab).
+  - PHP-Syntax mit `php -l` geprüft, JS-Syntax per `node --check` geprüft.
+- *Noch nicht live getestet:* Plugin-Update einspielen, "Auswertung" → Statistik & Verlauf ansehen, sobald
+  mindestens ein Spiel ein Ergebnis hat — sollte dort jetzt Spiel für Spiel mit eigenem Tipp + Punkten auftauchen.
+- **Frage:** "Wo bekomme ich DFB-Spiele... äh, Nationalmannschaften anderer Länder kostenlos her?" (Nations
+  League) — recherchiert (WebFetch gegen die echte OpenLigaDB-API): der einzige passende Eintrag "Nations
+  League 2024/25 (DE)" enthält nur 2 Spiele, überwiegend mit deutscher U21-Beteiligung, kein vollständiger
+  europaweiter Wettbewerb — anders als beim DFB-Pokal keine brauchbare kostenlose Alternative zu API-Football.
+- **Kritischer Vorfall gemeldet:** "Wir haben zu dritt getippt, Update geklickt, Ergebnisse laden nicht rein" —
+  betraf konkret **DFB-Pokal**. Root Cause identifiziert: die v0.8.17-Umstellung von API-Football auf
+  OpenLigaDB hat für denselben Wettbewerb neue interne Spiel-IDs eingeführt (Präfix `oldb-` statt `api-`) —
+  Tipps, die VOR der Umstellung abgegeben wurden, hängen an der alten ID, die es in der neu geladenen
+  Spielliste nicht mehr gibt. Das Spiel erscheint dadurch als "neu, nicht getippt", das Ergebnis wird dem alten
+  (jetzt unsichtbaren) Tipp nie zugeordnet. **Eigener Fehler** — bei der v0.8.17-Umstellung nicht an
+  Tipp-Kontinuität für schon abgegebene Tipps gedacht.
+  - Automatische Reparatur nicht möglich: die alte API-Football-Spielliste (mit Vereinsnamen je alter ID) wurde
+    beim neuen Abruf bereits überschrieben, es gibt keine gespeicherte Zuordnung alte-ID → welches echte Spiel
+    mehr, über die man automatisch neu verknüpfen könnte.
+- **v0.8.20 — Sichtbarkeit für verwaiste Tipps (Datenrettung, keine Automatik):**
+  - Neue Funktion `ftipp_orphaned_tips()`: findet für JEDEN Wettbewerb (nicht nur DFB-Pokal — allgemeiner
+    Schutz für jeden künftigen Datenquellen-Wechsel) alle `ftipp_tips`-Einträge, deren Spiel-ID in der aktuell
+    geladenen Spielliste nicht mehr vorkommt.
+  - Neuer Abschnitt "⚠️ Verwaiste Tipps gefunden" auf der Einstellungsseite (nur sichtbar, wenn tatsächlich
+    welche existieren) — zeigt Wettbewerb, Spieler, getippten Stand, K.o.-Tipp, Zeitpunkt der letzten Änderung
+    und die interne Spiel-ID. **Nichts wird automatisch gelöscht oder verändert** — reine Sichtbarkeit, damit
+    Admin + Mitspieler gemeinsam rekonstruieren können, welcher Tipp zu welchem echten Spiel gehörte, und ihn
+    dort manuell neu eintragen (solange die Frist des neuen Spiels noch nicht um ist).
+  - PHP-Syntax mit `php -l` geprüft.
+- *Noch nicht live getestet:* Plugin-Update einspielen, Einstellungsseite aufrufen, prüfen dass die
+  verwaisten DFB-Pokal-Tipps der drei Mitspieler dort auftauchen — dann gemeinsam abgleichen, welcher Tipp zu
+  welchem der aktuell geladenen Spiele gehörte, und manuell neu eintragen.
+- **Notiz für später:** grundsätzliche Lehre — ein Wechsel der Datenquelle für einen Wettbewerb sollte
+  künftig vor der Umstellung geprüft werden, ob dabei laufende Tipps verwaisen; ggf. vorher eine Umbenennung/
+  Migration der betroffenen fixture_ids einplanen, statt es erst hinterher zu bemerken.
+
+## 2026-08-26 — Grafische Präsentation (Showcase) für Floh (Web-Wanda)
+- **Auftrag:** Floh möchte Tippstube "einmal für alle Leute zeigen" (Familie/Freunde/Mitspieler) — warmes
+  "Seht mal was ich gebaut habe"-Showcase, kein aggressiver Sales-Pitch. Auftrag kam über Operator Ole,
+  bearbeitet von Web-Wanda (Creative Director / Webdesign).
+- **Format-Entscheidung:** selbst-enthaltenes HTML-Web-Artifact (per Link teilbar, fühlt sich nach echtem
+  Produkt an) — Priorität laut Auftrag. Eine begleitende PowerPoint wurde bewusst zurückgestellt (nicht
+  gebaut), da das Web-Artifact als wichtigster Kern reicht; Angebot an Floh, die PPT bei Bedarf (z. B. für
+  Beamer/Fernseher ohne Internet) nachzuliefern.
+- **Marke 1:1 übernommen, nichts neu erfunden:** Farben, Typografie (Georgia-Serif für Headlines, System-Sans
+  für Fließtext) und das Wappen-Logo exakt aus `tippstube_designguide.html` übernommen (Inline-SVG unverändert
+  kopiert, nur mit neuen Gradient-IDs pro Instanz dupliziert). Die beiden alten Konzept-PDFs
+  (`Fussball-Tippspiel_Pitch.pdf`, `..._Praesentation.pdf`) mit generischem Navy/Teal-SaaS-Look wurden
+  bewusst NICHT als visuelles Vorbild verwendet — nur ihre grobe Content-Gliederung diente als Inspiration
+  für den roten Faden.
+- **Inhalt** (Stand v0.8.20, gegen dieses Journal geprüft): Hero → "Was es ist" (3 Kurzfakten) → die 6
+  Wettbewerbe als Karten-Grid → Punktesystem mit 1:1 nachgebauter App-Tipp-Karte (Design-Guide-Optik: Spieltag,
+  Fixture, Zahlen-Boxen, Button, Pille) → Automatisierung & Fairness (Auto-Refresh/Cache, Tippschluss 1h
+  vorher, fremde Tipps erst nach eigenem Tipp sichtbar) → private Tipprunden, Sonderwertungen, Pinnwand,
+  E-Mail-Erinnerungen → Rangliste + "Meine Tipp-Historie" mit farbigen Pillen (grün/gelb/rot) + Saisonverlauf-
+  Sparkline (SVG) → DSGVO/Kostenlos/Open-Source-Vertrauensblock → Footer mit GitHub-Link
+  (github.com/flowtrix2026/tippsiel) und Versionsangabe.
+- **Technisch:** ein einziges HTML-File, kein externes CDN/Font, alle Icons als eigene Inline-SVGs (Linien-
+  Stil, kein Emoji), Scroll-Reveal-Animation mit `prefers-reduced-motion`-Guard, dezente animierte Sparkline.
+  Alle Umlaute (ä/ö/ü/ß) konsequent als HTML-Entities geschrieben (nicht als rohes UTF-8), nachdem ein lokaler
+  Test-Webserver ohne Charset-Header sonst Mojibake gezeigt hätte — Absicherung gegen Hosting-Umgebungen ohne
+  garantierten UTF-8-Header.
+- **QA:** lokal per Browser-Vorschau (mobile + Desktop-Breite via DOM-Check, da die Sandbox-Vorschau bei
+  emulierter Desktop-Breite ein Screenshot-Darstellungsartefakt hatte — per `getComputedStyle`/
+  `elementFromPoint` verifiziert, dass Layout/Hintergrund tatsächlich über die volle Breite korrekt ist).
+- **Ablage:** Artifact veröffentlicht (privat, nur für Floh sichtbar bis er es teilt); zusätzlich Kopie unter
+  `~/Downloads/Tippstube-Showcase.html` für den Fall, dass er die Datei offline zeigen will.
+- **Offen:** Artifact ist bewusst privat — Floh muss es selbst über das Teilen-Menü für die Gruppe freigeben,
+  falls er den Link verschicken will. PowerPoint-Begleitdeck nicht gebaut (siehe oben), auf Zuruf nachreichbar.
+
+## v0.8.21 — Spieltag-Auswahl im Tippen-Tab (statt endlos scrollen)
+- **Anfrage (Screenshot):** "Wenn ich Bundesliga tippe, geht das von Spieltag 1 zu 2 zu 3 und immer weiter
+  runter — kannst du neben Bundesliga oben immer alle 34 Spieltage eintragen? Vom ersten zum dritten
+  Spieltag runterzuscrollen dauert ewig." Bisher zeigte der "Tippen"-Tab alle Spieltage/Runden eines
+  Wettbewerbs als eine durchgehende, lange Liste — kein Sprung zwischen einzelnen Spieltagen möglich.
+- **Umgesetzt:**
+  - Neues Auswahlfeld **"Spieltag"** direkt neben "Wettbewerb" — filtert die Liste auf genau einen
+    Spieltag/eine Runde, statt alle anzuzeigen. Funktioniert für alle Wettbewerbe gleich (bei Pokal-
+    Wettbewerben stehen dort die echten Rundennamen wie "Achtelfinale" statt Spieltag-Nummern — kommt
+    automatisch aus den schon vorhandenen Rundenbezeichnungen der Spiele).
+  - Zusätzlich **◀ / ▶ Buttons** direkt daneben, um schnell zum vorherigen/nächsten Spieltag zu blättern,
+    ohne das Dropdown extra öffnen zu müssen (an den Enden jeweils deaktiviert).
+  - **Sinnvoller Standard-Spieltag**: beim ersten Öffnen (oder Wettbewerbswechsel) wird automatisch der erste
+    Spieltag mit noch offenem Ergebnis vorausgewählt ("aktuell dran") — nicht stur immer Spieltag 1. Ist die
+    Saison schon komplett durchgespielt, wird der letzte Spieltag gezeigt.
+  - Auswahlfeld erscheint nur, wenn es tatsächlich mehr als einen Spieltag gibt (z.B. bei ganz frisch
+    geladenen Testdaten mit nur 1-2 Spielen bleibt die Liste wie bisher ohne Filter).
+  - JS-Syntax per `node --check` geprüft.
+- *Noch nicht live getestet:* Plugin-Update einspielen, "Tippen"-Tab öffnen, prüfen dass automatisch ein
+  sinnvoller aktueller Spieltag vorausgewählt ist, und dass Dropdown + Pfeile korrekt zwischen Spieltagen
+  wechseln, ohne dabei bereits eingetragene Tipps zu verlieren.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

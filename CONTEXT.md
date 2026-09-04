@@ -36,15 +36,20 @@ _Avoid_: Spieler (allein, ohne Rundenbezug), Teilnehmer
 
 **Wettbewerb**:
 Einer der sechs unterstützten Fußball-Wettbewerbe (1. Bundesliga, 2. Bundesliga,
-DFB-Pokal, Champions League, Europa League, Conference League). Jeder Wettbewerb
+DFB-Pokal, Champions League, Europa League, Nations League). Jeder Wettbewerb
 hat innerhalb jeder Tipprunde seine eigene, getrennte Rangliste.
 _Avoid_: Liga (zu eng — DFB-Pokal/Europapokale sind keine Ligen), Turnier
 
 **Wettbewerbs-Abo** (kurz: **Abo**):
-Die Entscheidung eines Nutzers, an einem bestimmten Wettbewerb mitzutippen. Gilt
-global fürs Konto, nicht pro Tipprunde — ein Spiel wird einmal getippt und zählt
-in allen Tipprunden, denen der Nutzer angehört. Nur wählbar, solange der
-Wettbewerb noch nicht begonnen hat.
+Die Entscheidung eines Nutzers, in einer bestimmten Tipprunde an einem bestimmten
+Wettbewerb mitzutippen. Gilt **pro Tipprunde**, nicht global fürs Konto (bis
+v0.8.13 war das umgekehrt — global, nicht pro Runde; auf Nutzerwunsch geändert,
+weil unterschiedliche Runden unterschiedliche Wettbewerbe relevant haben können,
+z.B. Familie nur 1./2. Bundesliga, Kollegen zusätzlich Champions League). Nur
+wählbar, solange der Wettbewerb noch nicht begonnen hat. Der eigentliche **Tipp**
+(die getippte Torzahl) bleibt davon unabhängig weiterhin pro Nutzer+Wettbewerb
+global gespeichert — ist man mit demselben Wettbewerb in mehreren Runden dabei,
+zählt derselbe Tipp in allen davon.
 _Avoid_: Teilnahme, Anmeldung
 
 **Tipp**:
@@ -62,7 +67,11 @@ _Avoid_: Bonus-Tipp (allein — zu allgemein, verwechselbar mit Sonderwertungen)
 **Sonderwertung**:
 Eine saisonlange Wette pro Wettbewerb (z.B. Meister, Torschützenkönig), die der
 Runden-Admin anlegt, mit eigenen Punkten und eigener Frist. Getrennt von den
-Spiel-Tipps.
+Spiel-Tipps. Auflösung standardmäßig über einen automatischen Textvergleich
+zwischen Tipp und eingetragenem Ergebnis (Groß-/Kleinschreibung egal, sonst exakt)
+— der Runden-Admin kann das für einzelne Mitglieder manuell übersteuern
+("zählt trotzdem als richtig/falsch"), z.B. bei nur leicht abweichendem Wortlaut
+("St. Pauli" vs. "FC St. Pauli").
 _Avoid_: Bonus-Tipp, Zusatzwertung
 
 **Standard-Sonderwertung**:

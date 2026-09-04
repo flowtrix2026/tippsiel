@@ -181,6 +181,7 @@ const defCfg = () => ({pTend:1, pExact:3, pKO:3, malusOn:true, malus:-1, deadlin
 let S = null;
 let viewer = 0;
 let tCompSel = 'BL1', aCompSel = 'BL1', sCompSel = 'BL1';
+let tRoundSel = null; // gewählter Spieltag/Runde im Tippen-Tab, pro Wettbewerb neu ermittelt
 
 function save(){ localStorage.setItem(STORE, JSON.stringify(S)); }
 function load(){
@@ -317,7 +318,7 @@ function scoreFor(p, compId){
 const BOOT = (typeof window!=='undefined' && window.FTIPP_BOOT) ? window.FTIPP_BOOT : null;
 const CONNECTED = !!BOOT;
 
-let PLATFORM_ADMIN=false, ROUNDS=[], currentRoundId=null, MY_SUBS={};
+let PLATFORM_ADMIN=false, ROUNDS=[], currentRoundId=null;
 const roundById = id => ROUNDS.find(r=> String(r.id)===String(id));
 const _tipDebounce={};
 function debounceTip(key, fn, ms){ clearTimeout(_tipDebounce[key]); _tipDebounce[key]=setTimeout(fn, ms||600); }
@@ -334,7 +335,6 @@ const api_get = path => ftippApi(path);
 const api_post = (path,data) => ftippApi(path, {method:'POST', body:JSON.stringify(data||{})});
 const api_del  = path => ftippApi(path, {method:'DELETE'});
 
-function myEffectiveSubs(){ const s=Object.assign({},MY_SUBS); if(s.BL1 && s.BL2) s.DFB=true; return s; }
 function isLockedCfg(fx,cfg){ return Date.now() >= kickoff(fx) - (cfg.deadlineMin??60)*60000; }
 
 async function initConnected(){
@@ -351,8 +351,6 @@ async function initConnected(){
     const boot = await api_get('bootstrap');
     ROUNDS = boot.rounds||[];
     if(ROUNDS.length) currentRoundId = ROUNDS[0].id;
-    const subsRes = await api_get('subs');
-    MY_SUBS = subsRes.subs||{};
   }catch(e){
     console.error(e);
     loadError=e;
@@ -381,28 +379,7 @@ function needRoundHint(box){
 /* ---------------------- RUNDEN ---------------------- */
 async function renderRunden(){
   const box=$('#mode-runden'); box.innerHTML='';
-  box.appendChild(el(`<div class="hint">Eine <b>Tipprunde</b> ist dein privater Kreis (z.B. Familie/Freunde) — eigene Rangliste, eigene Regeln. Du kannst in <b>mehreren Runden</b> gleichzeitig sein; welche Wettbewerbe du tippst, gilt <b>für alle Runden gleich</b>.</div>`));
-
-  // Meine Wettbewerbe (global) — beschriftete Auswahl-Kacheln, immer klar auch auf schmalen Screens
-  const subsCard=el(`<div class="card"></div>`);
-  subsCard.appendChild(el(`<div class="phase-h" style="margin-top:0">⚽ Meine Wettbewerbe</div>`));
-  subsCard.appendChild(el(`<div class="meta" style="margin-bottom:10px">Nur solange ein Wettbewerb noch nicht begonnen hat, kannst du ihn dazuwählen. Wer 1. + 2. Bundesliga wählt, ist automatisch beim DFB-Pokal dabei.</div>`));
-  const chipRow=el(`<div class="row" style="gap:8px"></div>`);
-  const eff=myEffectiveSubs();
-  COMPS.forEach(c=>{
-    const autoDFB=(c.id==='DFB' && MY_SUBS.BL1 && MY_SUBS.BL2);
-    const active=!!eff[c.id];
-    const chip=el(`<label style="display:flex;align-items:center;gap:8px;padding:9px 13px;border-radius:999px;
-      border:1px solid ${active?'var(--accent)':'var(--line)'};background:${active?'#1c3a1e':'var(--panel2)'};
-      cursor:${autoDFB?'default':'pointer'};font-size:13.5px;font-weight:600;color:${active?'var(--txt)':'var(--muted)'}"></label>`);
-    const chk=el(`<input type="checkbox" class="chk" style="width:16px;height:16px;margin:0" ${active?'checked':''} ${autoDFB?'disabled':''}>`);
-    chk.onchange=async()=>{ chk.disabled=true; try{ await api_post('subs',{comp_id:c.id, active:chk.checked}); MY_SUBS[c.id]=chk.checked; }catch(e){ alert(e.message); } renderRunden(); };
-    chip.appendChild(chk);
-    chip.appendChild(el(`<span>${esc(c.name)}${autoDFB?' <span class="tag">auto</span>':''}</span>`));
-    chipRow.appendChild(chip);
-  });
-  subsCard.appendChild(chipRow);
-  box.appendChild(subsCard);
+  box.appendChild(el(`<div class="hint">Eine <b>Tipprunde</b> ist dein privater Kreis (z.B. Familie/Freunde) — eigene Rangliste, eigene Regeln. Du kannst in <b>mehreren Runden</b> gleichzeitig sein und in jeder Runde <b>eigene Wettbewerbe</b> auswählen (steht direkt in der jeweiligen Runden-Karte).</div>`));
 
   // Erstellen / Beitreten
   const cj=el(`<div class="card"></div>`);
@@ -425,6 +402,28 @@ async function renderRunden(){
     catch(e){ alert(e.message); } joinBtn.disabled=false; };
   r2.appendChild(codeIn); r2.appendChild(joinBtn);
   cj.appendChild(r2);
+  const r3=el(`<div class="row" style="margin-top:8px"></div>`);
+  const importInput=el(`<input type="file" accept="application/json,.json" style="display:none">`);
+  const importBtn=el(`<button class="sec">⬆️ Rundendaten importieren (JSON)</button>`);
+  importBtn.onclick=()=>importInput.click();
+  importInput.onchange=async()=>{
+    const file=importInput.files[0]; if(!file) return;
+    importBtn.disabled=true;
+    try{
+      const data=JSON.parse(await file.text());
+      const r=await api_post('rounds/import', data);
+      if(!roundById(r.id)) ROUNDS.push(r);
+      currentRoundId=r.id;
+      let msg='Runde „'+r.name+'" wiederhergestellt.';
+      if(r.skipped_members && r.skipped_members.length){ msg+=' Hinweis: '+r.skipped_members.length+' Mitglied(er) übersprungen (WordPress-Konto existiert nicht mehr): '+r.skipped_members.join(', ')+'.'; }
+      alert(msg);
+      renderRunden();
+    }catch(e){ alert('Import fehlgeschlagen: '+(e.message||'Die Datei sieht nicht nach einem gültigen Tippstube-Export aus.')); }
+    importBtn.disabled=false; importInput.value='';
+  };
+  r3.appendChild(importBtn); r3.appendChild(importInput);
+  cj.appendChild(r3);
+  cj.appendChild(el(`<div class="meta" style="margin-top:6px">Import legt eine <b>neue</b> Runde aus einer zuvor exportierten JSON-Datei an (Backup-Wiederherstellung) — die Original-Runde bleibt unangetastet.</div>`));
   box.appendChild(cj);
 
   // Meine Runden
@@ -441,6 +440,28 @@ async function renderRunden(){
     top.appendChild(actBtn);
     card.appendChild(top);
     card.appendChild(el(`<div class="meta" style="margin-top:4px">Einladungs-Code: <b style="color:var(--gold);letter-spacing:1px">${esc(r.code)}</b> · Mitglieder: ${r.members.map(m=>esc(m.name)).join(', ')}</div>`));
+    const activeNames=(r.active_comps||[]).map(id=>compById(id)?.name).filter(Boolean);
+    card.appendChild(el(`<div class="meta" style="margin-top:2px">Wettbewerbe in dieser Runde: ${activeNames.length?activeNames.join(' · '):'noch keiner — jedes Mitglied wählt unten selbst, wo es mitspielt'}</div>`));
+
+    // Meine Wettbewerbe IN DIESER Runde — pro Runde eigene Auswahl, nicht global
+    const mySubsCard=el(`<div style="margin-top:10px"></div>`);
+    mySubsCard.appendChild(el(`<label style="display:block;margin-bottom:6px">Meine Wettbewerbe in „${esc(r.name)}"</label>`));
+    const chipRow=el(`<div class="row" style="gap:8px"></div>`);
+    const mySubs=r.my_subs||{};
+    COMPS.forEach(c=>{
+      const autoDFB=(c.id==='DFB' && mySubs.BL1 && mySubs.BL2);
+      const active=!!mySubs[c.id];
+      const chip=el(`<label style="display:flex;align-items:center;gap:8px;padding:9px 13px;border-radius:999px;
+        border:1px solid ${active?'var(--accent)':'var(--line)'};background:${active?'#1c3a1e':'var(--panel2)'};
+        cursor:${autoDFB?'default':'pointer'};font-size:13.5px;font-weight:600;color:${active?'var(--txt)':'var(--muted)'}"></label>`);
+      const chk=el(`<input type="checkbox" class="chk" style="width:16px;height:16px;margin:0" ${active?'checked':''} ${autoDFB?'disabled':''}>`);
+      chk.onchange=async()=>{ chk.disabled=true; try{ await api_post('rounds/'+r.id+'/subs',{comp_id:c.id, active:chk.checked}); r.my_subs[c.id]=chk.checked; }catch(e){ alert(e.message); } renderRunden(); };
+      chip.appendChild(chk);
+      chip.appendChild(el(`<span>${esc(c.name)}${autoDFB?' <span class="tag">auto</span>':''}</span>`));
+      chipRow.appendChild(chip);
+    });
+    mySubsCard.appendChild(chipRow);
+    card.appendChild(mySubsCard);
 
     // Modus
     const modeRow=el(`<div class="row" style="margin-top:10px"></div>`);
@@ -604,20 +625,44 @@ async function renderTippenConnected(){
   if(!ROUNDS.length){ needRoundHint(box); return; }
   if(!currentRoundId) currentRoundId=ROUNDS[0].id;
   const round=roundById(currentRoundId);
-  const myComps=COMPS.filter(c=> myEffectiveSubs()[c.id]);
+  const mySubs=round.my_subs||{};
+  const myComps=COMPS.filter(c=> mySubs[c.id]);
   if(!myComps.find(c=>c.id===tCompSel)) tCompSel=myComps[0]?.id||'BL1';
+
+  const cfg=round.config[tCompSel]||defCfg();
+  const fx=S.fixtures[tCompSel]||[];
+
+  // Eindeutige Spieltage/Runden in Reihenfolge des Auftretens — Nutzer möchte nicht mehr durch alle 34
+  // Spieltage scrollen müssen, sondern gezielt einen einzelnen auswählen können.
+  const roundNames=[]; fx.forEach(f=>{ if(!roundNames.includes(f.round)) roundNames.push(f.round); });
+  if(!roundNames.includes(tRoundSel)){
+    // Sinnvoller Default: der erste Spieltag mit noch offenem Ergebnis (also "aktuell dran"),
+    // sonst der letzte (Saison schon vorbei) oder einfach der erste (noch nichts gespielt/geladen).
+    const firstOpen=roundNames.find(rn=> fx.some(f=>f.round===rn && !hasResult(f)));
+    tRoundSel = firstOpen ?? roundNames[roundNames.length-1] ?? null;
+  }
+  const rIdx=roundNames.indexOf(tRoundSel);
 
   const head=el(`<div class="card"></div>`);
   head.appendChild(el(`<div class="hint">Runde: <b>${esc(round.name)}</b>. Ergebnis eintragen → <b>„Tipp abgeben"</b> — erst danach siehst du die Tipps deiner Mitspieler.</div>`));
   const ctrl=el(`<div class="row"></div>`);
   const rs=mkRoundSwitcher(); if(rs) ctrl.appendChild(rs);
-  ctrl.appendChild(mkSelect('Wettbewerb', myComps.map(c=>({v:c.id,label:c.name})), tCompSel, v=>{tCompSel=v; renderTippenConnected();}));
+  ctrl.appendChild(mkSelect('Wettbewerb', myComps.map(c=>({v:c.id,label:c.name})), tCompSel, v=>{tCompSel=v; tRoundSel=null; renderTippenConnected();}));
+  if(roundNames.length>1){
+    ctrl.appendChild(mkSelect('Spieltag', roundNames.map(rn=>({v:rn,label:rn})), tRoundSel, v=>{tRoundSel=v; renderTippenConnected();}));
+    const navWrap=el(`<div class="flexcol"><label>&nbsp;</label><div class="row" style="gap:6px"></div></div>`);
+    const navRow=navWrap.querySelector('.row');
+    const prevBtn=el(`<button class="mini sec" ${rIdx<=0?'disabled':''}>◀</button>`);
+    prevBtn.onclick=()=>{ tRoundSel=roundNames[rIdx-1]; renderTippenConnected(); };
+    const nextBtn=el(`<button class="mini sec" ${rIdx<0||rIdx>=roundNames.length-1?'disabled':''}>▶</button>`);
+    nextBtn.onclick=()=>{ tRoundSel=roundNames[rIdx+1]; renderTippenConnected(); };
+    navRow.appendChild(prevBtn); navRow.appendChild(nextBtn);
+    ctrl.appendChild(navWrap);
+  }
   head.appendChild(ctrl); box.appendChild(head);
 
   if(!myComps.length){ box.appendChild(el(`<div class="card"><div class="hint">Du bist noch bei keinem Wettbewerb angemeldet. Wähle unter <b>👥 Runden</b> deine Wettbewerbe.</div></div>`)); return; }
 
-  const cfg=round.config[tCompSel]||defCfg();
-  const fx=S.fixtures[tCompSel]||[];
   const list=el(`<div class="card"><div class="meta">Lädt…</div></div>`); box.appendChild(list);
 
   let data={fixtures:{}};
@@ -625,8 +670,9 @@ async function renderTippenConnected(){
 
   list.innerHTML='';
   if(!fx.length) list.appendChild(el(`<div class="meta">Noch keine Spiele geladen (Admin muss Spieldaten in WordPress abrufen).</div>`));
+  const shown=tRoundSel!=null ? fx.filter(f=>f.round===tRoundSel) : fx;
   let lastRound=null;
-  fx.forEach(f=>{
+  shown.forEach(f=>{
     if(f.round!==lastRound){ lastRound=f.round; list.appendChild(el(`<div class="phase-h">${esc(f.round)}</div>`)); }
     list.appendChild(mkMatchRowConnected(f, data.fixtures[f.id], cfg, round));
   });
@@ -738,8 +784,18 @@ function mkMatchRowConnected(f, td, cfg, round){
   }
 
   if(td.revealed || locked){
-    const parts=(td.others||[]).map(o=> `<b>${esc(o.name)}</b> ${o.h!=null&&o.a!=null?`${o.h}:${o.a}`:'—'}`);
-    row.appendChild(el(`<div class="others">👀 Tipps der Mitspieler: ${parts.length?parts.join(' · '):'—'}</div>`));
+    const others=td.others||[];
+    const fmt=o=> `<b>${esc(o.name)}</b> ${o.h!=null&&o.a!=null?`${o.h}:${o.a}`:'—'}`;
+    const LIMIT=5;
+    let body;
+    if(!others.length){ body='—'; }
+    else if(others.length<=LIMIT){ body=others.map(fmt).join(' · '); }
+    else {
+      const shown=others.slice(0,LIMIT).map(fmt).join(' · ');
+      const rest=others.slice(LIMIT).map(fmt).join(' · ');
+      body=`${shown}<details style="margin-top:4px"><summary>+${others.length-LIMIT} weitere anzeigen</summary><div style="margin-top:4px">${rest}</div></details>`;
+    }
+    row.appendChild(el(`<div class="others">👀 Tipps der Mitspieler: ${body}</div>`));
   } else {
     row.appendChild(el(`<div class="others">🔒 Tipps der Mitspieler sichtbar, sobald du <b>abgegeben</b> hast.</div>`));
   }
@@ -801,6 +857,17 @@ async function renderAuswertungConnected(){
     if(rs.history && rs.history.length>=1){
       statCard.appendChild(el(`<div class="group-h">Ranglisten-Verlauf</div>`));
       statCard.appendChild(mkHistoryChart(rs.history));
+    }
+    if(rs.matches && rs.matches.length){
+      statCard.appendChild(el(`<div class="group-h">Meine Tipp-Historie</div>`));
+      let mh=`<table><thead><tr><th>Spieltag</th><th>Spiel</th><th class="num">Ergebnis</th><th class="num">Mein Tipp</th><th class="num">Punkte</th></tr></thead><tbody>`;
+      rs.matches.forEach(mt=>{
+        const cls = mt.kind==='exakt'?'good':(mt.kind==='tendenz'?'warn':'bad');
+        const myTip = (mt.my_h!=null && mt.my_a!=null) ? `${mt.my_h}:${mt.my_a}` : '—';
+        mh+=`<tr><td class="meta">${esc(mt.round)}</td><td>${esc(mt.home)} – ${esc(mt.away)}</td><td class="num"><b>${mt.hg}:${mt.ag}</b></td><td class="num">${myTip}</td><td class="num"><span class="pill ${cls}">${mt.pts>0?'+':''}${mt.pts} P</span></td></tr>`;
+      });
+      mh+=`</tbody></table>`;
+      statCard.appendChild(el(mh));
     }
   }catch(e){ statCard.innerHTML=`<div class="warnbox">Fehler beim Laden der Statistik: ${esc(e.message)}</div>`; }
 }
@@ -882,7 +949,40 @@ async function renderSonderConnected(){
     myt.onchange=async()=>{ try{ await api_post('special/'+b.id+'/tip',{value:myt.value}); }catch(e){ alert(e.message); } };
     r3.appendChild(el(`<label>Mein Tipp</label>`)); r3.appendChild(myt);
     r3.appendChild(el(`<span class="pill ${locked?'warn':''}">${locked?'Frist vorbei':'offen'}</span>`));
-    card.appendChild(r3); box.appendChild(card);
+    card.appendChild(r3);
+
+    if(round.is_admin){
+      const tipsDet=el(`<details style="margin-top:8px"></details>`);
+      tipsDet.appendChild(el(`<summary>👀 Alle Tipps ansehen &amp; korrigieren</summary>`));
+      const tipsBody=el(`<div style="margin-top:8px"></div>`);
+      tipsDet.appendChild(tipsBody);
+      let loaded=false;
+      tipsDet.addEventListener('toggle', async()=>{
+        if(!tipsDet.open || loaded) return;
+        loaded=true;
+        tipsBody.innerHTML='<div class="meta">Lädt…</div>';
+        try{
+          const res=await api_get('special/'+b.id+'/tipps');
+          const list=res.tipps||[];
+          tipsBody.innerHTML='';
+          if(!list.length){ tipsBody.appendChild(el(`<div class="meta">Noch keine Mitglieder.</div>`)); }
+          list.forEach(t=>{
+            const row=el(`<div class="row" style="border-bottom:1px solid var(--line);padding:6px 0"></div>`);
+            row.appendChild(el(`<div style="min-width:110px"><b>${esc(t.name)}</b></div>`));
+            row.appendChild(el(`<div class="meta" style="min-width:150px">${t.value?esc(t.value):'—'}</div>`));
+            const curVal=t.override===true?'1':(t.override===false?'0':'');
+            const sel=mkSelect('', [{v:'',label:'Automatisch (Textvergleich)'},{v:'1',label:'✅ zählt trotzdem als richtig'},{v:'0',label:'❌ zählt trotzdem als falsch'}], curVal, async v=>{
+              try{ await api_post('special/'+b.id+'/tipps/'+t.user_id+'/override', {override: v===''?null:(v==='1')}); }
+              catch(e){ alert(e.message); }
+            });
+            row.appendChild(sel);
+            tipsBody.appendChild(row);
+          });
+        }catch(e){ tipsBody.innerHTML=`<div class="warnbox">Fehler: ${esc(e.message)}</div>`; }
+      });
+      card.appendChild(tipsDet);
+    }
+    box.appendChild(card);
   });
 
   if(round.is_admin){
@@ -1013,7 +1113,16 @@ function mkOthers(f){
     const val = (show && t && t.h!=null && t.a!=null) ? `${t.h}:${t.a}` : (t&&t.committed?`${t.h}:${t.a}`:'—');
     return `<b>${esc(o.p.name)}</b> ${val}`;
   });
-  return el(`<div class="others">👀 Tipps der anderen: ${parts.length?parts.join(' · '):'—'}</div>`);
+  const LIMIT=5;
+  let body;
+  if(!parts.length){ body='—'; }
+  else if(parts.length<=LIMIT){ body=parts.join(' · '); }
+  else {
+    const shown=parts.slice(0,LIMIT).join(' · ');
+    const rest=parts.slice(LIMIT).join(' · ');
+    body=`${shown}<details style="margin-top:4px"><summary>+${parts.length-LIMIT} weitere anzeigen</summary><div style="margin-top:4px">${rest}</div></details>`;
+  }
+  return el(`<div class="others">👀 Tipps der anderen: ${body}</div>`);
 }
 function mkKoTip(f,t,disabled,cfg){
   const ko=t.ko=t.ko||{decided:'',winner:''};
