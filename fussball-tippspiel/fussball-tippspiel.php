@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       Tippstube
- * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2. Bundesliga + DFB-Pokal via OpenLigaDB (aktuelle Saison, gratis), CL/EL/Nations League via API-Football.
- * Version:           0.8.21
+ * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2. Bundesliga + DFB-Pokal + Champions/Europa League via OpenLigaDB (aktuelle Saison, gratis), Nations League via API-Football.
+ * Version:           0.8.24
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Tippstube
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '0.8.21' );
+define( 'FTIPP_VERSION', '0.8.24' );
 define( 'FTIPP_DB_VERSION', '7' );
 
 /** Wettbewerbe: interne ID => [Name, API-Football Liga-ID, Art] */
@@ -200,23 +200,29 @@ register_deactivation_hook( __FILE__, function () {
 
 /* ============================================================
  * Spieldaten-Abruf — Hybrid:
- *   1./2. Bundesliga + DFB-Pokal -> OpenLigaDB (aktuelle Saison, gratis, ohne Key)
- *   CL + EL + Nations League -> API-Football (Gratis-Tarif nur alte Test-Saisons 2021–2023)
- * DFB-Pokal bewusst seit v0.8.17 auf OpenLigaDB umgestellt (Nutzerentscheidung): einzige Quelle,
- * die den Pokal in der AKTUELLEN Saison kostenlos abdeckt. Nachteil bekannt und akzeptiert:
- * OpenLigaDB kennzeichnet "nach Verlängerung/Elfmeterschießen" bei K.o.-Spielen nicht immer
- * zuverlässig (stichprobenartig geprüft) — deshalb bekommt der DFB-Pokal keinen K.o.-Zusatztipp
- * mehr (siehe ftipp_fetch_openligadb(): Score-Extraktion bevorzugt "nach 90 Minuten", um wenigstens
- * den normalen Tendenz/Exakt-Tipp so korrekt wie möglich zu halten). CL/EL/NL bleiben bei
- * API-Football, weil deren aktuelle Saison ohnehin nur mit Bezahltarif ginge — Umstieg auf
- * OpenLigaDB würde dort keinen Vorteil bringen (keine aktuelle Gratis-Saison verfügbar).
+ *   1./2. Bundesliga + DFB-Pokal + Champions League + Europa League -> OpenLigaDB (aktuelle Saison, gratis, ohne Key)
+ *   Nations League -> API-Football (Gratis-Tarif nur alte Test-Saisons 2021–2023)
+ * DFB-Pokal (v0.8.17) und Champions/Europa League (v0.8.22) bewusst auf OpenLigaDB umgestellt
+ * (Nutzerentscheidung): einzige Quelle, die diese Wettbewerbe in der AKTUELLEN Saison kostenlos
+ * abdeckt. Nachteil bekannt und akzeptiert: OpenLigaDB kennzeichnet "nach Verlängerung/
+ * Elfmeterschießen" bei K.o.-Spielen nicht immer zuverlässig (stichprobenartig geprüft) — deshalb
+ * bekommen diese drei Wettbewerbe keinen K.o.-Zusatztipp mehr (siehe ftipp_fetch_openligadb():
+ * Score-Extraktion bevorzugt "nach 90 Minuten", um wenigstens den normalen Tendenz/Exakt-Tipp so
+ * korrekt wie möglich zu halten). Nations League bleibt bei API-Football — dafür gibt es auf
+ * OpenLigaDB keine brauchbare, vollständige Datenquelle (separat recherchiert, siehe Journal).
+ * Achtung: CL/EL-Shortcuts bei OpenLigaDB sind saisonabhängig instabil benannt (siehe
+ * ftipp_openligadb_shortcut()) — ggf. jede Saison neu prüfen, ob der Abruf noch Daten liefert.
  * ============================================================ */
 function ftipp_current_de_season() {
     $m = intval( gmdate( 'n' ) ); $y = intval( gmdate( 'Y' ) );
     return ( $m >= 7 ) ? $y : ( $y - 1 );
 }
 function ftipp_openligadb_shortcut( $comp_id ) {
-    $map = array( 'BL1' => 'bl1', 'BL2' => 'bl2', 'DFB' => 'dfb' );
+    // Achtung: bei BL1/BL2/DFB ist der Shortcut über die Jahre stabil (nur die Saisonzahl in der URL ändert
+    // sich). Bei Champions/Europa League hat die Community den Shortcut in der Vergangenheit fast jede Saison
+    // umbenannt (z.B. CL: cl -> cl1011 -> ucl2014 -> ucl2024 -> ucl) — die Werte hier sind Stand 2026/27 und
+    // müssen ggf. zur nächsten Saison manuell geprüft/aktualisiert werden (siehe api.openligadb.de/getavailableleagues).
+    $map = array( 'BL1' => 'bl1', 'BL2' => 'bl2', 'DFB' => 'dfb', 'CL' => 'ucl', 'EL' => 'uel2026' );
     return isset( $map[ $comp_id ] ) ? $map[ $comp_id ] : null;
 }
 
@@ -308,8 +314,8 @@ function ftipp_fetch_all() {
 
     $all = array(); $counts = array(); $errors = array(); $sources = array();
 
-    // 1) Deutsche Ligen + DFB-Pokal zuerst über OpenLigaDB (aktuelle Saison, gratis).
-    foreach ( array( 'BL1', 'BL2', 'DFB' ) as $cid ) {
+    // 1) Deutsche Ligen + DFB-Pokal + Champions/Europa League zuerst über OpenLigaDB (aktuelle Saison, gratis).
+    foreach ( array( 'BL1', 'BL2', 'DFB', 'CL', 'EL' ) as $cid ) {
         $r = ftipp_fetch_openligadb( ftipp_openligadb_shortcut( $cid ), $de_season );
         if ( $r['ok'] && count( $r['fixtures'] ) > 0 ) {
             $all[ $cid ] = $r['fixtures']; $counts[ $cid ] = count( $r['fixtures'] );
@@ -319,7 +325,8 @@ function ftipp_fetch_all() {
         }
     }
 
-    // 2) Alles, was noch offen ist (DFB/CL/EL/NL immer, BL1/BL2 nur als Fallback) über API-Football.
+    // 2) Alles, was noch offen ist (NL immer, außerdem Fallback falls OpenLigaDB für einen der
+    //    obigen Wettbewerbe mal ausfällt/leer ist) über API-Football.
     foreach ( ftipp_leagues() as $cid => $lg ) {
         if ( isset( $all[ $cid ] ) ) { continue; } // schon per OpenLigaDB geladen
         if ( $key === '' ) {
@@ -438,16 +445,109 @@ add_action( 'admin_post_ftipp_demo', function () {
     exit;
 } );
 
-/* Fixture per id aus der Options-Tabelle finden (für Punkteberechnung) */
+/**
+ * Manueller Spieldaten-Import per CSV — für Wettbewerbe ohne gute kostenlose API (aktuell: Nations League).
+ * Spalten: Wettbewerb,Spieltag,Datum,Heim,Auswaerts,ToreHeim,ToreAusw (ToreHeim/ToreAusw leer = noch nicht
+ * gespielt). Ergänzt/aktualisiert nur — überschreibt nie den ganzen Wettbewerb, landet in einem eigenen
+ * Speicher (ftipp_manual_fixtures), damit der automatische Abruf das nicht wieder wegputzt (siehe
+ * ftipp_fixtures_for()). Dieselbe reale Begegnung bekommt über eine aus Wettbewerb+Teams+Datum berechnete
+ * ID immer denselben Eintrag — erneuter Upload (z.B. mit jetzt bekanntem Ergebnis) aktualisiert statt
+ * zu duplizieren, damit Tipps nicht wie beim DFB-Pokal-Vorfall verwaisen.
+ */
+function ftipp_import_fixtures_csv( $tmp_path ) {
+    $handle = @fopen( $tmp_path, 'r' );
+    if ( ! $handle ) { return array( 'added' => 0, 'updated' => 0, 'skipped' => 0, 'error' => 'Datei konnte nicht gelesen werden.' ); }
+
+    $header = fgetcsv( $handle );
+    if ( ! $header ) { fclose( $handle ); return array( 'added' => 0, 'updated' => 0, 'skipped' => 0, 'error' => 'Datei ist leer.' ); }
+    $map = array_flip( array_map( function ( $h ) { return strtolower( trim( (string) $h, "\xEF\xBB\xBF \t" ) ); }, $header ) );
+    foreach ( array( 'wettbewerb', 'spieltag', 'datum', 'heim', 'auswaerts' ) as $col ) {
+        if ( ! isset( $map[ $col ] ) ) {
+            fclose( $handle );
+            return array( 'added' => 0, 'updated' => 0, 'skipped' => 0, 'error' => "Spalte \"$col\" fehlt in der Kopfzeile." );
+        }
+    }
+
+    $manual = get_option( 'ftipp_manual_fixtures', array() );
+    $added = 0; $updated = 0; $skipped = 0;
+
+    while ( ( $row = fgetcsv( $handle ) ) !== false ) {
+        if ( 1 === count( $row ) && null === $row[0] ) { continue; } // leere Zeile
+        $get = function ( $col ) use ( $map, $row ) { return isset( $map[ $col ], $row[ $map[ $col ] ] ) ? trim( (string) $row[ $map[ $col ] ] ) : ''; };
+
+        $comp = strtoupper( $get( 'wettbewerb' ) );
+        $round = $get( 'spieltag' );
+        $home = $get( 'heim' );
+        $away = $get( 'auswaerts' );
+        $dateRaw = $get( 'datum' );
+
+        if ( ! in_array( $comp, ftipp_comp_ids(), true ) || '' === $home || '' === $away || '' === $dateRaw ) { $skipped++; continue; }
+        $ts = strtotime( $dateRaw );
+        if ( ! $ts ) { $skipped++; continue; }
+
+        $hgRaw = $get( 'toreheim' ); $agRaw = $get( 'toreausw' );
+        $hg = ( '' !== $hgRaw && is_numeric( $hgRaw ) ) ? max( 0, intval( $hgRaw ) ) : null;
+        $ag = ( '' !== $agRaw && is_numeric( $agRaw ) ) ? max( 0, intval( $agRaw ) ) : null;
+
+        $key = $comp . '|' . mb_strtolower( $home ) . '|' . mb_strtolower( $away ) . '|' . gmdate( 'Y-m-d', $ts );
+        $fid = 'csv-' . substr( md5( $key ), 0, 16 );
+
+        if ( ! isset( $manual[ $comp ] ) ) { $manual[ $comp ] = array(); }
+        $existingIdx = null;
+        foreach ( $manual[ $comp ] as $idx => $f ) { if ( $f['id'] === $fid ) { $existingIdx = $idx; break; } }
+
+        $fixture = array(
+            'id' => $fid, 'round' => $round, 'date' => gmdate( 'Y-m-d\TH:i', $ts ),
+            'home' => $home, 'away' => $away, 'hg' => $hg, 'ag' => $ag,
+            'status' => ( null !== $hg && null !== $ag ) ? 'FT' : 'NS',
+            'ko' => false, 'decided' => null, 'winner' => null,
+        );
+        if ( null !== $existingIdx ) { $manual[ $comp ][ $existingIdx ] = $fixture; $updated++; }
+        else { $manual[ $comp ][] = $fixture; $added++; }
+    }
+    fclose( $handle );
+    update_option( 'ftipp_manual_fixtures', $manual, false );
+    return array( 'added' => $added, 'updated' => $updated, 'skipped' => $skipped );
+}
+add_action( 'admin_post_ftipp_import_csv', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_import_csv' );
+    $args = array( 'page' => 'ftipp' );
+    if ( empty( $_FILES['csv_file']['tmp_name'] ) || ! is_uploaded_file( $_FILES['csv_file']['tmp_name'] ) ) {
+        $args['ftipp_csv'] = 'error'; $args['ftipp_csv_msg'] = rawurlencode( 'Keine Datei ausgewählt.' );
+    } else {
+        $result = ftipp_import_fixtures_csv( $_FILES['csv_file']['tmp_name'] );
+        if ( ! empty( $result['error'] ) ) {
+            $args['ftipp_csv'] = 'error'; $args['ftipp_csv_msg'] = rawurlencode( $result['error'] );
+        } else {
+            $args['ftipp_csv'] = 'ok'; $args['added'] = $result['added']; $args['updated'] = $result['updated']; $args['skipped'] = $result['skipped'];
+        }
+    }
+    wp_safe_redirect( add_query_arg( $args, admin_url( 'options-general.php' ) ) );
+    exit;
+} );
+
+/* Fixture per id finden (für Punkteberechnung) — geht über ftipp_fixtures_for(), damit auch per CSV
+   importierte manuelle Spiele gefunden werden, nicht nur automatisch abgerufene. */
 function ftipp_fixture_by_id( $comp_id, $fixture_id ) {
-    $all = get_option( 'ftipp_fixtures', array() );
-    if ( empty( $all[ $comp_id ] ) ) { return null; }
-    foreach ( $all[ $comp_id ] as $f ) { if ( $f['id'] === $fixture_id ) { return $f; } }
+    foreach ( ftipp_fixtures_for( $comp_id ) as $f ) { if ( $f['id'] === $fixture_id ) { return $f; } }
     return null;
 }
+/**
+ * Alle Spiele eines Wettbewerbs: automatisch abgerufene (ftipp_fixtures) zusammengeführt mit manuell per
+ * CSV importierten (ftipp_manual_fixtures, siehe ftipp_import_fixtures_csv()) — bewusst getrennt gespeichert,
+ * damit der wöchentliche automatische Abruf hochgeladene CSV-Daten nicht überschreibt. Bei gleicher Spiel-ID
+ * gewinnt die manuelle Version (z.B. um ein Ergebnis nachzutragen, das die automatische Quelle nicht kennt).
+ */
 function ftipp_fixtures_for( $comp_id ) {
-    $all = get_option( 'ftipp_fixtures', array() );
-    return isset( $all[ $comp_id ] ) ? $all[ $comp_id ] : array();
+    $auto = get_option( 'ftipp_fixtures', array() );
+    $manual = get_option( 'ftipp_manual_fixtures', array() );
+    $byId = array();
+    foreach ( ( isset( $auto[ $comp_id ] ) ? $auto[ $comp_id ] : array() ) as $f ) { $byId[ $f['id'] ] = $f; }
+    foreach ( ( isset( $manual[ $comp_id ] ) ? $manual[ $comp_id ] : array() ) as $f ) { $byId[ $f['id'] ] = $f; }
+    $out = array_values( $byId );
+    usort( $out, function ( $a, $b ) { return strcmp( $a['date'], $b['date'] ); } );
+    return $out;
 }
 function ftipp_kickoff_ts( $fixture ) { return strtotime( $fixture['date'] ); }
 function ftipp_has_result( $fixture ) { return isset( $fixture['hg'], $fixture['ag'] ) && null !== $fixture['hg'] && null !== $fixture['ag'] && 'FT' === $fixture['status']; }
@@ -1030,9 +1130,11 @@ add_action( 'rest_api_init', function () {
     register_rest_route( 'ftipp/v1', '/data', array(
         'methods' => 'GET', 'permission_callback' => '__return_true',
         'callback' => function () {
+            $fixturesByComp = array();
+            foreach ( ftipp_comp_ids() as $cid ) { $fixturesByComp[ $cid ] = ftipp_fixtures_for( $cid ); }
             return array(
                 'season'   => intval( get_option( 'ftipp_season', 2026 ) ),
-                'fixtures' => get_option( 'ftipp_fixtures', (object) array() ),
+                'fixtures' => $fixturesByComp,
                 'meta'     => get_option( 'ftipp_meta', (object) array() ),
             );
         },
@@ -1947,6 +2049,11 @@ add_action( 'template_redirect', function () {
     if ( ! is_user_logged_in() ) { wp_die( 'Bitte zuerst einloggen.', 'Nicht angemeldet', array( 'response' => 401 ) ); }
 
     $user = wp_get_current_user();
+    // Pro Wettbewerb über ftipp_fixtures_for() lesen, NICHT direkt die Option 'ftipp_fixtures' —
+    // sonst fehlen der App die per CSV importierten Spiele (z.B. Nations League), da die in der
+    // separaten Option 'ftipp_manual_fixtures' liegen und nur ftipp_fixtures_for() beides mischt.
+    $fixturesByComp = array();
+    foreach ( ftipp_comp_ids() as $cid ) { $fixturesByComp[ $cid ] = ftipp_fixtures_for( $cid ); }
     $boot = array(
         'userId'          => $user->ID,
         'userName'        => $user->display_name,
@@ -1954,7 +2061,7 @@ add_action( 'template_redirect', function () {
         'restUrl'         => esc_url_raw( rest_url( 'ftipp/v1/' ) ),
         'nonce'           => wp_create_nonce( 'wp_rest' ),
         'season'          => intval( get_option( 'ftipp_season', 2026 ) ),
-        'fixtures'        => get_option( 'ftipp_fixtures', new stdClass() ),
+        'fixtures'        => $fixturesByComp,
         'meta'            => get_option( 'ftipp_meta', new stdClass() ),
     );
     $file = plugin_dir_path( __FILE__ ) . 'app/index.html';
@@ -2013,14 +2120,14 @@ function ftipp_settings_page() {
     ?>
     <div class="wrap">
         <h1>🏠⚽ Tippstube</h1>
-        <p><strong>1./2. Bundesliga und DFB-Pokal</strong> kommen automatisch über <strong>OpenLigaDB</strong> — gratis, ohne Key,
-           immer die <strong>aktuelle Saison</strong>. Beim DFB-Pokal gibt es dafür bewusst <strong>keinen K.o.-Zusatztipp</strong>
-           (Verlängerung/Elfmeterschießen) mehr — OpenLigaDB kennzeichnet das nicht zuverlässig genug, der normale
-           Tendenz/Exakt-Tipp funktioniert aber einwandfrei. Für <strong>Champions League, Europa League und
-           Nations League</strong> brauchst du zusätzlich einen kostenlosen <strong>API-Football</strong>-Key.
-           <strong>Hinweis:</strong> der Gratis-Tarif von API-Football deckt dort nur die Saisons 2021–2023 ab — für
-           die aktuelle Saison dieser drei Wettbewerbe ist (noch) ein Bezahltarif nötig, oder du nutzt zum Testen
-           „🎲 Test-Spiele laden" weiter unten.</p>
+        <p><strong>1./2. Bundesliga, DFB-Pokal, Champions League und Europa League</strong> kommen automatisch über
+           <strong>OpenLigaDB</strong> — gratis, ohne Key, immer die <strong>aktuelle Saison</strong>. Bei diesen vier
+           Wettbewerben gibt es dafür bewusst <strong>keinen K.o.-Zusatztipp</strong> (Verlängerung/Elfmeterschießen)
+           mehr — OpenLigaDB kennzeichnet das nicht zuverlässig genug, der normale Tendenz/Exakt-Tipp funktioniert
+           aber einwandfrei. Für die <strong>Nations League</strong> brauchst du zusätzlich einen kostenlosen
+           <strong>API-Football</strong>-Key. <strong>Hinweis:</strong> der Gratis-Tarif von API-Football deckt dort
+           nur die Saisons 2021–2023 ab — für die aktuelle Saison ist (noch) ein Bezahltarif nötig, oder du nutzt
+           zum Testen „🎲 Test-Spiele laden" weiter unten.</p>
 
         <?php if ( isset( $_GET['ftipp_done'] ) ) : ?>
             <div class="notice notice-<?php echo ( 'ok' === $_GET['ftipp_done'] ) ? 'success' : 'error'; ?> is-dismissible">
@@ -2037,11 +2144,12 @@ function ftipp_settings_page() {
                                value="<?php echo esc_attr( get_option( 'ftipp_api_key', '' ) ); ?>" autocomplete="off" placeholder="dein Key von api-football.com" /></td>
                 </tr>
                 <tr>
-                    <th scope="row"><label for="ftipp_season">Saison (Champions League/Europa League/Nations League)</label></th>
+                    <th scope="row"><label for="ftipp_season">Saison (Nations League)</label></th>
                     <td><input name="ftipp_season" id="ftipp_season" type="number" value="<?php echo esc_attr( get_option( 'ftipp_season', 2026 ) ); ?>" style="width:110px" />
-                        <p class="description">Gilt nur für die drei API-Football-Wettbewerbe. Startjahr der Saison. 2026 = Saison 2026/27.
-                        Zum Testen mit vollständigen Ergebnissen: 2023. 1./2. Bundesliga und DFB-Pokal laufen unabhängig davon
-                        immer auf der aktuellen Saison via OpenLigaDB.</p></td>
+                        <p class="description">Gilt nur für die Nations League (einziger verbliebener API-Football-Wettbewerb).
+                        Startjahr der Saison. 2026 = Saison 2026/27. Zum Testen mit vollständigen Ergebnissen: 2023.
+                        1./2. Bundesliga, DFB-Pokal, Champions League und Europa League laufen unabhängig davon immer
+                        auf der aktuellen Saison via OpenLigaDB.</p></td>
                 </tr>
             </table>
             <?php submit_button( 'Speichern' ); ?>
@@ -2070,22 +2178,59 @@ function ftipp_settings_page() {
             <?php submit_button( '🎲 Test-Spiele laden (zum Ausprobieren)', 'secondary', 'submit', false ); ?>
         </form>
 
+        <hr>
+        <h2 style="margin-top:24px">📄 Spieldaten per CSV importieren</h2>
+        <p>Für Wettbewerbe ohne gute kostenlose API (aktuell: <strong>Nations League</strong>) kannst du den
+           Spielplan (und später die Ergebnisse) selbst per CSV-Datei hochladen. Das <strong>ergänzt</strong> nur —
+           bereits automatisch geladene Spiele bleiben unangetastet, und ein erneuter Upload derselben Begegnung
+           (gleicher Wettbewerb + gleiche Teams + gleiches Datum) aktualisiert den Eintrag, statt ihn zu
+           duplizieren (damit dabei keine Tipps verwaisen).</p>
+        <p><strong>Spalten (erste Zeile = Kopfzeile, Komma-getrennt):</strong>
+           <code>Wettbewerb,Spieltag,Datum,Heim,Auswaerts,ToreHeim,ToreAusw</code><br>
+           <code>Wettbewerb</code> = Kürzel wie <code>NL</code>, <code>CL</code> usw. · <code>Datum</code> im Format
+           <code>YYYY-MM-DD HH:MM</code> · <code>ToreHeim</code>/<code>ToreAusw</code> leer lassen, solange das
+           Spiel noch nicht gespielt ist — dieselbe Datei mit ausgefülltem Ergebnis später einfach nochmal hochladen.</p>
+        <?php if ( isset( $_GET['ftipp_csv'] ) ) : ?>
+            <?php if ( 'ok' === $_GET['ftipp_csv'] ) : ?>
+                <div class="notice notice-success is-dismissible">
+                    <p>Import fertig: <?php echo intval( $_GET['added'] ?? 0 ); ?> neu, <?php echo intval( $_GET['updated'] ?? 0 ); ?> aktualisiert,
+                       <?php echo intval( $_GET['skipped'] ?? 0 ); ?> übersprungen (fehlerhafte/unvollständige Zeilen).</p>
+                </div>
+            <?php else : ?>
+                <div class="notice notice-error is-dismissible">
+                    <p>Import fehlgeschlagen: <?php echo esc_html( isset( $_GET['ftipp_csv_msg'] ) ? rawurldecode( $_GET['ftipp_csv_msg'] ) : 'Unbekannter Fehler.' ); ?></p>
+                </div>
+            <?php endif; ?>
+        <?php endif; ?>
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
+            <input type="hidden" name="action" value="ftipp_import_csv" />
+            <?php wp_nonce_field( 'ftipp_import_csv' ); ?>
+            <input type="file" name="csv_file" accept=".csv,text/csv" required />
+            <?php submit_button( '📄 CSV importieren', 'secondary', 'submit', false ); ?>
+        </form>
+
         <?php if ( ! empty( $meta ) && is_array( $meta ) ) : ?>
             <h2>Letzter Abruf</h2>
             <p><strong>Zeitpunkt:</strong> <?php echo isset( $meta['last_fetch'] ) ? esc_html( wp_date( 'd.m.Y H:i', $meta['last_fetch'] ) ) : '—'; ?>
                &nbsp;·&nbsp; <strong>Saison (API-Football):</strong> <?php echo esc_html( isset( $meta['season'] ) ? $meta['season'] : '—' ); ?>
                &nbsp;·&nbsp; <strong>Aktuelle dt. Saison (OpenLigaDB):</strong> <?php echo esc_html( isset( $meta['de_season'] ) ? $meta['de_season'] : '—' ); ?></p>
-            <table class="widefat striped" style="max-width:760px">
-                <thead><tr><th>Wettbewerb</th><th>Quelle</th><th>Spiele geladen</th><th>Hinweis/Fehler</th></tr></thead>
+            <table class="widefat striped" style="max-width:900px">
+                <thead><tr><th>Wettbewerb</th><th>Quelle</th><th>Spiele geladen</th><th>davon per CSV</th><th>Hinweis/Fehler</th></tr></thead>
                 <tbody>
+                <?php $manualAll = get_option( 'ftipp_manual_fixtures', array() ); ?>
                 <?php foreach ( ftipp_leagues() as $cid => $lg ) :
                     $c = isset( $meta['counts'][ $cid ] ) ? intval( $meta['counts'][ $cid ] ) : 0;
+                    $m = isset( $manualAll[ $cid ] ) ? count( $manualAll[ $cid ] ) : 0;
                     $e = isset( $meta['errors'][ $cid ] ) ? $meta['errors'][ $cid ] : '';
                     $s = isset( $meta['sources'][ $cid ] ) ? $meta['sources'][ $cid ] : '—'; ?>
-                    <tr><td><?php echo esc_html( $lg['name'] ); ?></td><td><?php echo esc_html( $s ); ?></td><td><?php echo esc_html( $c ); ?></td><td style="color:#b32d2e"><?php echo esc_html( $e ); ?></td></tr>
+                    <tr><td><?php echo esc_html( $lg['name'] ); ?></td><td><?php echo esc_html( $s ); ?></td><td><?php echo esc_html( $c ); ?></td><td><?php echo $m ? esc_html( $m ) : '—'; ?></td><td style="color:#b32d2e"><?php echo esc_html( $e ); ?></td></tr>
                 <?php endforeach; ?>
                 </tbody>
             </table>
+            <p class="description">"Spiele geladen" zeigt nur den automatischen Abruf — per CSV importierte Spiele
+               stehen separat in "davon per CSV" und werden in der App zusätzlich angezeigt (siehe
+               <code>ftipp_fixtures_for()</code>), unabhängig davon, ob der automatische Abruf für diesen
+               Wettbewerb etwas findet.</p>
         <?php endif; ?>
 
         <?php $orphaned = ftipp_orphaned_tips(); if ( $orphaned ) : ?>

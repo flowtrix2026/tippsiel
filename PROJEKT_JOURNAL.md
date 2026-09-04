@@ -984,6 +984,95 @@ Ergebnisse kommen **automatisch per API**.
 - *Noch nicht live getestet:* Plugin-Update einspielen, "Tippen"-Tab öffnen, prüfen dass automatisch ein
   sinnvoller aktueller Spieltag vorausgewählt ist, und dass Dropdown + Pfeile korrekt zwischen Spieltagen
   wechseln, ohne dabei bereits eingetragene Tipps zu verlieren.
+- **Frage:** "Wie bekommen wir die Champions-League-Daten jetzt hier rein?" — daraufhin recherchiert
+  (WebFetch gegen die echte OpenLigaDB-API, wie schon beim DFB-Pokal): anders als bei der Nations League gibt
+  es für Champions League ("ucl", Saison 2026) UND Europa League ("uel2026") echte, korrekt terminierte
+  Spieldaten für die aktuelle Saison 2026/27 — 18 Spiele für den 1. CL-Spieltag ab 8. September 2026 geprüft
+  und dem Nutzer als Tabelle gezeigt (u.a. Real Madrid–Inter, Bayern–Bodø/Glimt, Dortmund–Villarreal).
+  Zwischenzeitlich auch eine Idee des Nutzers besprochen (CSV/Excel-Upload für Wettbewerbe ohne gute API) —
+  zurückgestellt zugunsten des direkten, schnelleren Wegs für CL/EL, da hierfür ja eine Quelle existiert;
+  die CSV-Idee bleibt für später vorgemerkt (z.B. für Nations League, wo weiterhin keine brauchbare
+  kostenlose API-Quelle existiert).
+- **v0.8.22 — Champions League + Europa League auf OpenLigaDB umgestellt:**
+  - Gleiches Vorgehen wie beim DFB-Pokal (v0.8.17): `ftipp_openligadb_shortcut()` um `CL => 'ucl'` und
+    `EL => 'uel2026'` ergänzt, beide in den OpenLigaDB-Loop von `ftipp_fetch_all()` aufgenommen (mit
+    automatischem Fallback auf API-Football, falls OpenLigaDB mal leer/down ist — unverändertes bestehendes
+    Verhalten). Die bereits vorhandene Absicherung in `ftipp_fetch_openligadb()` (bevorzugt "nach 90 Minuten"
+    statt "Endergebnis" bei K.o.-Spielen) greift dadurch automatisch auch für CL/EL, ohne Codeänderung nötig.
+  - **Wichtige Eigenheit dokumentiert (Code-Kommentar):** anders als bei BL1/BL2/DFB-Pokal ist der
+    OpenLigaDB-Shortcut für Champions/Europa League **nicht über die Jahre stabil** — die Community hat ihn
+    historisch fast jede Saison neu benannt (cl → cl1011 → ucl2014 → ucl2024 → ucl bei der CL). Die aktuell
+    hinterlegten Shortcuts gelten für 2026/27 und müssten zur nächsten Saison manuell gegengeprüft werden
+    (via `api.openligadb.de/getavailableleagues`), falls der Abruf plötzlich leer läuft.
+  - K.o.-Zusatztipp entfällt jetzt auch bei Champions League und Europa League (automatisch, da der
+    OpenLigaDB-Pfad grundsätzlich `ko: false` setzt) — betrifft damit inzwischen drei Wettbewerbe
+    (DFB-Pokal, CL, EL). Nations League bleibt als einziger API-Football-Wettbewerb übrig.
+  - Texte überall aktualisiert: Plugin-Beschreibung, großer Hybrid-Kommentar, Einstellungsseiten-Hinweistext,
+    Saison-Feld-Label (jetzt nur noch "Nations League" statt drei Wettbewerbe).
+  - PHP-Syntax mit `php -l` geprüft.
+- *Noch nicht live getestet:* Plugin-Update einspielen, "📥 Spieldaten jetzt abrufen" klicken, prüfen dass
+  Champions League und Europa League jetzt "OpenLigaDB (aktuelle Saison)" als Quelle zeigen und die echten
+  Spiele ab 8./16. September 2026 laden — inkl. Gegenprüfung, dass kein K.o.-Zusatztipp-Kasten mehr erscheint.
+- **Nations League bleibt ungelöst über APIs:** trotz Nachfrage ("gibt es eine andere API dafür, Andy?")
+  zusätzlich **football-data.org** (Nations League nicht im Gratis-Tarif) und **TheSportsDB** (Nations League
+  gar nicht im Programm) geprüft — beide kein Treffer. Damit vier Quellen ergebnislos geprüft (OpenLigaDB,
+  API-Football, football-data.org, TheSportsDB). Nutzer bestand ausdrücklich auf "alle Nationen" (keine
+  Reduktion auf nur Deutschlands Gruppe, obwohl dafür ein brauchbarer OpenLigaDB-Eintrag "DFB Nationalspiele"
+  gefunden wurde) — für diesen Fall bleibt nur eine manuelle Lösung.
+- **Nutzer-Idee:** CSV/Excel-Upload für Wettbewerbe ohne gute Gratis-API — von ihm selbst vorgeschlagen, jetzt
+  umgesetzt. Zusatzfrage "kriegen wir die Nations-League-Daten als CSV irgendwoher" beantwortet: ja, per
+  Recherche zusammenstellbar statt von Hand abzutippen — dafür einen Hintergrund-Agenten gestartet
+  (Wikipedia/UEFA.com als Quelle, alle 4 Divisionen A–D, Ziel-Datei `nations-league-2026-27.csv`).
+- **v0.8.23 — CSV-Import für Spieldaten:**
+  - Neue Funktion `ftipp_import_fixtures_csv()`: liest eine hochgeladene CSV (Spalten `Wettbewerb,Spieltag,
+    Datum,Heim,Auswaerts,ToreHeim,ToreAusw`), erkennt Kopfzeile robust (Groß-/Kleinschreibung, Spaltenreihenfolge
+    egal), validiert Wettbewerbs-Kürzel gegen `ftipp_comp_ids()`.
+  - **Stabile, deterministische Spiel-ID** aus Wettbewerb+Teams+Datum (Hash) — dieselbe reale Begegnung bekommt
+    bei jedem Upload dieselbe ID, ein erneuter Upload mit jetzt bekanntem Ergebnis **aktualisiert** den
+    bestehenden Eintrag statt einen zweiten anzulegen. Direkte Lehre aus dem DFB-Pokal-Vorfall (v0.8.20)
+    umgesetzt, damit das hier nicht nochmal passieren kann.
+  - **Architektur-Entscheidung, um denselben Fehler nicht zu wiederholen:** manuell importierte Spiele landen
+    in einem **eigenen** Options-Speicher (`ftipp_manual_fixtures`), getrennt von den automatisch abgerufenen
+    (`ftipp_fixtures`) — sonst hätte der nächste wöchentliche Automatik-Abruf (der `ftipp_fixtures` komplett
+    neu schreibt) die CSV-Daten beim nächsten Mal wieder gelöscht. `ftipp_fixtures_for()` (die zentrale
+    Stelle, über die JEDER andere Teil des Plugins Spieldaten liest — Rangliste, Tipp-Anzeige, Statistik, siehe
+    auch `ftipp_fixture_by_id()`, jetzt ebenfalls umgestellt) führt beide Speicher automatisch zusammen, bei
+    ID-Kollision gewinnt die manuelle Version. Damit kann ein Wettbewerb künftig auch **teils automatisch,
+    teils manuell** befüllt sein (z.B. CL größtenteils über OpenLigaDB, einzelne fehlende Spieltage per CSV
+    ergänzt), ohne dass sich beide Quellen gegenseitig überschreiben.
+  - Neuer Bereich "📄 Spieldaten per CSV importieren" auf der Einstellungsseite: Datei-Upload-Formular,
+    Spalten-Erklärung, Rückmeldung nach Import (neu/aktualisiert/übersprungen). "Letzter Abruf"-Tabelle um
+    Spalte "davon per CSV" ergänzt, damit auf einen Blick sichtbar ist, wie viele Spiele manuell drin sind.
+  - K.o.-Zusatztipp bleibt bei CSV-importierten Spielen bewusst aus (`ko: false`, wie bei den OpenLigaDB-
+    Wettbewerben) — CSV-Format sieht (noch) keine Verlängerung/Elfmeterschießen-Angabe vor.
+  - PHP-Syntax mit `php -l` geprüft.
+- *Noch nicht live getestet:* Plugin-Update einspielen, sobald die recherchierte Nations-League-CSV vorliegt
+  hochladen, prüfen dass die Spiele in der App auftauchen (auch ohne dass der automatische Abruf für NL
+  irgendwas findet), und dass ein zweiter Upload derselben Datei (z.B. mit einem nachgetragenen Ergebnis)
+  bestehende Einträge aktualisiert statt sie zu duplizieren.
+
+## v0.8.24 — Bugfix: CSV-importierte Spiele erschienen nicht in der App
+- **Live-Test von v0.8.23:** Nations-League-CSV (156 Spiele, recherchiert per Hintergrund-Agent) hochgeladen —
+  Import lief fehlerfrei durch, "Letzter Abruf"-Tabelle zeigte korrekt "davon per CSV: 156". Trotzdem stand im
+  Tippen-Tab bei Nations League weiterhin "Noch keine Spiele geladen". Systematisch eingegrenzt (Datei lokal
+  gegen die echte Import-Funktion getestet → 156 fehlerfrei importiert, also Datei/Import selbst i.O.; dann
+  Plugin-Liste, Einstellungsseite und "Letzter Abruf"-Tabelle per Screenshot geprüft → Daten sind definitiv in
+  der Datenbank).
+- **Ursache gefunden:** Die App bekommt ihre Spieldaten beim Laden nicht (nur) über die REST-API, sondern
+  direkt beim Seitenaufruf server-seitig als `window.FTIPP_BOOT` eingebettet (`template_redirect`-Hook für
+  `?ftipp_app=1`). Diese Stelle las die Spiele bisher direkt über `get_option('ftipp_fixtures', ...)` — also
+  nur den automatischen Abruf — statt über `ftipp_fixtures_for()`, die zentrale Funktion, die automatische und
+  per CSV importierte Spiele zusammenführt. Dieselbe Abkürzung steckte auch im (ungenutzten, aber vorsorglich
+  mitgefixten) REST-Endpunkt `GET /ftipp/v1/data`. Ergebnis: Punkteberechnung, Rangliste und Statistik nutzten
+  bereits korrekt `ftipp_fixtures_for()` und "sahen" die CSV-Spiele — nur der allererste Ladepunkt der App tat
+  es nicht, weshalb die Spiele im Tippen-Tab schlicht fehlten, obwohl der Import erfolgreich war.
+- **Fix:** Beide Stellen (App-Boot in `template_redirect`, REST-Route `/data`) bauen die `fixtures`-Struktur
+  jetzt pro Wettbewerb über `ftipp_fixtures_for( $cid )` auf, genau wie der Rest des Plugins. Kein neuer Fehler-
+  Modus für die Zukunft: jede neue Stelle, die Spieldaten braucht, sollte künftig ebenfalls `ftipp_fixtures_for()`
+  statt der rohen Option verwenden — das ist jetzt an beiden Boot-Stellen per Code-Kommentar festgehalten.
+  PHP-Syntax mit `php -l` geprüft.
+- *Noch nicht live getestet:* Plugin-Update auf v0.8.24 einspielen (kein neuer CSV-Upload nötig, die 156 Spiele
+  liegen schon in der Datenbank), Tippen-Tab → Nations League öffnen, prüfen dass jetzt alle Spiele erscheinen.
 
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
