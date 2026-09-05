@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Nations League + Süper Lig + Serie A + Ligue 1 + Ekstraklasa per CSV-Import oder API-Football.
- * Version:           0.8.3
+ * Version:           0.8.4
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '0.8.3' );
+define( 'FTIPP_VERSION', '0.8.4' );
 define( 'FTIPP_DB_VERSION', '10' );
 
 /**
@@ -2608,7 +2608,110 @@ function ftipp_page_placeholder( $title ) {
 }
 function ftipp_page_design()    { ftipp_page_placeholder( 'Design' ); }
 function ftipp_page_history()   { ftipp_page_placeholder( 'History' ); }
-function ftipp_page_changelog() { ftipp_page_placeholder( 'Changelog' ); }
+
+/**
+ * Liest CHANGELOG.md (eine bei jedem Release mitkopierte Kopie von PROJEKT_JOURNAL.md, siehe
+ * ftipp_page_changelog()) und zerlegt sie in einzelne Versions-Einträge.
+ *
+ * Format: "## v<Version> — <Titel>" (Em-Dash), alles danach bis zur nächsten "##"-Überschrift ist
+ * der Eintragstext. Nicht-versionierte Zwischenüberschriften (z.B. "## Projekt auf GitHub
+ * veröffentlicht") schließen den laufenden Eintrag ab, ohne selbst einer zu werden. Am
+ * "## OFFENE AUFGABEN"-Abschnitt wird abgebrochen. Versionsnummern sind nicht eindeutig/monoton
+ * (Korrekturen im Projektverlauf) — die Reihenfolge kommt daher ausschließlich aus der Position in
+ * der Datei, nicht aus einem Versionsvergleich.
+ */
+function ftipp_parse_changelog_md( $path ) {
+    if ( ! file_exists( $path ) ) { return null; }
+    $lines = file( $path, FILE_IGNORE_NEW_LINES );
+    if ( ! $lines ) { return array(); }
+
+    $entries = array();
+    $current = null;
+    foreach ( $lines as $line ) {
+        if ( preg_match( '/^##\s+OFFENE AUFGABEN/i', $line ) ) {
+            break;
+        }
+        if ( preg_match( '/^##\s+v(\S+)\s+—\s+(.+)$/u', $line, $m ) ) {
+            if ( $current ) { $entries[] = $current; }
+            $current = array( 'version' => $m[1], 'title' => $m[2], 'body' => array() );
+            continue;
+        }
+        if ( preg_match( '/^##\s+/', $line ) ) {
+            if ( $current ) { $entries[] = $current; }
+            $current = null;
+            continue;
+        }
+        if ( $current ) { $current['body'][] = $line; }
+    }
+    if ( $current ) { $entries[] = $current; }
+
+    return array_reverse( $entries );
+}
+
+/**
+ * Sehr einfacher, absichtlich eingeschränkter Markdown-zu-HTML-Konverter fürs Changelog: erst
+ * esc_html() auf den kompletten Rohtext (nie ungefiltertes HTML ausgeben), danach gezielt Markdown-
+ * Inline-Formatierung ersetzen. Reihenfolge wichtig: Code vor Fett (sonst Konflikt mit Sternchen in
+ * Code-Beispielen), Fett vor Kursiv (sonst frisst "**" das erste "*" eines "*kursiv*").
+ */
+function ftipp_changelog_md_to_html( array $bodyLines ) {
+    $html = '';
+    $inList = false;
+    foreach ( $bodyLines as $line ) {
+        $trimmed = trim( $line );
+        if ( '' === $trimmed ) {
+            if ( $inList ) { $html .= '</ul>'; $inList = false; }
+            continue;
+        }
+        $isListItem = ( 0 === strpos( $trimmed, '- ' ) );
+        $text = $isListItem ? substr( $trimmed, 2 ) : $trimmed;
+
+        $text = esc_html( $text );
+        $text = preg_replace( '/`([^`]+)`/', '<code>$1</code>', $text );
+        $text = preg_replace( '/\*\*([^*]+)\*\*/', '<strong>$1</strong>', $text );
+        $text = preg_replace( '/(?<!\*)\*([^*]+)\*(?!\*)/', '<em>$1</em>', $text );
+        $text = preg_replace( '/\[([^\]]+)\]\(([^)]+)\)/', '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>', $text );
+
+        if ( $isListItem ) {
+            if ( ! $inList ) { $html .= '<ul>'; $inList = true; }
+            $html .= '<li>' . $text . '</li>';
+        } else {
+            if ( $inList ) { $html .= '</ul>'; $inList = false; }
+            $html .= '<p>' . $text . '</p>';
+        }
+    }
+    if ( $inList ) { $html .= '</ul>'; }
+    return $html;
+}
+
+/**
+ * Changelog-Seite: liest fussball-tippspiel/CHANGELOG.md — eine Kopie von PROJEKT_JOURNAL.md, die bei
+ * jedem Release manuell mitkopiert wird (das Journal selbst liegt nur im Projektordner, nicht im
+ * Plugin-Zip, der Live-Server hat also sonst keinen Zugriff darauf).
+ */
+function ftipp_page_changelog() {
+    if ( ! current_user_can( 'manage_options' ) ) { return; }
+    $entries = ftipp_parse_changelog_md( plugin_dir_path( __FILE__ ) . 'CHANGELOG.md' );
+    ?>
+    <div class="wrap">
+        <h1>📜 Changelog</h1>
+        <?php if ( null === $entries ) : ?>
+            <p>Kein Changelog gefunden.</p>
+        <?php elseif ( empty( $entries ) ) : ?>
+            <p>Der Changelog ist derzeit leer.</p>
+        <?php else : ?>
+            <?php foreach ( $entries as $entry ) : ?>
+                <div style="margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid #dcdcde">
+                    <h2 style="margin-bottom:6px">
+                        v<?php echo esc_html( $entry['version'] ); ?> — <?php echo esc_html( $entry['title'] ); ?>
+                    </h2>
+                    <?php echo ftipp_changelog_md_to_html( $entry['body'] ); // phpcs:ignore -- bereits in ftipp_changelog_md_to_html() escaped ?>
+                </div>
+            <?php endforeach; ?>
+        <?php endif; ?>
+    </div>
+    <?php
+}
 
 /**
  * Cron-Job-Seite: frei einstellbares Intervall für den automatischen Spieldaten-Abruf (ftipp_weekly_fetch).
