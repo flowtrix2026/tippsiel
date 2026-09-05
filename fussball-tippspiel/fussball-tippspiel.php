@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Nations League + Süper Lig + Serie A + Ligue 1 + Ekstraklasa per CSV-Import oder API-Football.
- * Version:           0.8.0
+ * Version:           0.8.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '0.8.0' );
+define( 'FTIPP_VERSION', '0.8.1' );
 define( 'FTIPP_DB_VERSION', '10' );
 
 /** Wettbewerbe: interne ID => [Name, API-Football Liga-ID, Art] */
@@ -2583,7 +2583,61 @@ function ftipp_page_design()    { ftipp_page_placeholder( 'Design' ); }
 function ftipp_page_cron()      { ftipp_page_placeholder( 'Cron-Job' ); }
 function ftipp_page_history()   { ftipp_page_placeholder( 'History' ); }
 function ftipp_page_changelog() { ftipp_page_placeholder( 'Changelog' ); }
-function ftipp_page_info()      { ftipp_page_placeholder( 'Info' ); }
+
+/**
+ * Info-Seite: kurze Anleitung/Glossar für den Plattform-Admin, rein statisch, kein Formular.
+ */
+function ftipp_page_info() {
+    if ( ! current_user_can( 'manage_options' ) ) { return; }
+    ?>
+    <div class="wrap">
+        <h1>ℹ️ Info</h1>
+
+        <h2>So funktioniert das Tippen</h2>
+        <p>Jedes Spiel kann getippt werden, bis es anpfeift — danach ist die Frist abgelaufen und der Tipp
+           gesperrt. Solange ein Tipp nicht aktiv über „Tipp abgeben" bestätigt wurde, ist er editierbar und
+           für andere Mitspieler verdeckt; erst nach der Bestätigung wird er fix und sichtbar. Bei K.o.-Spielen
+           (Pokal/Europapokal) erscheint zusätzlich ein optionaler <strong>K.o.-Zusatztipp</strong>, sobald der
+           reguläre 90-Minuten-Tipp unentschieden lautet: wie die Partie letztlich ausgeht (nach Verlängerung
+           oder im Elfmeterschießen) — das bringt Extrapunkte on top.</p>
+
+        <h2>Punktesystem &amp; Modus</h2>
+        <p>Grundpunkte: <strong>1 Punkt für die richtige Tendenz</strong> (Sieg/Unentschieden/Niederlage),
+           <strong>3 Punkte für das exakte Ergebnis</strong> (keine Tordifferenz-Zwischenstufe). Ein richtiger
+           K.o.-Zusatztipp bringt 3 weitere Punkte. Wer ein Spiel bis zur Frist nicht getippt hat, kann pro
+           Runde mit einem <strong>Malus</strong> (Punktabzug) belegt werden — Höhe und Ein/Aus legt der
+           Runden-Admin fest. Für den Umgang mit Punktgleichstand wählt der Runden-Admin pro Runde einen
+           <strong>Modus</strong>: „Freundschaftlich" (geteilter Platz bei Gleichstand) oder „Challenge"
+           (harter Tie-Break: mehr exakte Treffer, dann mehr K.o.-Bonuspunkte entscheiden).</p>
+
+        <h2>Sonderwertungen</h2>
+        <p>Eine Sonderwertung ist eine saisonlange Wette pro Wettbewerb (z. B. Meister, Torschützenkönig), die
+           der Runden-Admin mit eigenen Punkten und eigener Frist anlegt — getrennt von den Spiel-Tipps. Die
+           Auflösung läuft standardmäßig über einen automatischen Textvergleich zwischen Tipp und eingetragenem
+           Ergebnis (Groß-/Kleinschreibung egal, sonst exakt); der Runden-Admin kann das für einzelne Mitglieder
+           manuell übersteuern, falls der Wortlaut nur leicht abweicht (z. B. „St. Pauli" vs. „FC St. Pauli").</p>
+
+        <h2>CSV-Import</h2>
+        <p>Für Wettbewerbe ohne zuverlässige kostenlose Quelle (aktuell z. B. Nations League, Süper Lig, Serie A,
+           Ligue 1, Ekstraklasa) lässt sich der Spielplan — und später das Ergebnis — per CSV-Datei auf der
+           Einstellungen-Seite hochladen. Bereits automatisch geladene Spiele bleiben unangetastet, und ein
+           erneuter Upload derselben Begegnung (gleicher Wettbewerb + gleiche Teams + gleiches Datum)
+           aktualisiert nur den bestehenden Eintrag, statt ihn zu duplizieren — so gehen keine Tipps verloren.</p>
+
+        <h2>Rollen</h2>
+        <p><strong>Plattform-Admin:</strong> der Betreiber der gesamten Tippstube (WordPress-Nutzer mit
+           <code>manage_options</code>) — hat für Support-/Notfälle Zugriff auf jede Tipprunde.<br>
+           <strong>Runden-Admin:</strong> der Ersteller einer Tipprunde — legt Punktesystem, Malus, Modus und
+           Sonderwertungen fest und verwaltet die Mitglieder seiner Runde.<br>
+           <strong>Mitspieler:</strong> ein Mitglied einer Tipprunde, das tippt und die Rangliste/Pinnwand dieser
+           Runde sieht.</p>
+
+        <h2>Über &amp; Kontakt</h2>
+        <p>Tippstube — ein Projekt von <strong>Florian Henschke</strong>.<br>
+           Quellcode: <a href="https://github.com/flowtrix2026/tippsiel" target="_blank" rel="noopener noreferrer">github.com/flowtrix2026/tippsiel</a></p>
+    </div>
+    <?php
+}
 add_action( 'admin_init', function () {
     register_setting( 'ftipp_group', 'ftipp_api_key', array( 'sanitize_callback' => 'sanitize_text_field', 'default' => '' ) );
     register_setting( 'ftipp_group', 'ftipp_season',  array( 'sanitize_callback' => 'absint', 'default' => 2026 ) );

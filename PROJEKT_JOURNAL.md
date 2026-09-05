@@ -1533,6 +1533,17 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.8.0 einspielen, Untermenü-Struktur und
   bestehende Aktionen (Fetch/CSV/Test-Buttons) einmal live gegenprüfen.
 
+## v0.8.1 — Info-Seite mit Inhalt gefüllt
+- Zweiter Schritt des Untermenü-Ausbaus (nach v0.8.0): der Platzhalter unter "Info" bekommt echten Inhalt —
+  eine kurze, statische Anleitung/Glossar für den Plattform-Admin, ohne Formular oder DB-Zugriff.
+- Abschnitte: Tippen (Frist, Geheimhaltung bis Bestätigung, K.o.-Zusatztipp), Punktesystem & Modus
+  (Tendenz/Exakt/K.o.-Punkte, Malus, Freundschaftlich vs. Challenge), Sonderwertungen (automatischer
+  Textvergleich, manuelle Übersteuerung), CSV-Import (Kurzfassung, Duplikat-Schutz per Wettbewerb+Teams+Datum),
+  Rollen (Plattform-Admin/Runden-Admin/Mitspieler, Begriffe 1:1 aus CONTEXT.md), Über & Kontakt (Autor,
+  GitHub-Link).
+- Lokal getestet: Seite rendert fehlerfrei, alle Umlaute/Anführungszeichen korrekt, kein PHP-Fehler im Log.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.8.1 einspielen, Info-Seite gegenprüfen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
