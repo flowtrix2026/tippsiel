@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2. Bundesliga + DFB-Pokal + Champions/Europa League via OpenLigaDB (aktuelle Saison, gratis), Nations League via API-Football.
- * Version:           0.8.24
+ * Version:           0.9.8
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Tippstube
@@ -12,8 +12,8 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '0.8.24' );
-define( 'FTIPP_DB_VERSION', '7' );
+define( 'FTIPP_VERSION', '0.9.8' );
+define( 'FTIPP_DB_VERSION', '10' );
 
 /** Wettbewerbe: interne ID => [Name, API-Football Liga-ID, Art] */
 function ftipp_leagues() {
@@ -122,6 +122,7 @@ function ftipp_install() {
         user_id BIGINT UNSIGNED NOT NULL,
         value VARCHAR(190) NULL,
         override TINYINT NULL,
+        committed TINYINT NOT NULL DEFAULT 0,
         PRIMARY KEY  (special_id,user_id)
     ) $charset_collate;" );
 
@@ -145,6 +146,43 @@ function ftipp_install() {
 
     update_option( 'ftipp_db_version', FTIPP_DB_VERSION );
     ftipp_migrate_round_subs();
+    ftipp_reset_nl_group_specials();
+}
+
+/**
+ * Einmalige Bereinigung (v0.9.7): Die erste Migration (v0.9.6) versuchte, bestehende "Gruppensieger"-
+ * Sonderwertungen anhand des in der alten Bezeichnung eingebetteten Team-Textes umzubenennen. Das ging bei
+ * mindestens einer Gruppe schief (Team-Erkennung durch Vermischung mit den Demo-Test-Spielen verfälscht, siehe
+ * ftipp_nl_groups()-Fix) — Ergebnis waren doppelte/falsch benannte Gruppen (z.B. zweimal "A1" statt einmal
+ * "A1" und einmal "A2"). Statt die fehlerhaften Bezeichnungen weiter zu reparieren, werden alle bisherigen
+ * NL-"Gruppensieger"-Sonderwertungen (samt bereits abgegebener Tipps dazu) einmalig gelöscht und beim nächsten
+ * Öffnen des Sonderwertungen-Tabs sauber neu aus den jetzt korrekt erkannten Gruppen angelegt. Betrifft nur
+ * die 14 Gruppensieger-Wetten — "Nations-League-Sieger" und "Torschützenkönig" bleiben unangetastet.
+ */
+function ftipp_reset_nl_group_specials() {
+    if ( '1' === get_option( 'ftipp_nl_groups_reset_v1' ) ) { return; }
+    global $wpdb;
+    $specialTable = "{$wpdb->prefix}ftipp_special";
+    $tipsTable = "{$wpdb->prefix}ftipp_special_tips";
+    $rows = $wpdb->get_results( "SELECT id, round_id FROM {$specialTable} WHERE comp_id='NL' AND label LIKE 'Gruppensieger %'", ARRAY_A );
+    $roundIds = array();
+    foreach ( $rows as $r ) {
+        $wpdb->delete( $tipsTable, array( 'special_id' => $r['id'] ) );
+        $wpdb->delete( $specialTable, array( 'id' => $r['id'] ) );
+        $roundIds[ $r['round_id'] ] = true;
+    }
+    // "nlgrp_"-Keys aus seeded_special_keys entfernen, damit ftipp_seed_default_specials() beim nächsten
+    // Aufruf denkt, diese Gruppen seien noch nie vergeben worden, und sie sauber neu anlegt.
+    foreach ( array_keys( $roundIds ) as $rid ) {
+        $cfgRow = $wpdb->get_row( $wpdb->prepare(
+            "SELECT seeded_special_keys FROM {$wpdb->prefix}ftipp_round_config WHERE round_id=%d AND comp_id='NL'", $rid
+        ), ARRAY_A );
+        if ( ! $cfgRow ) { continue; }
+        $keys = array_filter( explode( ',', (string) $cfgRow['seeded_special_keys'] ) );
+        $keys = array_values( array_filter( $keys, function ( $k ) { return 0 !== strpos( $k, 'nlgrp_' ); } ) );
+        $wpdb->update( "{$wpdb->prefix}ftipp_round_config", array( 'seeded_special_keys' => implode( ',', $keys ) ), array( 'round_id' => $rid, 'comp_id' => 'NL' ) );
+    }
+    update_option( 'ftipp_nl_groups_reset_v1', '1' );
 }
 
 /**
@@ -527,6 +565,22 @@ add_action( 'admin_post_ftipp_import_csv', function () {
     exit;
 } );
 
+/**
+ * Frühester Sperrzeitpunkt (Kickoff − Frist-Minuten) über ALLE Spiele desselben Spieltags/derselben Runde
+ * hinweg — der ganze Spieltag sperrt (und wird für alle Mitspieler sichtbar) gemeinsam ab diesem einen
+ * Zeitpunkt, nicht Spiel für Spiel einzeln zu seinem jeweils eigenen Anpfiff. Verhindert, dass jemand nach
+ * schon gesperrten früheren Spielen des Spieltags seine Tipps zu den noch offenen späteren Spielen anpasst.
+ */
+function ftipp_round_lock_ts( $fixtures, $round_name, $deadline_min ) {
+    $ts = null;
+    foreach ( $fixtures as $f ) {
+        if ( $f['round'] !== $round_name ) { continue; }
+        $t = ftipp_kickoff_ts( $f ) - $deadline_min * 60;
+        if ( null === $ts || $t < $ts ) { $ts = $t; }
+    }
+    return $ts;
+}
+
 /* Fixture per id finden (für Punkteberechnung) — geht über ftipp_fixtures_for(), damit auch per CSV
    importierte manuelle Spiele gefunden werden, nicht nur automatisch abgerufene. */
 function ftipp_fixture_by_id( $comp_id, $fixture_id ) {
@@ -634,8 +688,13 @@ function ftipp_deadline_from_ts( $ts ) { return $ts ? gmdate( 'Y-m-d H:i:s', $ts
  * tatsächlichen Begegnungen abgeleitet (Union-Find über den "hat gegen gespielt"-Graphen).
  */
 function ftipp_nl_groups() {
+    // Akzeptiert sowohl "Liga A - Spieltag 1" (echtes Format aus dem CSV-Import) als auch
+    // "Liga A, Spieltag 1" (Format der Demo-Daten/alten API-Football-Übersetzung). Demo-Spiele (IDs mit
+    // "demo-" Präfix, siehe ftipp_load_test_fixtures()) werden dabei bewusst ausgeschlossen — sonst können sie
+    // sich über gemeinsame Teamnamen (z.B. "Deutschland") mit den echten Gruppen verbinden und eine viel zu
+    // große Gruppe vortäuschen, die zu keinem echten Team-Satz mehr passt.
     $stage = array_values( array_filter( ftipp_fixtures_for( 'NL' ), function ( $f ) {
-        return isset( $f['round'] ) && preg_match( '/^Liga [ABCD], Spieltag/', $f['round'] );
+        return isset( $f['round'] ) && preg_match( '/^Liga [ABCD]\s*[,-]\s*Spieltag/', $f['round'] ) && 0 !== strpos( $f['id'], 'demo-' );
     } ) );
     if ( ! $stage ) { return array(); }
 
@@ -675,14 +734,93 @@ function ftipp_nl_groups() {
     }
     usort( $groups, function ( $a, $b ) { return strcmp( $a['division'] . implode( '', $a['teams'] ), $b['division'] . implode( '', $b['teams'] ) ); } );
 
+    // Offizielle UEFA-Gruppennummerierung 2026/27 (aus Wikipedia/UEFA.com geprüft) — die Reihenfolge A1-A4/
+    // B1-B4/C1-C4/D1-D2 ergibt sich aus der Auslosung/Setzliste und lässt sich NICHT aus den Spieldaten selbst
+    // ableiten. Key = alphabetisch sortierte Teams mit "|" verbunden (exakt wie $g['teams'] gebildet wird).
+    // Muss bei der nächsten Auslosung (Saison 2028/29) neu geprüft und aktualisiert werden.
+    $officialCode = array(
+        'Belgien|Frankreich|Italien|Türkei' => 'A1', 'Deutschland|Griechenland|Niederlande|Serbien' => 'A2',
+        'England|Kroatien|Spanien|Tschechien' => 'A3', 'Dänemark|Norwegen|Portugal|Wales' => 'A4',
+        'Nordmazedonien|Schottland|Schweiz|Slowenien' => 'B1', 'Georgien|Nordirland|Ukraine|Ungarn' => 'B2',
+        'Irland|Israel|Kosovo|Österreich' => 'B3', 'Bosnien-Herzegowina|Polen|Rumänien|Schweden' => 'B4',
+        'Albanien|Belarus|Finnland|San Marino' => 'C1', 'Armenien|Lettland|Montenegro|Zypern' => 'C2',
+        'Färöer|Kasachstan|Moldau|Slowakei' => 'C3', 'Bulgarien|Estland|Island|Luxemburg' => 'C4',
+        'Andorra|Gibraltar|Malta' => 'D1', 'Aserbaidschan|Liechtenstein|Litauen' => 'D2',
+    );
     $seq = array();
     foreach ( $groups as &$g ) {
         $seq[ $g['division'] ] = isset( $seq[ $g['division'] ] ) ? $seq[ $g['division'] ] + 1 : 1;
-        $g['key']   = 'nlgrp_' . substr( md5( implode( '|', $g['teams'] ) ), 0, 10 );
-        $g['label'] = 'Gruppensieger Liga ' . $g['division'] . ' – Gruppe ' . $seq[ $g['division'] ] . ' (' . implode( ' · ', $g['teams'] ) . ')';
+        $g['key']  = 'nlgrp_' . substr( md5( implode( '|', $g['teams'] ) ), 0, 10 );
+        $teamKey   = implode( '|', $g['teams'] );
+        // Fallback auf die alte, selbst gezählte Bezeichnung, falls sich die Auslosung geändert hat und der
+        // Team-Satz nicht mehr in der Tabelle oben steht (z.B. andere Saison).
+        $code      = isset( $officialCode[ $teamKey ] ) ? $officialCode[ $teamKey ] : ( 'Liga ' . $g['division'] . ' – Gruppe ' . $seq[ $g['division'] ] );
+        $g['label'] = 'Gruppensieger ' . $code;
     }
     unset( $g );
     return $groups;
+}
+
+/**
+ * Echte Tabelle (nicht die Tipp-Rangliste!) für ein festes Team-Set aus einer Liste Spiele berechnen —
+ * Standard-Fußballregeln (3/1/0 Punkte), sortiert nach Punkte, Tordifferenz, Tore, dann Teamname.
+ * Nur für Wettbewerbe ohne Fremd-API-Tabelle nötig (aktuell: Nations League, aus den CSV-Spieldaten).
+ */
+function ftipp_mini_table( $teams, $fixtures ) {
+    $stats = array();
+    foreach ( $teams as $t ) {
+        $stats[ $t ] = array( 'team' => $t, 'matches' => 0, 'won' => 0, 'draw' => 0, 'lost' => 0, 'goals' => 0, 'opponentGoals' => 0, 'points' => 0 );
+    }
+    foreach ( $fixtures as $f ) {
+        if ( ! ftipp_has_result( $f ) ) { continue; }
+        if ( ! isset( $stats[ $f['home'] ], $stats[ $f['away'] ] ) ) { continue; }
+        $hg = intval( $f['hg'] ); $ag = intval( $f['ag'] );
+        $stats[ $f['home'] ]['matches']++; $stats[ $f['away'] ]['matches']++;
+        $stats[ $f['home'] ]['goals'] += $hg; $stats[ $f['home'] ]['opponentGoals'] += $ag;
+        $stats[ $f['away'] ]['goals'] += $ag; $stats[ $f['away'] ]['opponentGoals'] += $hg;
+        if ( $hg > $ag ) { $stats[ $f['home'] ]['won']++; $stats[ $f['home'] ]['points'] += 3; $stats[ $f['away'] ]['lost']++; }
+        elseif ( $hg < $ag ) { $stats[ $f['away'] ]['won']++; $stats[ $f['away'] ]['points'] += 3; $stats[ $f['home'] ]['lost']++; }
+        else { $stats[ $f['home'] ]['draw']++; $stats[ $f['away'] ]['draw']++; $stats[ $f['home'] ]['points']++; $stats[ $f['away'] ]['points']++; }
+    }
+    $rows = array_values( $stats );
+    foreach ( $rows as &$r ) { $r['goalDiff'] = $r['goals'] - $r['opponentGoals']; }
+    unset( $r );
+    usort( $rows, function ( $a, $b ) {
+        if ( $a['points'] !== $b['points'] ) { return $b['points'] - $a['points']; }
+        if ( $a['goalDiff'] !== $b['goalDiff'] ) { return $b['goalDiff'] - $a['goalDiff']; }
+        if ( $a['goals'] !== $b['goals'] ) { return $b['goals'] - $a['goals']; }
+        return strcmp( $a['team'], $b['team'] );
+    } );
+    foreach ( $rows as $i => &$r ) { $r['rank'] = $i + 1; }
+    unset( $r );
+    return $rows;
+}
+
+/**
+ * Echte Liga-Tabelle über OpenLigaDB (nicht Tipp-Rangliste). 15 Minuten gecacht (Transient), damit nicht
+ * bei jedem Tabelle-Tab-Aufruf ein externer API-Call nötig ist. Bewusst OHNE Team-Logos im Payload — die
+ * kommen bei OpenLigaDB teils als riesige eingebettete Base64-Bilder statt URLs zurück.
+ */
+function ftipp_fetch_bltable( $shortcut, $season ) {
+    $cacheKey = 'ftipp_bltable_' . $shortcut . '_' . $season;
+    $cached = get_transient( $cacheKey );
+    if ( false !== $cached ) { return $cached; }
+    $resp = wp_remote_get( "https://api.openligadb.de/getbltable/{$shortcut}/{$season}", array( 'timeout' => 20 ) );
+    if ( is_wp_error( $resp ) ) { return array(); }
+    $code = (int) wp_remote_retrieve_response_code( $resp );
+    $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+    if ( 200 !== $code || ! is_array( $body ) ) { return array(); }
+    $rows = array();
+    foreach ( $body as $i => $t ) {
+        $rows[] = array(
+            'rank' => $i + 1, 'team' => isset( $t['teamName'] ) ? $t['teamName'] : '?',
+            'matches' => intval( $t['matches'] ), 'won' => intval( $t['won'] ), 'draw' => intval( $t['draw'] ), 'lost' => intval( $t['lost'] ),
+            'goals' => intval( $t['goals'] ), 'opponentGoals' => intval( $t['opponentGoals'] ), 'goalDiff' => intval( $t['goalDiff'] ),
+            'points' => intval( $t['points'] ),
+        );
+    }
+    set_transient( $cacheKey, $rows, 15 * MINUTE_IN_SECONDS );
+    return $rows;
 }
 
 /** Vorbelegte Sonderwertungen je Wettbewerb (werden Runden automatisch einmalig mitgegeben). */
@@ -1465,9 +1603,19 @@ add_action( 'rest_api_init', function () {
             $byUserFixture = array();
             foreach ( $tipRows as $t ) { $byUserFixture[ $t['user_id'] ][ $t['fixture_id'] ] = $t; }
 
+            // Ein ganzer Spieltag sperrt UND wird sichtbar GEMEINSAM, sobald das früheste Spiel dieses
+            // Spieltags seine Frist erreicht (nicht mehr einzeln pro Spiel zu dessen eigenem Anpfiff) — sonst
+            // könnte jemand nach schon gesperrten Freitagsspielen seine Tipps für die noch offenen
+            // Sonntagsspiele anpassen, nachdem er die Tipps der anderen zum Freitagsspiel schon gesehen hat.
+            $roundLockTs = array();
+            foreach ( $fixtures as $f ) {
+                $rn = $f['round']; $ts = ftipp_kickoff_ts( $f ) - $cfg['deadlineMin'] * 60;
+                if ( ! isset( $roundLockTs[ $rn ] ) || $ts < $roundLockTs[ $rn ] ) { $roundLockTs[ $rn ] = $ts; }
+            }
+
             $out = array();
             foreach ( $fixtures as $f ) {
-                $locked = time() >= ( ftipp_kickoff_ts( $f ) - $cfg['deadlineMin'] * 60 );
+                $locked = time() >= $roundLockTs[ $f['round'] ];
                 $mineRow = isset( $byUserFixture[ $uid ][ $f['id'] ] ) ? $byUserFixture[ $uid ][ $f['id'] ] : null;
                 $mine = $mineRow ? array(
                     'h' => $mineRow['hg'] === null ? null : intval( $mineRow['hg'] ),
@@ -1475,7 +1623,7 @@ add_action( 'rest_api_init', function () {
                     'ko' => ( $mineRow['ko_decided'] || $mineRow['ko_winner'] ) ? array( 'decided' => $mineRow['ko_decided'], 'winner' => $mineRow['ko_winner'] ) : null,
                     'committed' => (bool) intval( $mineRow['committed'] ),
                 ) : null;
-                $revealed = $locked || ( $mine && $mine['committed'] );
+                $revealed = $locked;
                 $others = array();
                 if ( $revealed ) {
                     foreach ( $members as $m ) {
@@ -1501,8 +1649,11 @@ add_action( 'rest_api_init', function () {
             $fixture = ftipp_fixture_by_id( $comp, $fid );
             if ( ! $fixture ) { return new WP_Error( 'not_found', 'Spiel nicht gefunden.', array( 'status' => 404 ) ); }
             $cfg = ftipp_round_cfg( $rid, $comp );
-            if ( time() >= ( ftipp_kickoff_ts( $fixture ) - $cfg['deadlineMin'] * 60 ) ) {
-                return new WP_Error( 'locked', 'Dieses Spiel ist bereits gesperrt.', array( 'status' => 400 ) );
+            // Der ganze Spieltag sperrt gemeinsam, sobald dessen frühestes Spiel seine Frist erreicht — nicht
+            // erst beim eigenen Anpfiff dieses einen Spiels (siehe ftipp_round_lock_ts()).
+            $lockTs = ftipp_round_lock_ts( ftipp_fixtures_for( $comp ), $fixture['round'], $cfg['deadlineMin'] );
+            if ( time() >= $lockTs ) {
+                return new WP_Error( 'locked', 'Dieser Spieltag ist bereits gesperrt.', array( 'status' => 400 ) );
             }
             $existing = $wpdb->get_row( $wpdb->prepare(
                 "SELECT * FROM {$wpdb->prefix}ftipp_tips WHERE user_id=%d AND comp_id=%s AND fixture_id=%s", $uid, $comp, $fid
@@ -1562,15 +1713,39 @@ add_action( 'rest_api_init', function () {
             $bets = $wpdb->get_results( $wpdb->prepare(
                 "SELECT * FROM {$wpdb->prefix}ftipp_special WHERE round_id=%d AND comp_id=%s ORDER BY id ASC", $rid, $comp
             ), ARRAY_A );
+            $members = ftipp_round_members( $rid );
+            // Bei der Nations League ist z.B. "Gruppensieger A1" allein nicht selbsterklärend — dafür hier
+            // die zugehörigen Teams mitgeben (nachschlagbar über das identische Label aus ftipp_nl_groups()).
+            $nlTeamsByLabel = array();
+            if ( 'NL' === $comp ) {
+                foreach ( ftipp_nl_groups() as $g ) { $nlTeamsByLabel[ $g['label'] ] = $g['teams']; }
+            }
             $out = array();
             foreach ( $bets as $b ) {
-                $mv = $wpdb->get_var( $wpdb->prepare(
-                    "SELECT value FROM {$wpdb->prefix}ftipp_special_tips WHERE special_id=%d AND user_id=%d", $b['id'], $uid
-                ) );
+                $rows = $wpdb->get_results( $wpdb->prepare(
+                    "SELECT user_id, value, committed FROM {$wpdb->prefix}ftipp_special_tips WHERE special_id=%d", $b['id']
+                ), ARRAY_A );
+                $byUser = array(); foreach ( $rows as $r ) { $byUser[ intval( $r['user_id'] ) ] = $r; }
+                $mine = isset( $byUser[ $uid ] ) ? $byUser[ $uid ] : null;
+                // Sonderwertungen sind Saison-Wetten — anders als bei Spiel-Tipps zeigen wir die Tipps der
+                // anderen NICHT schon, sobald man selbst abgegeben hat, sondern erst gemeinsam für alle,
+                // sobald die Frist abgelaufen ist (kein Vorteil durch "wer zuerst tippt sieht als Erster").
+                $locked = $b['deadline'] && strtotime( $b['deadline'] ) <= time();
+                $others = array();
+                if ( $locked ) {
+                    foreach ( $members as $m ) {
+                        if ( $m['id'] === $uid ) { continue; }
+                        $r = isset( $byUser[ $m['id'] ] ) ? $byUser[ $m['id'] ] : null;
+                        if ( $r && '' !== (string) $r['value'] ) { $others[] = array( 'name' => $m['name'], 'value' => $r['value'] ); }
+                    }
+                }
                 $out[] = array(
                     'id' => intval( $b['id'] ), 'label' => $b['label'], 'type' => $b['type'], 'points' => intval( $b['points'] ),
                     'deadline' => $b['deadline'] ? str_replace( ' ', 'T', substr( $b['deadline'], 0, 16 ) ) : null,
-                    'result' => $b['result'], 'my_value' => $mv,
+                    'result' => $b['result'], 'my_value' => $mine ? $mine['value'] : null,
+                    'my_committed' => $mine ? (bool) intval( $mine['committed'] ) : false,
+                    'locked' => $locked, 'others' => $others,
+                    'teams' => isset( $nlTeamsByLabel[ $b['label'] ] ) ? $nlTeamsByLabel[ $b['label'] ] : null,
                 );
             }
             return array( 'bets' => $out );
@@ -1624,7 +1799,34 @@ add_action( 'rest_api_init', function () {
             if ( ! $bet ) { return new WP_Error( 'not_found', 'Nicht gefunden.', array( 'status' => 404 ) ); }
             if ( ! ftipp_is_round_member( $bet['round_id'], $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
             if ( $bet['deadline'] && strtotime( $bet['deadline'] ) <= time() ) { return new WP_Error( 'locked', 'Frist ist vorbei.', array( 'status' => 400 ) ); }
-            $wpdb->replace( "{$wpdb->prefix}ftipp_special_tips", array( 'special_id' => $id, 'user_id' => $uid, 'value' => sanitize_text_field( $req['value'] ) ) );
+            // Bereits abgegebene Tipps dürfen bis zur Frist weiter geändert werden ("Bearbeiten" im Frontend,
+            // wie bei den Spiel-Tipps) — der Commit-Status bleibt dabei unangetastet.
+            $existing = $wpdb->get_row( $wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}ftipp_special_tips WHERE special_id=%d AND user_id=%d", $id, $uid
+            ), ARRAY_A );
+            $wpdb->replace( "{$wpdb->prefix}ftipp_special_tips", array(
+                'special_id' => $id, 'user_id' => $uid, 'value' => sanitize_text_field( $req['value'] ),
+                'override' => $existing ? $existing['override'] : null,
+                'committed' => $existing ? intval( $existing['committed'] ) : 0,
+            ) );
+            return array( 'ok' => true );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/special/(?P<id>\d+)/tip/commit', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $id = intval( $req['id'] );
+            $bet = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}ftipp_special WHERE id=%d", $id ), ARRAY_A );
+            if ( ! $bet ) { return new WP_Error( 'not_found', 'Nicht gefunden.', array( 'status' => 404 ) ); }
+            if ( ! ftipp_is_round_member( $bet['round_id'], $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            if ( $bet['deadline'] && strtotime( $bet['deadline'] ) <= time() ) { return new WP_Error( 'locked', 'Frist ist vorbei.', array( 'status' => 400 ) ); }
+            $row = $wpdb->get_row( $wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}ftipp_special_tips WHERE special_id=%d AND user_id=%d", $id, $uid
+            ), ARRAY_A );
+            if ( ! $row || '' === (string) $row['value'] ) {
+                return new WP_Error( 'incomplete', 'Bitte zuerst einen Tipp eintragen.', array( 'status' => 400 ) );
+            }
+            $wpdb->update( "{$wpdb->prefix}ftipp_special_tips", array( 'committed' => 1 ), array( 'special_id' => $id, 'user_id' => $uid ) );
             return array( 'ok' => true );
         },
     ) );
@@ -1643,7 +1845,7 @@ add_action( 'rest_api_init', function () {
             if ( ! ftipp_is_round_admin( $bet['round_id'], $uid ) ) { return new WP_Error( 'forbidden', 'Nur der Runden-Admin darf alle Tipps sehen.', array( 'status' => 403 ) ); }
             $members = ftipp_round_members( $bet['round_id'] );
             $rows = $wpdb->get_results( $wpdb->prepare(
-                "SELECT user_id, value, override FROM {$wpdb->prefix}ftipp_special_tips WHERE special_id=%d", $id
+                "SELECT user_id, value, override, committed FROM {$wpdb->prefix}ftipp_special_tips WHERE special_id=%d", $id
             ), ARRAY_A );
             $byUser = array();
             foreach ( $rows as $r ) { $byUser[ intval( $r['user_id'] ) ] = $r; }
@@ -1653,6 +1855,7 @@ add_action( 'rest_api_init', function () {
                 $out[] = array(
                     'user_id' => $m['id'], 'name' => $m['name'],
                     'value' => $r ? $r['value'] : null,
+                    'committed' => $r ? (bool) intval( $r['committed'] ) : false,
                     'override' => ( $r && null !== $r['override'] ) ? (bool) intval( $r['override'] ) : null,
                 );
             }
@@ -1670,12 +1873,42 @@ add_action( 'rest_api_init', function () {
             $existing = $wpdb->get_row( $wpdb->prepare(
                 "SELECT * FROM {$wpdb->prefix}ftipp_special_tips WHERE special_id=%d AND user_id=%d", $id, $targetUid
             ), ARRAY_A );
+            // Der Admin darf hier zusätzlich (auf Nutzerwunsch) auch den eingetippten Text selbst direkt
+            // ändern — z.B. wenn ein Mitspieler nicht mehr selbst ändern kann/darf und den Admin bittet.
+            $newValue = $req->get_param( 'value' );
             $wpdb->replace( "{$wpdb->prefix}ftipp_special_tips", array(
                 'special_id' => $id, 'user_id' => $targetUid,
-                'value' => $existing ? $existing['value'] : null,
+                'value' => null !== $newValue ? sanitize_text_field( $newValue ) : ( $existing ? $existing['value'] : null ),
                 'override' => null === $override ? null : ( $override ? 1 : 0 ),
+                'committed' => $existing ? intval( $existing['committed'] ) : 0,
             ) );
             return array( 'ok' => true );
+        },
+    ) );
+
+    /* -------- Echte Tabelle (nicht die Tipp-Rangliste!) -------- */
+    register_rest_route( 'ftipp/v1', '/table', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            $comp = sanitize_text_field( $req->get_param( 'comp' ) );
+            // DFB-Pokal ist reines K.o.-System — dafür gibt's keine sinnvolle Tabelle.
+            if ( 'DFB' === $comp ) { return array( 'supported' => false ); }
+            if ( 'NL' === $comp ) {
+                $fixtures = ftipp_fixtures_for( 'NL' );
+                $groups = ftipp_nl_groups();
+                $out = array();
+                foreach ( $groups as $g ) {
+                    $out[] = array(
+                        'label' => str_replace( 'Gruppensieger ', 'Gruppe ', $g['label'] ),
+                        'rows'  => ftipp_mini_table( $g['teams'], $fixtures ),
+                    );
+                }
+                return array( 'supported' => true, 'mode' => 'groups', 'groups' => $out );
+            }
+            $shortcut = ftipp_openligadb_shortcut( $comp );
+            if ( ! $shortcut ) { return array( 'supported' => false ); }
+            $season = ftipp_current_de_season();
+            return array( 'supported' => true, 'mode' => 'league', 'season' => $season, 'rows' => ftipp_fetch_bltable( $shortcut, $season ) );
         },
     ) );
 
@@ -1804,7 +2037,52 @@ add_action( 'rest_api_init', function () {
                 if ( $total >= 100 ) { $badges[] = array( 'key' => 'p100', 'icon' => '🌟', 'label' => '100-Punkte-Marke geknackt' ); }
             }
 
-            return array( 'history' => $history, 'mine' => $mine, 'badges' => $badges, 'matches' => $matches );
+            // Bei der Nations League zusätzlich: Wer hat innerhalb JEDER Gruppe am besten getippt (nicht nur
+            // Gesamt-Rangliste), und eine komplette Spiel-für-Spiel-Übersicht mit den Tipps ALLER Mitspieler
+            // (nicht nur die eigenen, wie bei "matches" oben) — beides nur, wenn Gruppen erkannt werden.
+            $nlGroupBoards = array(); $nlMatchBoard = array();
+            if ( 'NL' === $comp ) {
+                foreach ( ftipp_nl_groups() as $g ) {
+                    $groupFixtureIds = array();
+                    foreach ( $fixtures as $f ) {
+                        if ( in_array( $f['home'], $g['teams'], true ) && in_array( $f['away'], $g['teams'], true ) ) {
+                            $groupFixtureIds[ $f['id'] ] = true;
+                        }
+                    }
+                    $rowsOut = array();
+                    foreach ( $members as $m ) {
+                        $pts = 0; $exact = 0; $tend = 0; $missed = 0;
+                        foreach ( $fixtures as $f ) {
+                            if ( ! isset( $groupFixtureIds[ $f['id'] ] ) || ! ftipp_has_result( $f ) ) { continue; }
+                            $t = isset( $byUserFixture[ $m['id'] ][ $f['id'] ] ) ? $byUserFixture[ $m['id'] ][ $f['id'] ] : null;
+                            if ( $t && null !== $t['hg'] && null !== $t['ag'] ) {
+                                $r = ftipp_match_points( $f, $t, $cfg ); $pts += $r['pts'] + $r['ko'];
+                                if ( 'exakt' === $r['kind'] ) { $exact++; } elseif ( 'tendenz' === $r['kind'] ) { $tend++; }
+                            } else { $missed++; if ( $cfg['malusOn'] ) { $pts += $cfg['malus']; } }
+                        }
+                        $rowsOut[] = array( 'name' => $m['name'], 'points' => $pts, 'exact' => $exact, 'tend' => $tend, 'missed' => $missed );
+                    }
+                    usort( $rowsOut, function ( $a, $b ) { return $b['points'] - $a['points']; } );
+                    $nlGroupBoards[] = array( 'label' => str_replace( 'Gruppensieger ', 'Gruppe ', $g['label'] ), 'rows' => $rowsOut );
+                }
+                foreach ( $fixtures as $f ) {
+                    if ( ! ftipp_has_result( $f ) ) { continue; }
+                    $tipsOut = array();
+                    foreach ( $members as $m ) {
+                        $t = isset( $byUserFixture[ $m['id'] ][ $f['id'] ] ) ? $byUserFixture[ $m['id'] ][ $f['id'] ] : null;
+                        if ( $t && null !== $t['hg'] && null !== $t['ag'] ) {
+                            $r = ftipp_match_points( $f, $t, $cfg );
+                            $tipsOut[] = array( 'name' => $m['name'], 'tip' => $t['hg'] . ':' . $t['ag'], 'pts' => $r['pts'] + $r['ko'], 'kind' => $r['kind'] );
+                        } else {
+                            $tipsOut[] = array( 'name' => $m['name'], 'tip' => null, 'pts' => $cfg['malusOn'] ? $cfg['malus'] : 0, 'kind' => 'verpasst' );
+                        }
+                    }
+                    $nlMatchBoard[] = array( 'round' => $f['round'], 'home' => $f['home'], 'away' => $f['away'], 'hg' => intval( $f['hg'] ), 'ag' => intval( $f['ag'] ), 'tips' => $tipsOut );
+                }
+                $nlMatchBoard = array_reverse( $nlMatchBoard );
+            }
+
+            return array( 'history' => $history, 'mine' => $mine, 'badges' => $badges, 'matches' => $matches, 'nlGroupBoards' => $nlGroupBoards, 'nlMatchBoard' => $nlMatchBoard );
         },
     ) );
 

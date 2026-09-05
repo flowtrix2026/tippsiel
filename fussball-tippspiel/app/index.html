@@ -141,6 +141,7 @@
   <div class="tabs">
     <div class="tab active" data-mode="tippen" onclick="switchMode('tippen')">📝 Tippen</div>
     <div class="tab" data-mode="auswertung" onclick="switchMode('auswertung')">🏆 Auswertung</div>
+    <div class="tab" data-mode="tabelle" onclick="switchMode('tabelle')" style="display:none">📊 Tabelle</div>
     <div class="tab" data-mode="runden" onclick="switchMode('runden')" style="display:none">👥 Runden</div>
     <div class="tab" data-mode="teilnehmer" onclick="switchMode('teilnehmer')">👥 Teilnehmer</div>
     <div class="tab" data-mode="sonder" onclick="switchMode('sonder')">⭐ Sonderwertungen</div>
@@ -150,6 +151,7 @@
 
   <section id="mode-tippen"></section>
   <section id="mode-auswertung" style="display:none"></section>
+  <section id="mode-tabelle" style="display:none"></section>
   <section id="mode-runden" style="display:none"></section>
   <section id="mode-teilnehmer" style="display:none"></section>
   <section id="mode-sonder" style="display:none"></section>
@@ -180,8 +182,9 @@ const defCfg = () => ({pTend:1, pExact:3, pKO:3, malusOn:true, malus:-1, deadlin
 /* ---------------- State ---------------- */
 let S = null;
 let viewer = 0;
-let tCompSel = 'BL1', aCompSel = 'BL1', sCompSel = 'BL1';
+let tCompSel = 'BL1', aCompSel = 'BL1', sCompSel = 'BL1', tabelleCompSel = 'BL1';
 let tRoundSel = null; // gewählter Spieltag/Runde im Tippen-Tab, pro Wettbewerb neu ermittelt
+let tGroupSel = null; // gewählte Gruppe/Liga im Tippen-Tab, nur bei zweistufigen Wettbewerben (z.B. Nations-League-Ligen A-D)
 
 function save(){ localStorage.setItem(STORE, JSON.stringify(S)); }
 function load(){
@@ -344,7 +347,7 @@ async function initConnected(){
 
   document.getElementById('rolebar').style.display='none';
   ['teilnehmer','einstellungen'].forEach(m=>{ const t=document.querySelector('.tab[data-mode="'+m+'"]'); if(t) t.style.display='none'; });
-  const rt=document.querySelector('.tab[data-mode="runden"]'); if(rt) rt.style.display='';
+  ['runden','tabelle'].forEach(m=>{ const t=document.querySelector('.tab[data-mode="'+m+'"]'); if(t) t.style.display=''; });
 
   let loadError=null;
   try{
@@ -635,27 +638,53 @@ async function renderTippenConnected(){
   // Eindeutige Spieltage/Runden in Reihenfolge des Auftretens — Nutzer möchte nicht mehr durch alle 34
   // Spieltage scrollen müssen, sondern gezielt einen einzelnen auswählen können.
   const roundNames=[]; fx.forEach(f=>{ if(!roundNames.includes(f.round)) roundNames.push(f.round); });
-  if(!roundNames.includes(tRoundSel)){
+
+  // Manche Wettbewerbe haben zwei Ebenen statt nur "Spieltag N" (z.B. Nations League: "Liga A - Spieltag 1"
+  // bis "Liga D - Spieltag 6"). Ohne Extra-Behandlung landen alle Kombinationen in einem einzigen, langen
+  // und optisch zufällig sortierten Dropdown (mehrere Ligen pfeifen oft zur exakt gleichen Uhrzeit an, daher
+  // keine verlässliche Reihenfolge über das Datum). Erkennen wir dieses Muster, schalten wir stattdessen
+  // einen "Liga"-Filter davor, danach nur noch die Spieltage dieser einen Liga — genau wie bei Bundesliga.
+  const groupPattern=/^(.+) - (Spieltag \d+)$/;
+  const isGrouped = roundNames.length>0 && roundNames.every(rn=>groupPattern.test(rn));
+  let groupNames=[], activeList=roundNames;
+  if(isGrouped){
+    const byGroup={};
+    roundNames.forEach(rn=>{ const m=rn.match(groupPattern); (byGroup[m[1]] ??= []).push(rn); });
+    groupNames=Object.keys(byGroup).sort();
+    groupNames.forEach(g=> byGroup[g].sort((a,b)=> parseInt(a.match(/\d+$/)[0],10) - parseInt(b.match(/\d+$/)[0],10)));
+    if(!groupNames.includes(tGroupSel)){
+      const firstOpenGroup=groupNames.find(g=> byGroup[g].some(rn=> fx.some(f=>f.round===rn && !hasResult(f))));
+      tGroupSel = firstOpenGroup ?? groupNames[groupNames.length-1] ?? groupNames[0] ?? null;
+    }
+    activeList = byGroup[tGroupSel]||[];
+  } else {
+    tGroupSel = null;
+  }
+  if(!activeList.includes(tRoundSel)){
     // Sinnvoller Default: der erste Spieltag mit noch offenem Ergebnis (also "aktuell dran"),
     // sonst der letzte (Saison schon vorbei) oder einfach der erste (noch nichts gespielt/geladen).
-    const firstOpen=roundNames.find(rn=> fx.some(f=>f.round===rn && !hasResult(f)));
-    tRoundSel = firstOpen ?? roundNames[roundNames.length-1] ?? null;
+    const firstOpen=activeList.find(rn=> fx.some(f=>f.round===rn && !hasResult(f)));
+    tRoundSel = firstOpen ?? activeList[activeList.length-1] ?? null;
   }
-  const rIdx=roundNames.indexOf(tRoundSel);
+  const rIdx=activeList.indexOf(tRoundSel);
 
   const head=el(`<div class="card"></div>`);
-  head.appendChild(el(`<div class="hint">Runde: <b>${esc(round.name)}</b>. Ergebnis eintragen → <b>„Tipp abgeben"</b> — erst danach siehst du die Tipps deiner Mitspieler.</div>`));
+  head.appendChild(el(`<div class="hint">Runde: <b>${esc(round.name)}</b>. Ergebnis eintragen → <b>„Tipp abgeben"</b>. Die Tipps deiner Mitspieler siehst du erst, sobald das <b>erste Spiel des jeweiligen Spieltags</b> angepfiffen hat — nicht schon, sobald du selbst abgegeben hast.</div>`));
   const ctrl=el(`<div class="row"></div>`);
   const rs=mkRoundSwitcher(); if(rs) ctrl.appendChild(rs);
-  ctrl.appendChild(mkSelect('Wettbewerb', myComps.map(c=>({v:c.id,label:c.name})), tCompSel, v=>{tCompSel=v; tRoundSel=null; renderTippenConnected();}));
-  if(roundNames.length>1){
-    ctrl.appendChild(mkSelect('Spieltag', roundNames.map(rn=>({v:rn,label:rn})), tRoundSel, v=>{tRoundSel=v; renderTippenConnected();}));
+  ctrl.appendChild(mkSelect('Wettbewerb', myComps.map(c=>({v:c.id,label:c.name})), tCompSel, v=>{tCompSel=v; tRoundSel=null; tGroupSel=null; renderTippenConnected();}));
+  if(isGrouped){
+    ctrl.appendChild(mkSelect('Liga', groupNames.map(g=>({v:g,label:g})), tGroupSel, v=>{tGroupSel=v; tRoundSel=null; renderTippenConnected();}));
+  }
+  if(activeList.length>1){
+    const roundLabel = compById(tCompSel)?.kind==='cup' ? 'Runde' : 'Spieltag';
+    ctrl.appendChild(mkSelect(roundLabel, activeList.map(rn=>({v:rn,label: isGrouped ? rn.match(groupPattern)[2] : rn})), tRoundSel, v=>{tRoundSel=v; renderTippenConnected();}));
     const navWrap=el(`<div class="flexcol"><label>&nbsp;</label><div class="row" style="gap:6px"></div></div>`);
     const navRow=navWrap.querySelector('.row');
     const prevBtn=el(`<button class="mini sec" ${rIdx<=0?'disabled':''}>◀</button>`);
-    prevBtn.onclick=()=>{ tRoundSel=roundNames[rIdx-1]; renderTippenConnected(); };
-    const nextBtn=el(`<button class="mini sec" ${rIdx<0||rIdx>=roundNames.length-1?'disabled':''}>▶</button>`);
-    nextBtn.onclick=()=>{ tRoundSel=roundNames[rIdx+1]; renderTippenConnected(); };
+    prevBtn.onclick=()=>{ tRoundSel=activeList[rIdx-1]; renderTippenConnected(); };
+    const nextBtn=el(`<button class="mini sec" ${rIdx<0||rIdx>=activeList.length-1?'disabled':''}>▶</button>`);
+    nextBtn.onclick=()=>{ tRoundSel=activeList[rIdx+1]; renderTippenConnected(); };
     navRow.appendChild(prevBtn); navRow.appendChild(nextBtn);
     ctrl.appendChild(navWrap);
   }
@@ -797,7 +826,7 @@ function mkMatchRowConnected(f, td, cfg, round){
     }
     row.appendChild(el(`<div class="others">👀 Tipps der Mitspieler: ${body}</div>`));
   } else {
-    row.appendChild(el(`<div class="others">🔒 Tipps der Mitspieler sichtbar, sobald du <b>abgegeben</b> hast.</div>`));
+    row.appendChild(el(`<div class="others">🔒 Tipps der Mitspieler sichtbar, sobald das <b>erste Spiel dieses Spieltags</b> angepfiffen hat.</div>`));
   }
   return row;
 }
@@ -854,9 +883,14 @@ async function renderAuswertungConnected(){
       rs.badges.forEach(b=> bwrap.appendChild(el(`<span class="pill gold">${b.icon} ${esc(b.label)}</span>`)));
       statCard.appendChild(bwrap);
     }
-    if(rs.history && rs.history.length>=1){
+    if(rs.history && rs.history.length>=2){
       statCard.appendChild(el(`<div class="group-h">Ranglisten-Verlauf</div>`));
       statCard.appendChild(mkHistoryChart(rs.history));
+    } else if(rs.history && rs.history.length===1){
+      // Mit nur einer gespielten Runde gibt's noch keine Linie zu zeichnen — ein einzelner Punkt pro
+      // Spieler auf einer bis 0 reichenden Skala sieht nur nach "kaputtem" Chart mit viel Leerraum aus.
+      statCard.appendChild(el(`<div class="group-h">Ranglisten-Verlauf</div>`));
+      statCard.appendChild(el(`<div class="meta">Braucht mindestens 2 gespielte Runden, um eine Linie zu zeigen — aktuell erst 1 gespielt.</div>`));
     }
     if(rs.matches && rs.matches.length){
       statCard.appendChild(el(`<div class="group-h">Meine Tipp-Historie</div>`));
@@ -868,6 +902,29 @@ async function renderAuswertungConnected(){
       });
       mh+=`</tbody></table>`;
       statCard.appendChild(el(mh));
+    }
+    if(rs.nlGroupBoards && rs.nlGroupBoards.length){
+      statCard.appendChild(el(`<div class="group-h">Wer hat in welcher Gruppe am besten getippt?</div>`));
+      rs.nlGroupBoards.forEach(gb=>{
+        let gh=`<div class="meta" style="margin-top:8px"><b>${esc(gb.label)}</b></div><table><thead><tr><th>Spieler</th><th class="num">Punkte</th><th class="num">Exakt</th><th class="num">Tendenz</th><th class="num">Verpasst</th></tr></thead><tbody>`;
+        gb.rows.forEach((r,i)=>{ gh+=`<tr><td class="${i===0?'rank1':''}">${esc(r.name)}</td><td class="num"><b>${r.points}</b></td><td class="num">${r.exact}</td><td class="num">${r.tend}</td><td class="num">${r.missed?('−'+r.missed):'0'}</td></tr>`; });
+        gh+=`</tbody></table>`;
+        statCard.appendChild(el(gh));
+      });
+    }
+    if(rs.nlMatchBoard && rs.nlMatchBoard.length){
+      statCard.appendChild(el(`<div class="group-h">Alle Spiele — wer hat wie getippt</div>`));
+      rs.nlMatchBoard.forEach(mb=>{
+        const row=el(`<div class="meta" style="margin-top:8px"><b>${esc(mb.home)} ${mb.hg}:${mb.ag} ${esc(mb.away)}</b> <span style="opacity:.7">(${esc(mb.round)})</span></div>`);
+        statCard.appendChild(row);
+        const tipsWrap=el(`<div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:4px"></div>`);
+        mb.tips.forEach(t=>{
+          const cls = t.kind==='exakt'?'good':(t.kind==='tendenz'?'warn':'bad');
+          const tipTxt = t.tip!=null ? t.tip : '—';
+          tipsWrap.appendChild(el(`<span class="pill ${cls}">${esc(t.name)}: ${tipTxt} (${t.pts>0?'+':''}${t.pts})</span>`));
+        });
+        statCard.appendChild(tipsWrap);
+      });
     }
   }catch(e){ statCard.innerHTML=`<div class="warnbox">Fehler beim Laden der Statistik: ${esc(e.message)}</div>`; }
 }
@@ -900,6 +957,46 @@ function mkHistoryChart(history){
   return wrap;
 }
 
+/* ---------------------- TABELLE (echte Liga-/Gruppentabelle, nicht die Tipp-Rangliste) ---------------------- */
+const TABLE_COMPS = COMPS.filter(c=>c.id!=='DFB'); // DFB-Pokal = K.o.-System, keine sinnvolle Tabelle
+function renderTabelle(){
+  if(CONNECTED){ return renderTabelleConnected(); }
+}
+async function renderTabelleConnected(){
+  const box=$('#mode-tabelle'); box.innerHTML='';
+  if(!ROUNDS.length){ needRoundHint(box); return; }
+  const head=el(`<div class="card"></div>`);
+  head.appendChild(el(`<div class="hint">Die echte Tabelle des Wettbewerbs — nicht eure Tipp-Rangliste (die findest du unter 🏆 Auswertung).</div>`));
+  const ctrl=el(`<div class="row"></div>`);
+  ctrl.appendChild(mkSelect('Wettbewerb', TABLE_COMPS.map(c=>({v:c.id,label:c.name})), tabelleCompSel, v=>{tabelleCompSel=v; renderTabelleConnected();}));
+  head.appendChild(ctrl); box.appendChild(head);
+
+  const card=el(`<div class="card"><div class="meta">Lädt…</div></div>`); box.appendChild(card);
+  let data;
+  try{ data=await api_get('table?comp='+tabelleCompSel); }catch(e){ card.innerHTML=`<div class="warnbox">Fehler beim Laden: ${esc(e.message)}</div>`; return; }
+
+  if(!data.supported){ card.innerHTML=`<div class="meta">Für diesen Wettbewerb gibt es keine Tabelle.</div>`; return; }
+
+  if(data.mode==='groups'){
+    card.remove();
+    if(!data.groups || !data.groups.length){ box.appendChild(el(`<div class="card"><div class="meta">Noch keine Gruppen erkennbar — Admin muss zuerst Spieldaten laden/importieren.</div></div>`)); return; }
+    data.groups.forEach(g=>{
+      box.appendChild(el(`<div class="card"><div class="phase-h" style="margin-top:0">${esc(g.label)}</div>${mkTableHtml(g.rows)}</div>`));
+    });
+    return;
+  }
+
+  card.innerHTML=`<div class="phase-h" style="margin-top:0">📊 Tabelle — ${esc(compById(tabelleCompSel).name)}${data.season?' ('+data.season+'/'+String(data.season+1).slice(-2)+')':''}</div>${mkTableHtml(data.rows)}`;
+}
+function mkTableHtml(rows){
+  if(!rows || !rows.length) return `<div class="meta">Noch keine Tabelle — es wurde noch kein Spiel ausgetragen.</div>`;
+  let html=`<table><thead><tr><th class="num">#</th><th>Team</th><th class="num">Sp</th><th class="num">S</th><th class="num">U</th><th class="num">N</th><th class="num">Tore</th><th class="num">Diff</th><th class="num">Pkt</th></tr></thead><tbody>`;
+  rows.forEach(r=>{ const c1=r.rank===1?'rank1':'';
+    html+=`<tr><td class="num ${c1}">${r.rank}</td><td class="${c1}">${esc(r.team)}</td><td class="num">${r.matches}</td><td class="num">${r.won}</td><td class="num">${r.draw}</td><td class="num">${r.lost}</td><td class="num">${r.goals}:${r.opponentGoals}</td><td class="num">${r.goalDiff>0?'+':''}${r.goalDiff}</td><td class="num"><b>${r.points}</b></td></tr>`; });
+  html+=`</tbody></table>`;
+  return html;
+}
+
 /* ---------------------- SONDERWERTUNGEN (connected) ---------------------- */
 async function renderSonderConnected(){
   const box=$('#mode-sonder'); box.innerHTML='';
@@ -926,6 +1023,7 @@ async function renderSonderConnected(){
       const lab=el(`<input type="text" value="${esc(b.label)}" style="min-width:240px">`);
       lab.onchange=async()=>{ try{ await api_post('special/'+b.id,{label:lab.value}); }catch(e){alert(e.message);} };
       r1.appendChild(el(`<label>Bezeichnung</label>`)); r1.appendChild(lab);
+      if(b.teams && b.teams.length) r1.appendChild(el(`<span class="meta">${b.teams.map(esc).join(', ')}</span>`));
       const del=el(`<button class="danger mini right">🗑️</button>`);
       del.onclick=async()=>{ if(!confirm('Sonderwertung löschen?'))return; try{ await api_del('special/'+b.id); renderSonderConnected(); }catch(e){alert(e.message);} };
       r1.appendChild(del); card.appendChild(r1);
@@ -941,15 +1039,40 @@ async function renderSonderConnected(){
       r2.appendChild(el(`<label>Ergebnis</label>`)); r2.appendChild(res);
       card.appendChild(r2);
     } else {
-      card.appendChild(el(`<div class="row" style="margin-bottom:8px"><b>${esc(b.label)}</b><span class="pill gold">${b.points} Punkte</span><span class="meta">Frist ${fmtDate(b.deadline)}</span>${b.result?`<span class="pill gold">Ergebnis: ${esc(b.result)}</span>`:''}</div>`));
+      card.appendChild(el(`<div class="row" style="margin-bottom:8px"><b>${esc(b.label)}</b>${b.teams&&b.teams.length?`<span class="meta">${b.teams.map(esc).join(', ')}</span>`:''}<span class="pill gold">${b.points} Punkte</span><span class="meta">Frist ${fmtDate(b.deadline)}</span>${b.result?`<span class="pill gold">Ergebnis: ${esc(b.result)}</span>`:''}</div>`));
     }
-    const locked=b.deadline && Date.now()>=new Date(b.deadline).getTime();
+    const locked=b.locked;
+    const editing=!!b._editing;
+    const inputsDisabled = locked || (b.my_committed && !editing);
     const r3=el(`<div class="row" style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px"></div>`);
-    const myt=el(`<input type="text" placeholder="dein Tipp" value="${esc(b.my_value||'')}" ${locked?'disabled':''} style="min-width:240px">`);
-    myt.onchange=async()=>{ try{ await api_post('special/'+b.id+'/tip',{value:myt.value}); }catch(e){ alert(e.message); } };
+    let commitBtn=null;
+    const myt=el(`<input type="text" placeholder="dein Tipp" value="${esc(b.my_value||'')}" ${inputsDisabled?'disabled':''} style="min-width:240px">`);
+    myt.oninput=async()=>{
+      try{ await api_post('special/'+b.id+'/tip',{value:myt.value}); b.my_value=myt.value; if(commitBtn) commitBtn.disabled=!myt.value.trim(); }
+      catch(e){ alert(e.message); }
+    };
     r3.appendChild(el(`<label>Mein Tipp</label>`)); r3.appendChild(myt);
-    r3.appendChild(el(`<span class="pill ${locked?'warn':''}">${locked?'Frist vorbei':'offen'}</span>`));
+    if(locked){
+      r3.appendChild(el(`<span class="pill warn">Frist vorbei</span>`));
+    } else if(b.my_committed && !editing){
+      r3.appendChild(el(`<span class="pill good">✅ abgegeben — Tipp ist fix</span>`));
+      const editBtn=el(`<button class="mini sec right">✏️ Bearbeiten</button>`);
+      editBtn.onclick=()=>{ b._editing=true; renderSonderConnected(); };
+      r3.appendChild(editBtn);
+    } else {
+      commitBtn=el(`<button class="mini right" ${b.my_value&&b.my_value.trim()?'':'disabled'}>✅ Tipp abgeben</button>`);
+      commitBtn.onclick=async()=>{
+        try{ await api_post('special/'+b.id+'/tip/commit',{}); b.my_committed=true; b._editing=false; renderSonderConnected(); }
+        catch(e){ alert(e.message); }
+      };
+      r3.appendChild(commitBtn);
+    }
     card.appendChild(r3);
+    if(!locked){
+      card.appendChild(el(`<div class="meta" style="margin-top:6px">🔒 Die Tipps der Mitspieler siehst du erst, sobald die Frist abgelaufen ist — vorher bleiben alle Sonderwertungs-Tipps geheim (auch die, die schon abgegeben haben).</div>`));
+    } else if(b.others && b.others.length){
+      card.appendChild(el(`<div class="row" style="margin-top:6px;flex-wrap:wrap"><div class="meta">👀 Tipps der Mitspieler: ${b.others.map(o=>`<b>${esc(o.name)}</b> ${esc(o.value)}`).join(' · ')}</div></div>`));
+    }
 
     if(round.is_admin){
       const tipsDet=el(`<details style="margin-top:8px"></details>`);
@@ -968,8 +1091,10 @@ async function renderSonderConnected(){
           if(!list.length){ tipsBody.appendChild(el(`<div class="meta">Noch keine Mitglieder.</div>`)); }
           list.forEach(t=>{
             const row=el(`<div class="row" style="border-bottom:1px solid var(--line);padding:6px 0"></div>`);
-            row.appendChild(el(`<div style="min-width:110px"><b>${esc(t.name)}</b></div>`));
-            row.appendChild(el(`<div class="meta" style="min-width:150px">${t.value?esc(t.value):'—'}</div>`));
+            row.appendChild(el(`<div style="min-width:110px"><b>${esc(t.name)}</b>${t.committed?' <span class="pill good" style="font-size:10px">fix</span>':''}</div>`));
+            const valInp=el(`<input type="text" value="${esc(t.value||'')}" placeholder="—" style="min-width:150px">`);
+            valInp.onchange=async()=>{ try{ await api_post('special/'+b.id+'/tipps/'+t.user_id+'/override', {value: valInp.value}); }catch(e){ alert(e.message); } };
+            row.appendChild(valInp);
             const curVal=t.override===true?'1':(t.override===false?'0':'');
             const sel=mkSelect('', [{v:'',label:'Automatisch (Textvergleich)'},{v:'1',label:'✅ zählt trotzdem als richtig'},{v:'0',label:'❌ zählt trotzdem als falsch'}], curVal, async v=>{
               try{ await api_post('special/'+b.id+'/tipps/'+t.user_id+'/override', {override: v===''?null:(v==='1')}); }
@@ -1013,9 +1138,10 @@ function refresh(){ renderRolebar(); const active=document.querySelector('.tab.a
 function switchMode(mode){
   if(mode==='einstellungen' && !CONNECTED && !isAdmin()) mode='tippen';
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.mode===mode));
-  ['tippen','auswertung','runden','teilnehmer','sonder','einstellungen'].forEach(m=> $('#mode-'+m).style.display = m===mode?'':'none');
+  ['tippen','auswertung','tabelle','runden','teilnehmer','sonder','einstellungen'].forEach(m=> $('#mode-'+m).style.display = m===mode?'':'none');
   if(mode==='tippen') renderTippen();
   else if(mode==='auswertung') renderAuswertung();
+  else if(mode==='tabelle') renderTabelle();
   else if(mode==='runden') renderRunden();
   else if(mode==='teilnehmer') renderTeilnehmer();
   else if(mode==='sonder') renderSonder();
@@ -1474,6 +1600,8 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
   else { load(); viewer=0; renderRolebar(); switchMode('tippen'); }
 })();
 </script>
+</body>
+</html>
 
 <script>
 /* Auto-Höhe für die Einbettung in WordPress (postet die Inhaltshöhe an die umgebende Seite) */
@@ -1484,5 +1612,3 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
   setInterval(ph, 700);
 })();
 </script>
-</body>
-</html>

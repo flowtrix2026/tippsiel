@@ -1073,6 +1073,269 @@ Ergebnisse kommen **automatisch per API**.
   PHP-Syntax mit `php -l` geprüft.
 - *Noch nicht live getestet:* Plugin-Update auf v0.8.24 einspielen (kein neuer CSV-Upload nötig, die 156 Spiele
   liegen schon in der Datenbank), Tippen-Tab → Nations League öffnen, prüfen dass jetzt alle Spiele erscheinen.
+- **Live getestet, bestätigt ("Das hat jetzt geklappt"):** Nations-League-Spiele erscheinen im Tippen-Tab.
+
+## v0.8.25 — Zweistufige Spieltag-Auswahl für die Nations League (Liga + Spieltag)
+- **Anfrage (Screenshot):** Der "Spieltag"-Dropdown aus v0.8.21 zeigte bei der Nations League alle 24
+  Kombinationen aus 4 Ligen × 6 Spieltagen als einen einzigen, langen Dropdown — und die Reihenfolge innerhalb
+  eines Spieltags war zusätzlich uneinheitlich (Liga D, A, B, C in Spieltag 1; A, C, B, D in Spieltag 5, …),
+  weil mehrere Ligen oft zur exakt gleichen Uhrzeit anpfeifen und die Liste bisher nur nach Datum sortiert
+  eindeutige Rundennamen in Auftrittsreihenfolge sammelte. Nutzerwunsch: "wie beim Spieltag Gruppe A, B, C und
+  D... man muss in der Nations League pro Gruppe und den Spieltag auswählen können."
+- **Umgesetzt:** Erkennt automatisch, wenn alle Rundennamen eines Wettbewerbs dem Muster "<Liga> - Spieltag <n>"
+  folgen (aktuell nur Nations League, funktioniert aber generisch für jeden künftigen Wettbewerb mit gleicher
+  Struktur). In dem Fall erscheint vor dem bestehenden "Spieltag"-Dropdown zusätzlich ein **"Liga"-Dropdown**
+  (A–D, alphabetisch sortiert); der "Spieltag"-Dropdown zeigt danach nur noch die Spieltage der gewählten Liga,
+  sauber numerisch sortiert (1–6), mit nur noch der Kurzbezeichnung ("Spieltag 3" statt "Liga A - Spieltag 3").
+  Die ◀/▶-Pfeile blättern dadurch automatisch nur noch innerhalb der gewählten Liga. Für alle anderen
+  Wettbewerbe (Bundesliga, Pokale) bleibt exakt das bisherige Verhalten aus v0.8.21 unverändert — Erkennung
+  greift nur, wenn wirklich alle Rundennamen dem Zwei-Ebenen-Muster entsprechen.
+  Sinnvoller Default wie gehabt: die Liga *und* der Spieltag mit dem nächsten noch offenen Spiel werden
+  automatisch vorausgewählt. JS-Syntax per `node --check` geprüft.
+- *Noch nicht live getestet:* Plugin-Update auf v0.8.25 einspielen, Tippen-Tab → Nations League öffnen, prüfen
+  dass jetzt zuerst "Liga" (A–D) und danach "Spieltag" (1–6) sauber getrennt auswählbar sind, inkl. ◀/▶.
+
+## v0.8.26 — "Runde" statt "Spieltag" bei Pokal-Wettbewerben; Klarstellung Update-Verhalten
+- **Anfrage:** Am Beispiel DFB-Pokal gefragt, was beim Klick auf "Spieldaten jetzt abrufen" passiert, sobald am
+  Samstag die 2. Runde dazukommt, und ob man analog zur Spieltag-Auswahl auch alte Pokal-Runden zum
+  Zurückblättern sehen kann.
+- **Geklärt (kein Code nötig):** Der generische Spieltag-Selektor aus v0.8.21 funktioniert bereits für beliebige
+  Rundennamen, nicht nur "Spieltag N" — bei Pokal-Wettbewerben stehen dort automatisch die echten OpenLigaDB-
+  Rundennamen ("1. Runde", "2. Runde", "Achtelfinale", …). Er war beim DFB-Pokal bisher nur unsichtbar, weil
+  aktuell nur eine einzige Runde geladen ist (Dropdown erscheint erst ab 2 unterschiedlichen Runden) — taucht
+  von selbst auf, sobald die 2. Runde geladen wird. Und weil DFB-Pokal/CL/EL über OpenLigaDB laufen, das pro
+  Saison stabile Spiel-IDs vergibt, überschreibt ein normaler Update-Klick bestehende Runden nicht, sondern
+  ergänzt nur neue — bereits abgegebene Tipps zu Runde 1 bleiben unangetastet (im Unterschied zum Vorfall aus
+  v0.8.20, der eine einmalige Quellen-**Umstellung** betraf, nicht den normalen wöchentlichen Refresh).
+- **Kleine UI-Korrektur:** Das Auswahlfeld hieß bisher überall "Spieltag", auch bei Pokal-Wettbewerben, wo es
+  eigentlich "Runde" heißen sollte. Heißt jetzt automatisch "Runde" bei allen Wettbewerben vom Typ `kind:'cup'`
+  (DFB-Pokal, Champions League, Europa League, Nations League), "Spieltag" bleibt nur bei den beiden
+  Bundesliga-Wettbewerben. JS-Syntax per `node --check` geprüft.
+- *Noch nicht live getestet:* Plugin-Update auf v0.8.26 einspielen, DFB-Pokal im Tippen-Tab öffnen und prüfen,
+  dass (sobald mehr als eine Runde geladen ist) das Auswahlfeld "Runde" statt "Spieltag" heißt.
+
+## v0.8.27 — Ranglisten-Verlauf-Graph bei nur einer gespielten Runde
+- **Meldung (Screenshot):** "Im DFB-Pokal funktioniert der Graph nicht. 1. Bundesliga geht ja." — beim DFB-Pokal
+  zeigte der "Ranglisten-Verlauf"-Graph in der Statistik nur 3 eng beieinanderliegende Punkte oben, mit viel
+  Leerraum darunter bis zur gestrichelten Null-Linie.
+- **Kein Rechenfehler, aber irreführend:** Mit erst einer gespielten Runde (DFB-Pokal: nur "1. Runde") gibt es
+  pro Spieler nur einen einzigen Datenpunkt statt einer Linie über mehrere Runden. Die Y-Achse geht dabei
+  bewusst immer bis 0 runter (damit man den Punktabstand einordnen kann) — bei Punktständen wie 33/28/26 landen
+  alle drei Punkte nah beieinander ganz oben, der Rest der Fläche bis 0 bleibt leer. Mathematisch korrekt,
+  sieht aber wie ein kaputter Graph aus. Bei der 1. Bundesliga (schon mehrere Spieltage gespielt) ergibt sich
+  dagegen eine echte Linie über mehrere Punkte, die normal aussieht.
+- **Fix:** Der Graph erscheint jetzt erst ab **2 gespielten Runden** (dann macht eine Linie überhaupt Sinn).
+  Bei genau 1 gespielten Runde steht stattdessen ein kurzer Hinweistext ("Braucht mindestens 2 gespielte
+  Runden..."). Betrifft nur die Anzeige, keine Änderung an Punkteberechnung oder Rangliste.
+  JS-Syntax per `node --check` geprüft.
+- *Noch nicht live getestet:* Plugin-Update auf v0.8.27 einspielen, Statistik & Verlauf beim DFB-Pokal öffnen,
+  prüfen dass jetzt der Hinweistext statt des unübersichtlichen Ein-Punkt-Graphen erscheint.
+
+## v0.9.0 — Neuer Tab "📊 Tabelle": echte Liga-/Gruppentabelle (nicht die Tipp-Rangliste)
+- **Anfrage:** "Können wir neben Bundesliga auch noch eine Tabelle machen, dass man sehen kann, wer auf welchem
+  Platz gerade ist? Champions League, DFB-Pokal — die Tabellen einfach." Gewünscht war die **echte**
+  Wettbewerbstabelle (wer steht wo in der richtigen Bundesliga/Champions League), nicht die bestehende
+  Tipp-Rangliste unter "Auswertung".
+- **Vorab recherchiert (echte API-Calls, nicht nur Dokumentation):** OpenLigaDB bietet einen eigenen
+  `getbltable`-Endpunkt, der eine fertige, echte Tabelle liefert (Punkte, Tore, Siege/Niederlagen) — getestet
+  gegen Bundesliga, 2. Bundesliga, Champions League und Europa League, funktioniert bei allen vieren.
+  Beim DFB-Pokal liefert derselbe Endpunkt zwar auch Daten zurück, die sind aber bei einem reinen K.o.-System
+  bedeutungslos (eine "Tabelle" ergibt bei einem Turnier ohne Rückspiele/Gruppenphase keinen Sinn) — deshalb auf
+  Nutzerwunsch für den Pokal komplett ausgeblendet (auch nicht im Wettbewerbs-Dropdown des neuen Tabs wählbar).
+- **Umgesetzt:**
+  - Neuer Tab **"📊 Tabelle"** (nur im verbundenen WordPress-Modus sichtbar, wie "Runden"), getrennt von
+    "🏆 Auswertung" (das bleibt exklusiv die Tipp-Rangliste).
+  - Neue REST-Route `GET /table?comp=...`: für BL1/BL2/CL/EL wird die echte OpenLigaDB-Tabelle geholt (15
+    Minuten serverseitig gecacht, damit nicht bei jedem Tab-Aufruf ein externer API-Call nötig ist; bewusst
+    ohne Team-Logos im Payload, da OpenLigaDB die teils als riesige eingebettete Bilder statt URLs liefert).
+  - Für die **Nations League** gibt's keine API-Tabelle — die wird stattdessen **selbst aus den CSV-Spieldaten
+    berechnet**, pro erkannter Gruppe einzeln (Standard-Fußballregeln: 3 Punkte Sieg, 1 Unentschieden), über die
+    bereits vorhandene Gruppenerkennung (`ftipp_nl_groups()`, siehe Bugfix unten).
+  - **Nebenbei gefundener und gefixter Bug:** `ftipp_nl_groups()` (Grundlage sowohl für die neue Tabelle als
+    auch die schon länger geplante "Gruppensieger"-Sonderwertung) suchte Rundennamen im Format "Liga A**,**
+    Spieltag 1" (Komma) — das echte CSV-Format ist aber "Liga A **-** Spieltag 1" (Bindestrich, siehe v0.8.25).
+    Dadurch wurden bisher **keine** Nations-League-Gruppen erkannt und folglich auch keine
+    Gruppensieger-Sonderwertungen automatisch angelegt, obwohl das schon länger so vorgesehen war. Jetzt werden
+    beide Schreibweisen akzeptiert — sobald das Update läuft, sollten die 14 Gruppensieger-Sonderwertungen
+    einmalig automatisch nachgerüstet werden (wie im Standard-Sonderwertung-Mechanismus vorgesehen).
+  - PHP-Syntax mit `php -l`, JS-Syntax mit `node --check` geprüft.
+- *Noch nicht live getestet:* Plugin-Update auf v0.9.0 einspielen, neuen Tab "📊 Tabelle" öffnen, für Bundesliga/
+  Champions League/Europa League prüfen dass eine echte Tabelle mit Punkten erscheint, für Nations League dass
+  pro Gruppe eine eigene Mini-Tabelle erscheint, und dass DFB-Pokal im Wettbewerbs-Dropdown gar nicht auftaucht.
+  Außerdem unter ⭐ Sonderwertungen bei Nations League prüfen, ob jetzt Gruppensieger-Sonderwertungen auftauchen.
+
+## v0.9.1 — Bugfix: Nations-League-Gruppenerkennung erkannte immer noch nichts
+- **Live-Test von v0.9.0:** Neuer Tab "📊 Tabelle" bei Nations League zeigte "Noch keine Gruppen erkennbar",
+  obwohl die 156 CSV-Spiele längst importiert waren.
+- **Ursache:** Der Regex-Fix aus v0.9.0 (Komma **oder** Bindestrich akzeptieren) hatte noch eine Lücke — er
+  erwartete den Bindestrich direkt hinter dem Liga-Buchstaben ("Liga A**-**Spieltag"), das echte CSV-Format hat
+  aber ein Leerzeichen davor **und** danach ("Liga A **-** Spieltag", also Leerzeichen-Bindestrich-Leerzeichen).
+  Dadurch griff die Erkennung immer noch nicht.
+- **Fix:** Regex erlaubt jetzt beliebige Leerzeichen vor und nach dem Trennzeichen. Mit einem echten PHP-Test
+  gegen beide Schreibweisen ("Liga A - Spieltag 1" und "Liga A, Spieltag 1") verifiziert, bevor gepackt wurde.
+- *Noch nicht live getestet:* Plugin-Update auf v0.9.1 einspielen, Tab "📊 Tabelle" bei Nations League öffnen —
+  sollte jetzt 14 Gruppen-Mini-Tabellen zeigen. Danach auch bei ⭐ Sonderwertungen prüfen, ob die
+  Gruppensieger-Sonderwertungen jetzt auftauchen (hängt an derselben Erkennungsfunktion).
+
+## v0.9.2 — Nations League: Gruppen-Rangliste + Spiel-für-Spiel-Übersicht aller Mitspieler
+- **Anfrage:** "Bei der Bewertung Nations League — Gesamtstatistik oben (meiste Punkte, gibt's schon), darunter
+  wer am besten in der Gruppe getippt hat, und darunter alle Spiele, wer am besten getippt hat." Bisher zeigte
+  "Statistik & Verlauf" nur **persönliche** Werte (nur die eigenen Tipps), keine Übersicht über alle Mitspieler
+  pro Gruppe oder pro Einzelspiel.
+- **Umgesetzt (nur bei Nations League, da nur dort "Gruppen" existieren):**
+  - Neuer Abschnitt **"Wer hat in welcher Gruppe am besten getippt?"**: für jede der 14 erkannten Gruppen eine
+    eigene Mini-Rangliste (Punkte/Exakt/Tendenz/Verpasst) — aber nur aus den Spielen **dieser einen Gruppe**,
+    nicht der Gesamtpunktzahl. Nutzt dieselbe Gruppenerkennung wie die neue Tabelle (v0.9.0/v0.9.1) und die
+    Gruppensieger-Sonderwertung.
+  - Neuer Abschnitt **"Alle Spiele — wer hat wie getippt"**: pro ausgetragenem Spiel (neueste zuerst) eine Zeile
+    mit dem Ergebnis, darunter für **jeden Mitspieler** Tipp + Punkte als farbige Pille (grün=exakt,
+    gelb=Tendenz, rot=verpasst) — vorher gab's das nur als "Tipps der Mitspieler" beim Tippen selbst, aber
+    nicht gesammelt in der Auswertung.
+  - Backend liefert beides nur für `comp=NL` (bei anderen Wettbewerben leere Arrays, keine Änderung an deren
+    Anzeige) — Berechnung läuft über die bereits vorhandene Tipp-/Punkte-Logik, keine neue Datenquelle nötig.
+  - PHP-Syntax mit `php -l`, JS-Syntax mit `node --check` geprüft.
+- *Noch nicht live getestet:* Plugin-Update auf v0.9.2 einspielen, Auswertung → Nations League öffnen, unter
+  "Statistik & Verlauf" prüfen, dass nach der bestehenden persönlichen Statistik jetzt die Gruppen-Ranglisten
+  und die Spiel-für-Spiel-Übersicht mit allen Mitspielern erscheinen (setzt mindestens 1 ausgetragenes
+  NL-Spiel voraus).
+
+## v0.9.3 — Sonderwertungen: Tipp abgeben + Tipps der Mitspieler erst nach Frist sichtbar
+- **Anfrage (Screenshot):** "Wenn man was getippt hat, sehen die anderen das auch [wie bei Spiel-Tipps]. Kannst
+  du das bei den Sonderwertungen auch einrichten?" Bisher war ein Sonderwertungs-Tipp einfach ein frei
+  jederzeit änderbares Textfeld ohne "Tipp abgeben"-Schritt, ohne Sperre danach, und **niemand** konnte sehen,
+  was andere getippt hatten — auch nicht nach der Frist.
+- **Wichtige Klarstellung während der Umsetzung:** Anders als bei Spiel-Tipps (dort: sobald ICH selbst
+  abgegeben habe, sehe ich die anderen) sollen Sonderwertungen NICHT pro Person einzeln aufgedeckt werden,
+  sondern **gemeinsam für alle erst, sobald die Frist abgelaufen ist** — sonst hätte, wer zuerst tippt, einen
+  Vorteil bzw. es könnte "hin und her getippt" werden, nachdem man die Tipps anderer schon gesehen hat.
+- **Umgesetzt:**
+  - `ftipp_special_tips`-Tabelle um `committed`-Spalte erweitert (FTIPP_DB_VERSION 7 → 8).
+  - Neuer "✅ Tipp abgeben"-Button (nur klickbar, wenn ein Tipp eingetragen ist) + "✏️ Bearbeiten"-Button danach
+    — exakt wie bei den Spiel-Tipps, frei änderbar bis zur Frist.
+  - Neue REST-Route `POST /special/{id}/tip/commit`.
+  - `GET /special` liefert jetzt zusätzlich `locked` (Frist abgelaufen?) und `others` (Tipps der Mitspieler) —
+    `others` ist nur gefüllt, wenn `locked` true ist, unabhängig vom eigenen Commit-Status. Vor der Frist steht
+    stattdessen ein Hinweistext, dass alle Tipps bis dahin geheim bleiben.
+  - Admin-Korrekturpanel ("👀 Alle Tipps ansehen & korrigieren") kann jetzt zusätzlich zum
+    Richtig/Falsch-Übersteuern auch **den eingetippten Text direkt bearbeiten** (auf Nutzerwunsch) — z.B. falls
+    ein Mitspieler selbst nicht mehr ändern kann/darf und den Admin bittet.
+  - PHP-Syntax mit `php -l`, JS-Syntax mit `node --check` geprüft.
+- *Noch nicht live getestet:* Plugin-Update auf v0.9.3 einspielen, bei einer Sonderwertung "Tipp abgeben"
+  klicken, prüfen dass vor Fristablauf kein Mitspieler-Tipp sichtbar ist (auch nicht nach eigenem Abgeben),
+  und dass nach Fristablauf alle Tipps gemeinsam erscheinen. Admin-Korrektur mit direkter Textänderung testen.
+
+## v0.9.4 — Spiel-Tipps: Mitspieler-Tipps erst für den ganzen Spieltag gemeinsam sichtbar
+- **Anfrage:** "Bei der Bundesliga: keiner darf den Tipp sehen, bis alle Freitags-/Samstags-/Sonntagsspiele
+  gemeinsam aufgedeckt werden — nicht schon einzeln pro Spiel, sobald man selbst abgegeben hat. Sonst tippt
+  jemand hin und her, nachdem er die Tipps anderer schon gesehen hat." Bisher galt: sobald DU dein eigenes
+  Ergebnis zu einem Spiel abgegeben hattest, hast du sofort die (ebenfalls schon abgegebenen) Tipps der
+  anderen zu genau diesem einen Spiel gesehen — jedes Spiel einzeln, unabhängig vom Rest des Spieltags.
+- **Per Nachfrage geklärt:** Aufdecken soll gemeinsam für den **ganzen Spieltag/die ganze Runde** passieren,
+  und zwar automatisch **sobald das früheste Spiel dieses Spieltags anpfeift** (kein zusätzlicher admin-seitig
+  einstellbarer Zeitpunkt nötig) — einheitlich für **alle** Wettbewerbe (Liga, Pokal, Europapokale, Nations
+  League), als feste neue Regel ohne Ein-/Ausschalter pro Runde.
+- **Umgesetzt:** In der REST-Route `GET /tips` wird jetzt zuerst pro Spieltag/Runde der früheste Sperrzeitpunkt
+  alle darin enthaltenen Spiele ermittelt (`Anpfiff − Frist-Minuten` des frühesten Spiels). Die Sichtbarkeit der
+  Mitspieler-Tipps ("revealed") hängt jetzt an diesem gemeinsamen Zeitpunkt statt am eigenen Commit-Status.
+  Das eigene Eintragen/Sperren einzelner Spiele (kann ein bereits angepfiffenes Spiel nicht mehr getippt
+  werden) bleibt unverändert pro Spiel. Hinweistext im Tippen-Tab entsprechend angepasst.
+  PHP-Syntax mit `php -l`, JS-Syntax mit `node --check` geprüft. Keine Datenbank-Änderung nötig.
+- *Noch nicht live getestet:* Plugin-Update auf v0.9.4 einspielen, bei einem Spieltag mit mehreren Spielen an
+  verschiedenen Tagen prüfen, dass Mitspieler-Tipps zu einem bereits gesperrten Freitagsspiel **nicht**
+  sichtbar sind, solange andere Spiele desselben Spieltags noch offen sind — erst sobald das ERSTE Spiel des
+  Spieltags angepfiffen hat, sollten alle (bis dahin abgegebenen) Tipps des ganzen Spieltags erscheinen.
+
+## v0.9.5 — Ganzer Spieltag sperrt gemeinsam (nicht nur sichtbar, auch änderbar) + Bugfix "Tipp abgeben" bei Sonderwertungen
+- **Nachfrage zu v0.9.4:** "Man muss bis 19 Uhr für Freitag, Samstag, Sonntag tippen, dann sieht man auch die
+  Tipps der anderen." — Klargestellt: v0.9.4 hatte nur die **Sichtbarkeit** an den gemeinsamen Zeitpunkt
+  gekoppelt, aber einzelne Spiele blieben bis zu ihrem **eigenen** Anpfiff weiter änderbar. Das hätte die
+  eigentliche Lücke nicht geschlossen: Jemand hätte nach dem Freitags-Stichtag die (jetzt sichtbaren) Tipps
+  der anderen zu Samstag/Sonntag sehen und seinen eigenen Tipp danach noch anpassen können.
+- **Fix:** Neue zentrale Funktion `ftipp_round_lock_ts()` — der früheste Anpfiff-minus-Frist-Zeitpunkt über
+  alle Spiele eines Spieltags. Ab diesem einen gemeinsamen Zeitpunkt sind jetzt **alle** Spiele dieses
+  Spieltags gleichzeitig **komplett gesperrt** (kein Eintragen/Ändern mehr möglich, nicht nur "sichtbar") —
+  angewendet in `GET /tips` (Anzeige) und `POST /tip` (Speichern, lehnt jetzt mit derselben Sperre ab). Gilt
+  einheitlich für alle Wettbewerbe. Kein Datenbank-Update nötig.
+- **Bugfix "Tipp abgeben" bei Sonderwertungen (v0.9.3) hing fest:** Nutzer meldete, der Button bliebe
+  ausgegraut, obwohl ein Tipp eingetragen war — "man muss immer erst den Cache löschen". Ursache: der
+  "Tipp abgeben"-Button wurde beim Tippen nie live wieder aktiviert (`disabled` blieb am gerenderten
+  Button-Element hängen, weil `oninput` nur die Variable, nicht das DOM-Attribut aktualisierte) — dieselbe
+  Fehlerklasse wie der "Tipp abgeben"-Bug bei Spiel-Tipps aus v0.8.1. Mit demselben, dort schon bewährten
+  Muster (`commitBtn`-Referenz + Live-Sync bei jedem Tastenanschlag) behoben — kein Cache-Leeren nötig.
+  JS-Syntax mit `node --check`, PHP-Syntax mit `php -l` geprüft.
+- *Noch nicht live getestet:* Plugin-Update auf v0.9.5 einspielen. (1) Bei einem Spieltag mit mehreren Tagen
+  prüfen, dass nach dem Freitags-Stichtag **auch** Samstag-/Sonntagsspiele nicht mehr änderbar sind (nicht nur
+  sichtbar). (2) Bei einer Sonderwertung einen Tipp eintippen und direkt "Tipp abgeben" klicken — sollte jetzt
+  ohne Cache-Löschen sofort klickbar werden.
+
+## v0.9.6 — Nations-League-Gruppen: kurze offizielle Bezeichnung (A1–D2) statt langer Eigenbau-Namen
+- **Anfrage:** Die "Gruppensieger"-Sonderwertungen ("Gruppensieger Liga A – Gruppe 2 (Deutschland ·
+  Griechenland · Niederlande · Serbien)") waren so lang, dass die Bezeichnung im Eingabefeld abgeschnitten
+  wurde — Screenshot zeigte 14 kaum unterscheidbare, abgeschnittene Einträge. Nutzer bat, stattdessen die
+  Bezeichnung von einer Google-Suche zur echten Nations-League-Tabelle zu übernehmen.
+- **Recherchiert (Wikipedia + UEFA.com, alle 4 Ligen einzeln nachgeprüft):** Die UEFA nummeriert die 14
+  Gruppen offiziell **nicht** fortlaufend A–N, sondern als **A1–A4, B1–B4, C1–C4, D1–D2** — pro Liga eigene
+  Zählung. Die Zuordnung ergibt sich aus der Setzliste/Auslosung und lässt sich nicht aus den Spieldaten
+  ableiten, deshalb fest hinterlegt (mit Kommentar, dass das zur nächsten Auslosung 2028/29 neu geprüft werden
+  muss — gleiches Prinzip wie schon bei den CL/EL-Shortcuts). Dabei auch geprüft: **die schon vorhandenen
+  Team-Zusammensetzungen aus der recherchierten CSV waren alle korrekt** — nur die eigene, alphabetisch
+  durchgezählte Nummerierung (unsere "Gruppe 1/2/3/4") stimmte nicht in jedem Fall mit der offiziellen
+  A1-A4-Nummerierung überein (z.B. war unsere "Gruppe 3" bei Liga A offiziell "A4").
+- **Umgesetzt:**
+  - `ftipp_nl_groups()` ordnet jeder Gruppe jetzt über eine feste Team→Code-Tabelle den offiziellen Code zu
+    (z.B. "A1"), Bezeichnung ist jetzt schlicht **"Gruppensieger A1"** statt der langen Variante. Fallback auf
+    die alte Zählweise, falls sich die Team-Zusammensetzung mal ändert (Auslosung stimmt nicht mehr überein).
+  - Neue **einmalige Migration** (`ftipp_migrate_nl_group_labels()`, FTIPP_DB_VERSION 8 → 9): liest bei bereits
+    angelegten Sonderwertungen die Teams aus der Klammer der alten Bezeichnung, ordnet sie derselben Tabelle zu
+    und benennt sie automatisch um — **kein manuelles Nachbearbeiten der 14 schon angelegten Einträge nötig.**
+  - Tabelle-Tab und die neue Gruppen-Auswertung (v0.9.2) zeigen entsprechend jetzt "Gruppe A1" usw. statt der
+    langen Variante.
+  - PHP-Syntax mit `php -l` geprüft, Migrations-Logik isoliert mit einem Beispiel-Label gegengetestet.
+- *Noch nicht live getestet:* Plugin-Update auf v0.9.6 einspielen (löst automatisch die Migration aus), bei
+  ⭐ Sonderwertungen → Nations League prüfen, dass alle 14 "Gruppensieger"-Einträge jetzt kurz "Gruppensieger
+  A1" bis "Gruppensieger D2" heißen und nicht mehr abgeschnitten werden. Ebenso Tabelle-Tab und Auswertung
+  gegenprüfen.
+
+## v0.9.7 — Ursache der Gruppensieger-Verwechslung gefunden + sauberer Reset statt Text-Reparatur
+- **Live-Test von v0.9.6:** Nutzer meldete zwei "Gruppensieger A1"-Einträge mit unterschiedlicher Frist
+  (25.09. und 24.09.) und eine komplett fehlende "Gruppensieger A4". Anhand der Fristen erkannt: die zweite
+  "A1" hatte tatsächlich die Frist von Deutschlands Gruppe (A2, erstes Spiel 24.09.) — also eine echte
+  Verwechslung, kein Wahrnehmungsfehler.
+- **Wahrscheinliche Ursache gefunden:** `ftipp_nl_groups()` erkennt Gruppen per Union-Find rein aus den
+  Team-Paarungen in den geladenen Spielen. Der "🎲 Test-Spiele laden"-Button legt aber **eigene Demo-Spiele**
+  für die Nations League an (u.a. "Deutschland–Ungarn" und "Bosnien und Herzegowina–Niederlande") — mit
+  **denselben Teamnamen** wie in der echten Gruppe A2 (Deutschland, Niederlande, …). Landen diese Demo-Spiele
+  zusätzlich zu den echten CSV-Spielen im System, verbindet die Gruppenerkennung über die gemeinsamen
+  Teamnamen fälschlich mehrere echte Gruppen zu einer viel zu großen "Gruppe", die zu keinem echten 4er-Team-
+  Satz mehr passt — mit Folgeeffekten wie einer falsch zugeordneten Bezeichnung nach der v0.9.6-Umbenennung.
+- **Zwei Fixes:**
+  1. `ftipp_nl_groups()` schließt Demo-Spiele (IDs mit "demo-"-Präfix) jetzt explizit von der
+     Gruppenerkennung aus — behebt die Ursache dauerhaft, auch wenn nochmal Test-Spiele geladen werden.
+  2. Statt zu versuchen, die durch den Fehler bereits falsch benannten Sonderwertungen textbasiert zu
+     reparieren (fehleranfällig, siehe v0.9.6), werden alle bestehenden NL-"Gruppensieger"-Einträge (inkl.
+     ihrer bisherigen Tipps dazu) einmalig **gelöscht** und beim nächsten Öffnen des Sonderwertungen-Tabs aus
+     der jetzt korrekten Gruppenerkennung **sauber neu angelegt** — inklusive der zuvor fehlenden Gruppe A4.
+     "Nations-League-Sieger" und "Torschützenkönig" bleiben unangetastet.
+  - PHP-Syntax mit `php -l` geprüft.
+- ⚠️ **Nebenwirkung, die der Nutzer wissen muss:** Die 13 bisherigen Gruppensieger-Tipps (u.a. "Frankreich"
+  für A1) gehen dabei verloren und müssen neu eingetippt werden — bei dem Stand (Saison hat gerade erst
+  begonnen, nur ein Test-Tipp vorhanden) unkritisch. Falls jemand eine Gruppensieger-Wette bewusst gelöscht
+  hatte, kommt die durch den Reset ebenfalls wieder zurück (kann danach erneut gelöscht werden).
+- *Noch nicht live getestet:* Plugin-Update auf v0.9.7 einspielen, Sonderwertungen → Nations League öffnen
+  (löst den Reset + die Neu-Anlage aus), prüfen dass jetzt genau 14 Gruppensieger-Einträge (A1–D2, keine
+  Duplikate) mit korrekten, zu den echten Spielterminen passenden Fristen erscheinen.
+
+## v0.9.8 — Teams neben der Gruppensieger-Bezeichnung anzeigen
+- **Anfrage:** "Gruppensieger A1" allein sagt nicht, welche Teams gemeint sind — Nutzer bat, die Teams rechts
+  neben dem Bezeichnungsfeld anzuzeigen (nicht ins Feld selbst reinschreiben).
+- **Umgesetzt:** `GET /special` liefert jetzt bei der Nations League zusätzlich `teams` pro Sonderwertung
+  (nachgeschlagen über `ftipp_nl_groups()`, gematcht per Label). Frontend zeigt das als kleinen Text direkt
+  neben "Gruppensieger A1" an — z.B. "Frankreich, Italien, Belgien, Türkei" — sowohl in der Admin-Ansicht
+  (neben dem editierbaren Bezeichnungsfeld) als auch in der Spieler-Ansicht. Bei anderen Sonderwertungen
+  (Meister, Torschützenkönig usw.) erscheint nichts Zusätzliches, da dort kein Team-Bezug existiert.
+  PHP-Syntax mit `php -l`, JS-Syntax mit `node --check` geprüft.
+- *Noch nicht live getestet:* Plugin-Update auf v0.9.8 einspielen, bei Sonderwertungen → Nations League
+  prüfen, dass neben jedem "Gruppensieger A1" bis "D2" die vier (bzw. bei D1/D2 drei) zugehörigen Länder stehen.
 
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
