@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Nations League + Süper Lig + Serie A + Ligue 1 + Ekstraklasa per CSV-Import oder API-Football.
- * Version:           0.7.0
+ * Version:           0.7.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '0.7.0' );
+define( 'FTIPP_VERSION', '0.7.1' );
 define( 'FTIPP_DB_VERSION', '10' );
 
 /** Wettbewerbe: interne ID => [Name, API-Football Liga-ID, Art] */
@@ -2502,8 +2502,8 @@ function ftipp_favicon_href() {
  * einfarbig (schwarz) sein, nicht die bunte Favicon-Version aus ftipp_favicon_href().
  */
 function ftipp_menu_icon_href() {
-    $svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 260">'
-         . '<path d="M20 30 Q20 20 30 20 L210 20 Q220 20 220 30 L220 130 Q220 190 170 220 L120 250 L70 220 Q20 190 20 130 Z"/>'
+    $svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 110">'
+         . '<path fill-rule="evenodd" fill="black" d="M10 12 Q10 8 14 8 L86 8 Q90 8 90 12 L90 54 Q90 80 70 92 L50 104 L30 92 Q10 80 10 54 Z M50 29 A15 15 0 1 0 50 59 A15 15 0 1 0 50 29 Z M50 36 L57.6 41.5 L54.7 50.5 L45.3 50.5 L42.4 41.5 Z" />'
          . '</svg>';
     return 'data:image/svg+xml;base64,' . base64_encode( $svg );
 }

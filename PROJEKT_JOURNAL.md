@@ -1485,6 +1485,21 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.7.0 einspielen und den neuen
   Menüpunkt sowie alle Buttons einmal live gegenprüfen.
 
+## v0.7.1 — Cooleres Menü-Icon (Schild mit Ball-Motiv statt reiner Silhouette)
+- **Feedback nach Live-Test von v0.7.0:** Der neue Top-Level-Menüpunkt ist da, aber das Icon (reiner
+  schwarzer Schild-Umriss ohne Details) wirkte zu plump/langweilig — Wunsch nach einem "coolen Logo".
+- **Umgesetzt:** `ftipp_menu_icon_href()` neu gestaltet — Design von grafik-greta (neu ins Projektteam
+  geholt, künftig zuständig für visuelle Weiterentwicklung). Statt der reinen Schild-Fläche wird jetzt per
+  `fill-rule="evenodd"` ein Kreis (Ball) aus dem Schild ausgestanzt und darin ein Fünfeck (Ball-Pentagon)
+  wieder aufgefüllt — dasselbe Ball-im-Tor-Motiv wie im bunten Favicon, nur einfarbig übersetzt und robust
+  genug für die 20×20px-Darstellungsgröße im WP-Menü (keine dünnen Linien, die bei der Größe verschwimmen
+  würden).
+- Lokal geprüft: SVG isoliert bei großer und bei 20×20px-Originalgröße gerendert, danach live in der
+  Admin-Sidebar (u.a. 6-fach vergrößert per CSS-Debug-Transform) kontrolliert — Schild mit Ball-Akzent klar
+  erkennbar und deutlich von den anderen Menü-Icons unterscheidbar.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.7.1 einspielen und Icon im echten
+  Adminmenü gegenprüfen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
