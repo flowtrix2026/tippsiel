@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Nations League + Süper Lig + Serie A + Ligue 1 + Ekstraklasa per CSV-Import oder API-Football.
- * Version:           0.8.1
+ * Version:           0.8.3
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,8 +12,24 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '0.8.1' );
+define( 'FTIPP_VERSION', '0.8.3' );
 define( 'FTIPP_DB_VERSION', '10' );
+
+/**
+ * Automatische Update-Prüfung gegen GitHub-Releases (statt WordPress.org-Verzeichnis) —
+ * damit "Update verfügbar" im Plugins-Bereich erscheint, muss künftig zu jeder neuen Version
+ * ein echtes GitHub-Release (mit Versions-Tag) angelegt und die gebaute Zip als Release-Asset
+ * angehängt werden, nicht nur ein normaler Push nach main.
+ */
+require_once plugin_dir_path( __FILE__ ) . 'plugin-update-checker/plugin-update-checker.php';
+if ( class_exists( 'YahnisElsts\\PluginUpdateChecker\\v5\\PucFactory' ) ) {
+    $ftipp_update_checker = YahnisElsts\PluginUpdateChecker\v5\PucFactory::buildUpdateChecker(
+        'https://github.com/flowtrix2026/tippsiel/',
+        __FILE__,
+        'fussball-tippspiel'
+    );
+    $ftipp_update_checker->getVcsApi()->enableReleaseAssets( '/\.zip($|[?&#])/i' );
+}
 
 /** Wettbewerbe: interne ID => [Name, API-Football Liga-ID, Art] */
 function ftipp_leagues() {
@@ -221,6 +237,16 @@ add_filter( 'cron_schedules', function ( $s ) {
     $s['ftipp_15min'] = array( 'interval' => 15 * 60, 'display' => 'Alle 15 Minuten (Tippstube)' );
     return $s;
 } );
+/**
+ * Frei einstellbares Intervall für den automatischen Spieldaten-Abruf (Cron-Job-Seite, v0.8.2):
+ * ein einziger, immer gleich benannter Schedule-Key liest live aus der Option — kein Intervall
+ * pro gewähltem Wert nötig. Untergrenze 15 Minuten gegen versehentliches Dauerfeuer auf die APIs.
+ */
+add_filter( 'cron_schedules', function ( $s ) {
+    $seconds = max( 900, intval( get_option( 'ftipp_cron_interval_seconds', WEEK_IN_SECONDS ) ) );
+    $s['ftipp_fetch_custom'] = array( 'interval' => $seconds, 'display' => 'Tippstube: benutzerdefiniert' );
+    return $s;
+} );
 register_activation_hook( __FILE__, function () {
     ftipp_install();
     if ( ! wp_next_scheduled( 'ftipp_weekly_fetch' ) ) {
@@ -236,6 +262,7 @@ register_activation_hook( __FILE__, function () {
 add_action( 'plugins_loaded', function () {
     if ( get_option( 'ftipp_db_version' ) !== FTIPP_DB_VERSION ) { ftipp_install(); }
     // Cron-Jobs nachrüsten, falls das Plugin schon vor dieser Version aktiv war (kein erneutes "Aktivieren" nötig).
+    if ( ! wp_next_scheduled( 'ftipp_weekly_fetch' ) ) { wp_schedule_event( time() + 60, 'weekly', 'ftipp_weekly_fetch' ); }
     if ( ! wp_next_scheduled( 'ftipp_reminder_check' ) ) { wp_schedule_event( time() + 120, 'ftipp_15min', 'ftipp_reminder_check' ); }
     if ( ! wp_next_scheduled( 'ftipp_newsletter_check' ) ) { wp_schedule_event( time() + 180, 'hourly', 'ftipp_newsletter_check' ); }
 } );
@@ -2580,9 +2607,77 @@ function ftipp_page_placeholder( $title ) {
     echo '<div class="wrap"><h1>' . esc_html( $title ) . '</h1><p>Kommt in Kürze.</p></div>';
 }
 function ftipp_page_design()    { ftipp_page_placeholder( 'Design' ); }
-function ftipp_page_cron()      { ftipp_page_placeholder( 'Cron-Job' ); }
 function ftipp_page_history()   { ftipp_page_placeholder( 'History' ); }
 function ftipp_page_changelog() { ftipp_page_placeholder( 'Changelog' ); }
+
+/**
+ * Cron-Job-Seite: frei einstellbares Intervall für den automatischen Spieldaten-Abruf (ftipp_weekly_fetch).
+ */
+function ftipp_page_cron() {
+    if ( ! current_user_can( 'manage_options' ) ) { return; }
+    $value = intval( get_option( 'ftipp_cron_interval_value', 7 ) );
+    $unit  = get_option( 'ftipp_cron_interval_unit', 'days' );
+    $next  = wp_next_scheduled( 'ftipp_weekly_fetch' );
+    ?>
+    <div class="wrap">
+        <h1>⏱️ Cron-Job</h1>
+        <p>Legt fest, wie oft die Spieldaten automatisch abgerufen werden (OpenLigaDB/API-Football, dieselbe
+           Aktion wie der Button „Spieldaten jetzt abrufen" auf der Einstellungen-Seite).</p>
+
+        <?php if ( isset( $_GET['ftipp_cron_done'] ) ) : ?>
+            <div class="notice notice-success is-dismissible"><p>Zeitplan gespeichert.</p></div>
+        <?php endif; ?>
+
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <input type="hidden" name="action" value="ftipp_save_cron" />
+            <?php wp_nonce_field( 'ftipp_save_cron' ); ?>
+            <table class="form-table">
+                <tr>
+                    <th scope="row">Automatisch abrufen alle</th>
+                    <td>
+                        <input type="number" name="ftipp_cron_interval_value" min="1" step="1" value="<?php echo esc_attr( $value ); ?>" style="width:80px" />
+                        <select name="ftipp_cron_interval_unit">
+                            <option value="minutes" <?php selected( $unit, 'minutes' ); ?>>Minuten</option>
+                            <option value="hours"   <?php selected( $unit, 'hours' ); ?>>Stunden</option>
+                            <option value="days"    <?php selected( $unit, 'days' ); ?>>Tage</option>
+                        </select>
+                        <p class="description">Mindestens 15 Minuten (Sicherheitsuntergrenze gegen zu häufige Anfragen an OpenLigaDB/API-Football).</p>
+                    </td>
+                </tr>
+            </table>
+            <?php submit_button( 'Speichern' ); ?>
+        </form>
+
+        <h2>Status</h2>
+        <p><strong>Nächster automatischer Abruf:</strong>
+           <?php echo $next ? esc_html( wp_date( 'd.m.Y H:i', $next ) ) : 'nicht geplant'; ?></p>
+        <p class="description">Hinweis: WordPress-Cron („WP-Cron") wird durch Seitenaufrufe ausgelöst — bei
+           wenig Besucherverkehr kann der Abruf verzögert stattfinden. Bei Bedarf lässt sich stattdessen ein
+           externer Cron-Dienst (z. B. cron-job.org) auf <code>wp-cron.php</code> einrichten, der regelmäßig
+           aufgerufen wird.</p>
+    </div>
+    <?php
+}
+add_action( 'admin_post_ftipp_save_cron', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_save_cron' );
+
+    $value = max( 1, intval( $_POST['ftipp_cron_interval_value'] ?? 7 ) );
+    $unit  = in_array( $_POST['ftipp_cron_interval_unit'] ?? 'days', array( 'minutes', 'hours', 'days' ), true )
+        ? $_POST['ftipp_cron_interval_unit'] : 'days';
+    $unit_seconds = array( 'minutes' => MINUTE_IN_SECONDS, 'hours' => HOUR_IN_SECONDS, 'days' => DAY_IN_SECONDS );
+    $seconds = max( 900, $value * $unit_seconds[ $unit ] );
+
+    update_option( 'ftipp_cron_interval_value', $value );
+    update_option( 'ftipp_cron_interval_unit', $unit );
+    update_option( 'ftipp_cron_interval_seconds', $seconds );
+
+    wp_clear_scheduled_hook( 'ftipp_weekly_fetch' );
+    wp_schedule_event( time() + 60, 'ftipp_fetch_custom', 'ftipp_weekly_fetch' );
+
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_cron', 'ftipp_cron_done' => '1' ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
 
 /**
  * Info-Seite: kurze Anleitung/Glossar für den Plattform-Admin, rein statisch, kein Formular.

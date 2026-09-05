@@ -1544,6 +1544,53 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - Lokal getestet: Seite rendert fehlerfrei, alle Umlaute/Anführungszeichen korrekt, kein PHP-Fehler im Log.
 - *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.8.1 einspielen, Info-Seite gegenprüfen.
 
+## v0.8.2 — Cron-Job-Seite: frei einstellbarer Zeitplan für den automatischen Abruf
+- Dritter Schritt des Untermenü-Ausbaus. Bisher lief der automatische Spieldaten-Abruf (`ftipp_weekly_fetch`)
+  fest verdrahtet auf `weekly` — jetzt kann der Admin auf der neuen Cron-Job-Seite eine freie Zeitangabe
+  wählen ("alle [Zahl] [Minuten/Stunden/Tage]"), Mindestwert 15 Minuten als Sicherheitsuntergrenze gegen zu
+  häufige Anfragen an OpenLigaDB/API-Football.
+- **Technischer Kern:** ein einziger, immer gleich benannter `cron_schedules`-Eintrag (`ftipp_fetch_custom`)
+  liest sein Intervall live aus der Option `ftipp_cron_interval_seconds` — kein separat registriertes
+  Intervall pro gewähltem Wert nötig. Beim Speichern (`admin_post_ftipp_save_cron`) wird der bestehende
+  Cron-Job gelöscht und mit dem neuen Intervall sofort neu geplant. Anzeige "Nächster automatischer Abruf"
+  über `wp_next_scheduled()`, gleiches `wp_date()`-Muster wie die bestehende "Letzter Abruf"-Anzeige.
+- `plugins_loaded` bekam zusätzlich ein Sicherheitsnetz für `ftipp_weekly_fetch` (analog zu Reminder/
+  Newsletter), damit der Job bei Bestandsinstallationen ohne erneute Aktivierung nicht verloren geht.
+- Lokal getestet: Seite zeigt korrekt Default (7 Tage) und aktuellen "nächster Abruf"-Zeitpunkt; Speichern
+  per `curl` gegen `admin-post.php` getestet (Wechsel auf "alle 3 Stunden") — `wp cron event list` bestätigt
+  danach `ftipp_weekly_fetch` mit Schedule `ftipp_fetch_custom` und `ftipp_cron_interval_seconds = 10800`
+  (3 × 3600). Kein PHP-Fehler im Log.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.8.2 einspielen, Cron-Job-Seite einmal
+  live speichern und den neuen Zeitplan gegenprüfen.
+
+## v0.8.3 — Automatische Update-Prüfung gegen GitHub-Releases eingebaut
+- **Anfrage:** Zusätzliche Idee neben dem Untermenü-Ausbau: Kann WordPress im Plugins-Bereich automatisch
+  "Update verfügbar" anzeigen, sobald eine neue Version auf GitHub liegt — wie bei ganz normalen
+  WordPress.org-Plugins? Entscheidung: gleich jetzt einbauen und mit den nächsten Versionen (History, Design,
+  Changelog) live testen, ob es funktioniert.
+- **Umgesetzt:** Die freie, weit verbreitete Bibliothek "Plugin Update Checker" (YahnisElsts, MIT-Lizenz,
+  v5.7) wird mit ins Plugin gepackt (`fussball-tippspiel/plugin-update-checker/`) und zeigt auf
+  `github.com/flowtrix2026/tippsiel`, im "Release Assets"-Modus (liest die angehängte Zip-Datei eines echten
+  GitHub-Release, nicht den automatischen Quellcode-Zip von main). Dadurch erscheint ab sofort in
+  "Plugins → Tippstube" ein "Check for updates"-Link, und bei einer neueren Version der übliche
+  "Update verfügbar"-Hinweis mit Ein-Klick-Update.
+- **Wichtige Konsequenz für den Release-Workflow:** Damit das funktioniert, muss ab jetzt zu jeder neuen
+  Version zusätzlich zum normalen Push ein echtes **GitHub-Release** (mit Versions-Tag, z. B. `v0.8.3`)
+  angelegt und die gebaute `fussball-tippspiel.zip` als Release-Anhang hochgeladen werden — ein reiner
+  `git push` reicht dafür nicht mehr aus.
+- **Bekannte Einschränkung (getestet, keine Blockade):** Da unser GitHub-Repo neben dem Plugin auch alle
+  anderen Projektdateien (Journal, CSVs, `tippspiel.html` etc.) enthält, liegt die eigentliche Plugin-Datei
+  nicht im Repo-Root, sondern im Unterordner `fussball-tippspiel/`. Die Bibliothek versucht zusätzlich zur
+  Release-Prüfung (die korrekt funktioniert) einen optionalen Abgleich der `Version`-Kopfzeile direkt aus dem
+  Repo-Root — dieser schlägt bei uns strukturbedingt fehl (404) und erzeugt eine harmlose, rein kosmetische
+  Fehlermeldung im "Check for updates"-Ergebnis. Die eigentliche Versionsprüfung und der Update-Download
+  laufen davon unabhängig korrekt über das GitHub-Release selbst.
+- Lokal getestet: Plugin lädt fehlerfrei mit der neuen Bibliothek, "Check for updates"-Link erscheint auf der
+  Plugins-Seite. Der volle Ablauf (Release anlegen → "Update verfügbar" erscheint → Update installieren) wird
+  jetzt live mit diesem und den folgenden Releases getestet.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.8.3 einspielen; ab diesem Release wird
+  zusätzlich ein GitHub-Release mit angehängter Zip erstellt, um den kompletten Update-Mechanismus zu prüfen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
