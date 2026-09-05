@@ -1,8 +1,9 @@
 # Tippstube
 
 Ein Fußball-Tippspiel für private Freundes-/Familienkreise über mehrere laufende
-Wettbewerbe (1./2. Bundesliga, DFB-Pokal, Champions League, Europa League, Nations League).
-Läuft als WordPress-Plugin, Daten in der WordPress-eigenen SQL-Datenbank.
+Wettbewerbe (1./2./3. Liga, DFB-Pokal, Champions League, Europa League, Nations League,
+Premier League, LaLiga, Süper Lig, Frauen-Bundesliga, Regionalliga Nordost). Läuft als
+WordPress-Plugin, Daten in der WordPress-eigenen SQL-Datenbank.
 
 ## Language
 
@@ -35,9 +36,10 @@ Ein Mitglied einer Tipprunde, das tippt und die Rangliste/Pinnwand dieser Runde 
 _Avoid_: Spieler (allein, ohne Rundenbezug), Teilnehmer
 
 **Wettbewerb**:
-Einer der sechs unterstützten Fußball-Wettbewerbe (1. Bundesliga, 2. Bundesliga,
-DFB-Pokal, Champions League, Europa League, Nations League). Jeder Wettbewerb
-hat innerhalb jeder Tipprunde seine eigene, getrennte Rangliste.
+Einer der zwölf unterstützten Fußball-Wettbewerbe (1. Bundesliga, 2. Bundesliga, 3. Liga,
+DFB-Pokal, Champions League, Europa League, Nations League, Premier League, LaLiga, Süper Lig,
+Frauen-Bundesliga, Regionalliga Nordost). Jeder Wettbewerb hat innerhalb jeder Tipprunde seine
+eigene, getrennte Rangliste.
 _Avoid_: Liga (zu eng — DFB-Pokal/Europapokale sind keine Ligen), Turnier
 
 **Wettbewerbs-Abo** (kurz: **Abo**):

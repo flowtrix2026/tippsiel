@@ -1337,6 +1337,109 @@ Ergebnisse kommen **automatisch per API**.
 - *Noch nicht live getestet:* Plugin-Update auf v0.9.8 einspielen, bei Sonderwertungen → Nations League
   prüfen, dass neben jedem "Gruppensieger A1" bis "D2" die vier (bzw. bei D1/D2 drei) zugehörigen Länder stehen.
 
+## v0.11.0 — Drei neue Wettbewerbe: 3. Liga, Premier League, LaLiga
+- **Anfrage:** Bei der Recherche zu OpenLigaDB (siehe gestern) sind noch weitere aktuelle Top-Ligen gefunden
+  worden — Nutzer wollte 3. Liga (Deutschland), Premier League (England) und LaLiga (Spanien) zusätzlich dazu.
+- **Vorab Datenqualität geprüft (wie immer bei einer neuen Quelle, echte API-Calls):** Alle drei liefern über
+  OpenLigaDB für 2026/27 vollständige Saisondaten — je 380 Spiele, 20 Teams, volle Spielzeit August 2026 bis
+  Mai 2027, deutsche Rundennamen ("1. Spieltag" usw., keine Übersetzung nötig).
+- **Umgesetzt:**
+  - Drei neue Wettbewerbe `BL3`, `PL`, `LA1` in `ftipp_leagues()`, jeweils `kind: 'league'`.
+  - In den OpenLigaDB-Automatik-Abruf aufgenommen (Shortcuts `bl3`, `pl`, `la1` — laut Community-Historie
+    stabil, anders als bei CL/EL keine jährliche Umbenennung zu erwarten).
+  - Passende Standard-Sonderwertungen ergänzt: 3. Liga wie BL1/BL2 (inkl. Herbstmeister, deutsche Tradition),
+    Premier League/LaLiga mit Meister/Absteiger/Torschützenkönig/Bester Passgeber — bewusst **ohne**
+    Herbstmeister, das ist eine rein deutsche Bundesliga-Eigenheit ohne Entsprechung in England/Spanien.
+  - "📊 Tabelle" (v0.9.0) und die Wettbewerbs-Dropdowns überall funktionieren automatisch mit, keine
+    Extra-Anpassung nötig — beides ist schon generisch für jeden Wettbewerb mit OpenLigaDB-Shortcut gebaut.
+  - Header-Untertitel, Plugin-Beschreibung, Einstellungsseiten-Texte und CONTEXT.md-Glossar (jetzt neun statt
+    sechs Wettbewerbe) an allen Stellen aktualisiert.
+  - **Vor dem Versand komplett lokal durchgetestet** (gleiches lokales WordPress+SQLite-Setup wie beim
+    Design-Tab): "Spieldaten jetzt abrufen" ausgelöst → alle drei liefern 380 Spiele; im Tippen-Tab echte
+    Premier-League-Spiele geprüft (Ipswich–Liverpool, Man City–Coventry, …); Tabelle-Tab zeigt eine korrekte,
+    echte Premier-League-Tabelle mit Tabellenstand nach Spieltag 3.
+  - PHP-Syntax mit `php -l`, JS-Syntax mit `node --check` geprüft, zusätzlich zur lokalen End-to-End-Prüfung.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.11.0 einspielen, unter 👥 Runden die drei
+  neuen Wettbewerbe abonnieren, "Spieldaten jetzt abrufen" klicken, dann Tippen/Tabelle/Sonderwertungen für
+  3. Liga, Premier League und LaLiga live gegenprüfen.
+
+## v0.12.0 — Süper Lig (Beta) über ESPN + wichtiger Fund: ESPN aus PHP heraus unzuverlässig
+- **Anfrage:** Türkische Süper Lig sollte auch mit rein. OpenLigaDB hat dafür seit 2013/2014 keine aktuellen
+  Daten mehr — bei der Recherche zu Alternativ-APIs (siehe gestern) aber die ESPN-"Hidden API" gefunden, die
+  über den Slug `tur.1` echte, aktuelle Spieldaten liefert (18 Teams, 306 Saisonspiele, live geprüft).
+- **Wichtiger technischer Fund während der Umsetzung:** ESPNs API funktioniert vom Terminal aus (curl)
+  zuverlässig, aber Anfragen **aus PHP heraus** (also genau das, was das Plugin auf dem echten Server macht)
+  wurden mit HTTP 403 "Access Denied" von ESPNs Bot-Schutz (Akamai) geblockt — auch mit echtem
+  Browser-User-Agent und erzwungenem HTTP/1.1. Ursache vermutlich: PHPs curl-Modul nutzt eine andere
+  TLS-Bibliothek (OpenSSL) als das Mac-Terminal (SecureTransport), was einen anderen, für Bot-Erkennung
+  verdächtigeren "Fingerabdruck" der Verbindung erzeugt — technisch nicht zuverlässig mit ein paar
+  Codezeilen zu beheben, kann je nach Hosting-Server auch unterschiedlich ausfallen.
+- **Entscheidung (Rücksprache):** Code bleibt drin (bester Versuch — auf manchen Servern könnte es
+  funktionieren), aber der Wettbewerb ist überall klar als **"Süper Lig (Beta)"** gekennzeichnet — im
+  Dropdown, im Header-Untertitel und mit Erklärung auf der Einstellungsseite, damit klar ist: könnte auf
+  eurem Server einfach nicht funktionieren, ohne dass es wie ein Fehler im Plugin aussieht.
+- **Umgesetzt:**
+  - Neue Fetch-Funktion `ftipp_fetch_espn_soccer()` — übersetzt ESPNs Antwortformat ins interne
+    Spiel-Format, inkl. eigener Spieltag-Ableitung (ESPN liefert keine Spieltag-Nummer bei Liga-Spielen —
+    wird aus dem Kalender abgeleitet: chronologisch sortieren, in Blöcken von Team-Anzahl/2 gruppieren).
+  - Zeitzone bewusst korrekt behandelt: ESPN liefert UTC, wird über `get_date_from_gmt()` in die
+    WordPress-Standort-Zeitzone umgerechnet (sonst Anpfiffzeiten falsch angezeigt).
+  - Neuer Wettbewerb `TR1` ("Süper Lig (Beta)"), Standard-Sonderwertungen (Meister/Absteiger/
+    Torschützenkönig/Bester Passgeber, ohne Herbstmeister wie bei PL/LA1), echte Tabelle über die schon
+    vorhandene `ftipp_mini_table()`-Funktion (aus den eigenen Spieldaten berechnet, nicht von ESPN bezogen).
+  - PHP-Syntax mit `php -l`, JS-Syntax mit `node --check` geprüft; komplett lokal durchgetestet — dabei
+    genau das ESPN-Zuverlässigkeitsproblem entdeckt und dokumentiert, bevor es live gegangen wäre.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.12.0 einspielen (enthält zusätzlich die
+  v0.11.0-Ligen 3. Liga/Premier League/LaLiga, siehe oben), "Spieldaten jetzt abrufen" klicken, in der
+  "Letzter Abruf"-Tabelle bei Süper Lig schauen ob's auf eurem Hostinger-Server funktioniert oder den
+  ESPN-Fehler zeigt — beides ist ein gültiges, erwartetes Ergebnis bei einer Beta-Quelle.
+
+## v1.0.0 — Erste Version 1
+Auf Wunsch des Nutzers: "Ich glaube, wir sind schon fertig für eine Version 1." Kein Feature-Sprung, reiner
+Versionssprung von 0.12.0 auf 1.0.0 (Bugfixes zählen ab hier wieder klassisch als 1.0.x). Markiert den Punkt,
+an dem Tippstube als ausgereift genug für eine "1.0" gilt — nach vielen Monaten Entwicklung, echtem Live-Betrieb
+mit einer Familienrunde, und zwei ernsthaften Vorfällen (Seitenausfall, verwaiste DFB-Pokal-Tipps), die beide
+sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
+
+**Stand der Funktionen bei v1.0.0:**
+- 10 Wettbewerbe: 1./2./3. Liga, DFB-Pokal, Champions League, Europa League, Nations League, Premier League,
+  LaLiga, Süper Lig (Beta) — je nach Wettbewerb über OpenLigaDB, API-Football, CSV-Import oder ESPN
+- Tipprunden mit Einladungscode, pro Runde eigenes Punktesystem/Modus/Wettbewerbs-Abo
+- Rangliste, echte Liga-/Turniertabelle, Tipp-Historie, Statistiken, Achievements
+- Sonderwertungen inkl. automatischer Nations-League-Gruppensieger-Wetten (14 Gruppen)
+- K.o.-Zusatztipp, Spieltag-weite Tipp-Sperre/-Sichtbarkeit, Fristen-Erinnerung, Ranking-Newsletter
+- Runden-Import/Export (Backup), DSGVO-Grundausstattung, Pinnwand-Chat pro Runde
+
+## v0.5.0 — Süper Lig jetzt per CSV, zwei neue Ligen (Frauen-Bundesliga, Regionalliga Nordost), Versionsnummer & Autor angepasst
+- **Süper Lig auf CSV umgestellt:** Nach dem live bestätigten ESPN-HTTP-403-Problem auf dem echten Server (siehe
+  v0.12.0) wie besprochen auf CSV-Import umgestellt — genau wie die Nations League. Die komplette Saison
+  2026/27 (306 Spiele, 18 Teams, inkl. bereits gespielter Ergebnisse) recherchiert und als
+  `sueper-lig-2026-27.csv` bereitgestellt, per Terminal-Zugriff auf dieselbe ESPN-API (die von dort zuverlässig
+  funktioniert). Zeitzone bewusst korrekt von UTC nach Europe/Berlin umgerechnet. "(Beta)"-Kennzeichnung wieder
+  entfernt, da CSV-Import genauso zuverlässig ist wie bei der Nations League — kein Beta-Vorbehalt mehr nötig.
+  Die "📊 Tabelle"-Berechnung wurde dabei generalisiert: jeder Wettbewerb ohne OpenLigaDB-Shortcut bekommt jetzt
+  automatisch eine selbst berechnete Tabelle aus den eigenen Spieldaten (vorher war das speziell an "ESPN"
+  geknüpft, jetzt komplett quellenunabhängig).
+- **Zwei neue Wettbewerbe** (auf Nutzerwunsch, direkt vom OpenLigaDB-Übersichtsscreenshot):
+  - **Frauen-Bundesliga** (`FBL`, Shortcut `ffb1`) — 182 Spiele, 14 Teams, live geprüft.
+  - **Regionalliga Nordost** (`RLNO`, Shortcut `rlno`) — 306 Spiele, 18 Teams, live geprüft. Entspricht der
+    "NOFV Regionalliga NordOst" von der OpenLigaDB-Startseite (derselbe Shortcut, nur der vollständige Name).
+  - **Bewusst NICHT eingebaut:** "Frauen-Nationalmannschaft" (OpenLigaDB hat dafür nur 2 Freundschaftsspiele
+    insgesamt — auf Rückfrage als zu dünn für einen eigenen Wettbewerb eingestuft) und "Oberliga Nord
+    2026/2027" (stellte sich beim Datencheck als **Eishockey**-Liga heraus, nicht Fußball — Team-Namen wie
+    "Herner EV Miners" haben das verraten. Tippstube bleibt reines Fußball-Tippspiel.).
+  - Passende Standard-Sonderwertungen ergänzt, für die Frauen-Bundesliga bewusst mit weiblichen
+    Bezeichnungen (Deutsche Meisterin, Herbstmeisterin, Absteigerin, Torschützenkönigin, Beste Passgeberin).
+- **Versionsnummer & Autor auf Nutzerwunsch angepasst:** Kurzzeitig als v1.0.0 geführt ("wir sind schon fertig
+  für eine Version 1"), dann auf ausdrücklichen Wunsch wieder auf **0.5.0** zurückgesetzt — kein technischer
+  Grund, reine Entscheidung des Nutzers zur Versionsnummerierung. Plugin-Autor-Feld von "Tippstube" auf
+  "Florian Henschke" geändert (erscheint in der Plugin-Liste als "Version 0.5.0 | Von Florian Henschke").
+- PHP-Syntax mit `php -l`, JS-Syntax mit `node --check` geprüft; CSV-Import und beide neuen Ligen komplett
+  lokal durchgetestet (echtes WordPress+SQLite-Setup) vor dem Versand.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.5.0 einspielen, `sueper-lig-2026-27.csv`
+  hochladen (Einstellungen → CSV importieren), "Spieldaten jetzt abrufen" für Frauen-Bundesliga/Regionalliga
+  Nordost klicken, alle drei in einer Runde abonnieren und im Tippen-/Tabelle-Tab gegenprüfen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

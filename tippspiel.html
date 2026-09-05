@@ -135,7 +135,7 @@
     </svg>
     Tippstube
   </h1>
-  <div class="sub">1./2. Bundesliga · DFB-Pokal · Champions League · Europa League · Nations League — jede Runde ihre eigene Wertung</div>
+  <div class="sub">1./2./3. Liga · DFB-Pokal · Champions League · Europa League · Nations League · Premier League · LaLiga · Süper Lig · Frauen-Bundesliga · Regionalliga Nordost — jede Runde ihre eigene Wertung</div>
 </header>
 <div class="wrap">
   <div class="tabs">
@@ -171,10 +171,16 @@ const HOUR = 3600*1000, DAY = 86400*1000;
 const COMPS = [
   {id:'BL1', name:'1. Bundesliga',      api:78,  kind:'league'},
   {id:'BL2', name:'2. Bundesliga',      api:79,  kind:'league'},
+  {id:'BL3', name:'3. Liga',            api:80,  kind:'league'},
   {id:'DFB', name:'DFB-Pokal',          api:81,  kind:'cup'},
   {id:'CL',  name:'Champions League',   api:2,   kind:'cup'},
   {id:'EL',  name:'Europa League',      api:3,   kind:'cup'},
   {id:'NL',  name:'Nations League',     api:5,   kind:'cup'},
+  {id:'PL',  name:'Premier League',     api:39,  kind:'league'},
+  {id:'LA1', name:'LaLiga',             api:140, kind:'league'},
+  {id:'TR1', name:'Süper Lig',          api:203, kind:'league'},
+  {id:'FBL', name:'Frauen-Bundesliga',  api:0,   kind:'league'},
+  {id:'RLNO', name:'Regionalliga Nordost', api:0, kind:'league'},
 ];
 const compById = id => COMPS.find(c=>c.id===id);
 const defCfg = () => ({pTend:1, pExact:3, pKO:3, malusOn:true, malus:-1, deadlineMin:60});

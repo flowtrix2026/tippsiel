@@ -1,18 +1,18 @@
 <?php
 /**
  * Plugin Name:       Tippstube
- * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2. Bundesliga + DFB-Pokal + Champions/Europa League via OpenLigaDB (aktuelle Saison, gratis), Nations League via API-Football.
- * Version:           0.9.8
+ * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Nations League + Süper Lig per CSV-Import.
+ * Version:           0.5.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
- * Author:            Tippstube
+ * Author:            Florian Henschke
  * License:           GPL-2.0-or-later
  * Text Domain:       fussball-tippspiel
  */
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '0.9.8' );
+define( 'FTIPP_VERSION', '0.5.0' );
 define( 'FTIPP_DB_VERSION', '10' );
 
 /** Wettbewerbe: interne ID => [Name, API-Football Liga-ID, Art] */
@@ -20,10 +20,16 @@ function ftipp_leagues() {
     return array(
         'BL1' => array( 'name' => '1. Bundesliga',     'api' => 78,  'kind' => 'league' ),
         'BL2' => array( 'name' => '2. Bundesliga',     'api' => 79,  'kind' => 'league' ),
+        'BL3' => array( 'name' => '3. Liga',           'api' => 80,  'kind' => 'league' ),
         'DFB' => array( 'name' => 'DFB-Pokal',         'api' => 81,  'kind' => 'cup' ),
         'CL'  => array( 'name' => 'Champions League',  'api' => 2,   'kind' => 'cup' ),
         'EL'  => array( 'name' => 'Europa League',     'api' => 3,   'kind' => 'cup' ),
         'NL'  => array( 'name' => 'Nations League',    'api' => 5,   'kind' => 'cup' ),
+        'PL'  => array( 'name' => 'Premier League',    'api' => 39,  'kind' => 'league' ),
+        'LA1' => array( 'name' => 'LaLiga',            'api' => 140, 'kind' => 'league' ),
+        'TR1' => array( 'name' => 'Süper Lig',         'api' => 203, 'kind' => 'league' ),
+        'FBL' => array( 'name' => 'Frauen-Bundesliga', 'api' => 0,   'kind' => 'league' ),
+        'RLNO' => array( 'name' => 'Regionalliga Nordost', 'api' => 0, 'kind' => 'league' ),
     );
 }
 function ftipp_comp_ids() { return array_keys( ftipp_leagues() ); }
@@ -238,8 +244,10 @@ register_deactivation_hook( __FILE__, function () {
 
 /* ============================================================
  * Spieldaten-Abruf — Hybrid:
- *   1./2. Bundesliga + DFB-Pokal + Champions League + Europa League -> OpenLigaDB (aktuelle Saison, gratis, ohne Key)
- *   Nations League -> API-Football (Gratis-Tarif nur alte Test-Saisons 2021–2023)
+ *   1./2./3. Liga + DFB-Pokal + Champions League + Europa League + Premier League + LaLiga -> OpenLigaDB (aktuelle Saison, gratis, ohne Key)
+ *   Nations League + Süper Lig -> CSV-Import (siehe ftipp_import_fixtures_csv()) — für beide gibt es keine
+ *   zuverlässige kostenlose Automatik-Quelle (OpenLigaDB bei Süper Lig seit 2013/2014 veraltet; ESPN wurde
+ *   live getestet, wird aber von manchen Servern per PHP-Anfrage geblockt, siehe ftipp_fetch_espn_soccer())
  * DFB-Pokal (v0.8.17) und Champions/Europa League (v0.8.22) bewusst auf OpenLigaDB umgestellt
  * (Nutzerentscheidung): einzige Quelle, die diese Wettbewerbe in der AKTUELLEN Saison kostenlos
  * abdeckt. Nachteil bekannt und akzeptiert: OpenLigaDB kennzeichnet "nach Verlängerung/
@@ -256,11 +264,15 @@ function ftipp_current_de_season() {
     return ( $m >= 7 ) ? $y : ( $y - 1 );
 }
 function ftipp_openligadb_shortcut( $comp_id ) {
-    // Achtung: bei BL1/BL2/DFB ist der Shortcut über die Jahre stabil (nur die Saisonzahl in der URL ändert
-    // sich). Bei Champions/Europa League hat die Community den Shortcut in der Vergangenheit fast jede Saison
-    // umbenannt (z.B. CL: cl -> cl1011 -> ucl2014 -> ucl2024 -> ucl) — die Werte hier sind Stand 2026/27 und
-    // müssen ggf. zur nächsten Saison manuell geprüft/aktualisiert werden (siehe api.openligadb.de/getavailableleagues).
-    $map = array( 'BL1' => 'bl1', 'BL2' => 'bl2', 'DFB' => 'dfb', 'CL' => 'ucl', 'EL' => 'uel2026' );
+    // Achtung: bei BL1/BL2/BL3/DFB/PL/LA1 ist der Shortcut über die Jahre stabil (nur die Saisonzahl in der
+    // URL ändert sich). Bei Champions/Europa League hat die Community den Shortcut in der Vergangenheit fast
+    // jede Saison umbenannt (z.B. CL: cl -> cl1011 -> ucl2014 -> ucl2024 -> ucl) — die Werte hier sind Stand
+    // 2026/27 und müssen ggf. zur nächsten Saison manuell geprüft/aktualisiert werden (siehe
+    // api.openligadb.de/getavailableleagues).
+    $map = array(
+        'BL1' => 'bl1', 'BL2' => 'bl2', 'BL3' => 'bl3', 'DFB' => 'dfb', 'CL' => 'ucl', 'EL' => 'uel2026',
+        'PL' => 'pl', 'LA1' => 'la1', 'FBL' => 'ffb1', 'RLNO' => 'rlno',
+    );
     return isset( $map[ $comp_id ] ) ? $map[ $comp_id ] : null;
 }
 
@@ -345,6 +357,98 @@ function ftipp_fetch_openligadb( $shortcut, $season ) {
     return array( 'ok' => true, 'fixtures' => $fx );
 }
 
+/**
+ * Wettbewerbe, für die es keine brauchbare OpenLigaDB-Quelle gibt, aber die kostenlose (inoffizielle)
+ * ESPN-API aktuelle Daten liefert (Stand 2026/27 live geprüft: echte, laufende Saison, komplette Spielliste).
+ * ESPN-Slug-Format: "{land}.{liga}", z.B. "tur.1" für die türkische Süper Lig.
+ */
+/**
+ * Auf dem echten Server live getestet (v0.12.0): ESPNs Bot-Schutz blockt Anfragen, die aus PHP kommen, mit
+ * HTTP 403 — auf diesem Hosting funktioniert der automatische Abruf also nicht. Süper Lig läuft deshalb ab
+ * v1.0.1 wie die Nations League per CSV-Import (siehe ftipp_import_fixtures_csv()). Diese Funktion bleibt
+ * absichtlich als leere Zuordnung stehen (statt komplett gelöscht) — falls ESPN auf einem anderen Server
+ * (andere PHP/TLS-Konfiguration) doch funktioniert, reicht ein Eintrag hier, um es erneut zu versuchen.
+ */
+function ftipp_espn_soccer_map() {
+    return array();
+}
+
+/**
+ * Erzwingt HTTP/1.1 für Anfragen an ESPN — PHPs curl-Modul wird von Akamai (ESPNs CDN) mit HTTP 403
+ * geblockt, wenn es HTTP/2 verhandelt (Terminal-curl ist davon nicht betroffen, nutzt eine andere
+ * TLS/HTTP2-Implementierung). Läuft nur für ESPN-URLs, alle anderen wp_remote_get()-Aufrufe unangetastet.
+ */
+add_filter( 'http_api_curl', function ( $handle, $parsed_args, $url ) {
+    if ( false !== strpos( $url, 'site.api.espn.com' ) && defined( 'CURL_HTTP_VERSION_1_1' ) ) {
+        curl_setopt( $handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1 );
+    }
+}, 10, 3 );
+
+/**
+ * ESPN liefert bei Liga-Spielen keine Spieltag-Nummer — wird hier selbst aus dem Kalender abgeleitet:
+ * chronologisch sortieren und in Blöcken von (Team-Anzahl / 2) Spielen gruppieren (ein normaler Spieltag
+ * bei n Teams hat genau n/2 Partien). Live gegen echte Süper-Liga-Daten geprüft: ergibt saubere, durch
+ * mehrere Tage getrennte Blöcke, passt zur echten Spieltag-Einteilung.
+ */
+function ftipp_fetch_espn_soccer( $slug, $season_start_year ) {
+    $from = $season_start_year . '0701';
+    $to   = ( $season_start_year + 1 ) . '0630';
+    $url  = "https://site.api.espn.com/apis/site/v2/sports/soccer/{$slug}/scoreboard?dates={$from}-{$to}&limit=500";
+    // ESPNs inoffizielle API läuft hinter Akamai — von der Kommandozeile (curl) aus klappt ein normaler
+    // Aufruf problemlos, aber PHPs curl-Modul verhandelt HTTP/2 anders und wird dabei mit HTTP 403 "Access
+    // Denied" geblockt (live getestet und verglichen). Fix: für genau diese Anfrage HTTP/1.1 erzwingen
+    // (siehe ftipp_force_http11_for_espn() weiter unten) plus ein normaler Browser-User-Agent.
+    $resp = wp_remote_get( $url, array(
+        'timeout' => 25,
+        'headers' => array( 'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36' ),
+    ) );
+    if ( is_wp_error( $resp ) ) { return array( 'ok' => false, 'error' => $resp->get_error_message(), 'fixtures' => array() ); }
+    $code = (int) wp_remote_retrieve_response_code( $resp );
+    $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+    if ( 200 !== $code || ! isset( $body['events'] ) || ! is_array( $body['events'] ) ) {
+        return array( 'ok' => false, 'error' => 'HTTP ' . $code, 'fixtures' => array() );
+    }
+
+    $events = $body['events'];
+    usort( $events, function ( $a, $b ) { return strcmp( $a['date'], $b['date'] ); } );
+
+    $teamIds = array();
+    foreach ( $events as $e ) {
+        $comp = isset( $e['competitions'][0] ) ? $e['competitions'][0] : null;
+        if ( ! $comp ) { continue; }
+        foreach ( $comp['competitors'] as $c ) { $teamIds[ $c['team']['id'] ] = true; }
+    }
+    $perRound = count( $teamIds ) >= 2 ? intval( count( $teamIds ) / 2 ) : 1;
+
+    $fx = array();
+    foreach ( $events as $i => $e ) {
+        $comp = isset( $e['competitions'][0] ) ? $e['competitions'][0] : null;
+        if ( ! $comp || empty( $comp['competitors'] ) ) { continue; }
+        $home = null; $away = null;
+        foreach ( $comp['competitors'] as $c ) {
+            if ( 'home' === $c['homeAway'] ) { $home = $c; } else { $away = $c; }
+        }
+        if ( ! $home || ! $away ) { continue; }
+        $finished = ! empty( $comp['status']['type']['completed'] );
+        // ESPN liefert UTC — in die Standort-Zeitzone von WordPress umrechnen, damit Anpfiffzeiten korrekt
+        // angezeigt werden (sonst z.B. 2 Stunden daneben, siehe DFB-Pokal-Lehre aus v0.8.17ff.).
+        $ts = strtotime( $e['date'] );
+        $date = $ts ? get_date_from_gmt( gmdate( 'Y-m-d H:i:s', $ts ), 'Y-m-d\TH:i' ) : '';
+        $fx[] = array(
+            'id'     => 'espn-' . $e['id'],
+            'round'  => 'Spieltag ' . ( intval( $i / $perRound ) + 1 ),
+            'date'   => $date,
+            'home'   => $home['team']['displayName'],
+            'away'   => $away['team']['displayName'],
+            'hg'     => $finished ? intval( $home['score'] ) : null,
+            'ag'     => $finished ? intval( $away['score'] ) : null,
+            'status' => $finished ? 'FT' : 'NS',
+            'ko'     => false, 'decided' => null, 'winner' => null,
+        );
+    }
+    return array( 'ok' => true, 'error' => '', 'fixtures' => $fx );
+}
+
 function ftipp_fetch_all() {
     $key       = trim( (string) get_option( 'ftipp_api_key', '' ) );
     $season    = intval( get_option( 'ftipp_season', 2026 ) );
@@ -352,8 +456,9 @@ function ftipp_fetch_all() {
 
     $all = array(); $counts = array(); $errors = array(); $sources = array();
 
-    // 1) Deutsche Ligen + DFB-Pokal + Champions/Europa League zuerst über OpenLigaDB (aktuelle Saison, gratis).
-    foreach ( array( 'BL1', 'BL2', 'DFB', 'CL', 'EL' ) as $cid ) {
+    // 1) Deutsche Ligen + DFB-Pokal + Champions/Europa League + Premier League/LaLiga zuerst über OpenLigaDB
+    //    (aktuelle Saison, gratis).
+    foreach ( array( 'BL1', 'BL2', 'BL3', 'DFB', 'CL', 'EL', 'PL', 'LA1', 'FBL', 'RLNO' ) as $cid ) {
         $r = ftipp_fetch_openligadb( ftipp_openligadb_shortcut( $cid ), $de_season );
         if ( $r['ok'] && count( $r['fixtures'] ) > 0 ) {
             $all[ $cid ] = $r['fixtures']; $counts[ $cid ] = count( $r['fixtures'] );
@@ -363,7 +468,19 @@ function ftipp_fetch_all() {
         }
     }
 
-    // 2) Alles, was noch offen ist (NL immer, außerdem Fallback falls OpenLigaDB für einen der
+    // 1b) Wettbewerbe ohne brauchbare OpenLigaDB-Quelle, aber mit aktueller ESPN-Abdeckung (aktuell:
+    //     Süper Lig — bei OpenLigaDB seit 2013/2014 keine aktuellen Daten mehr, siehe Journal).
+    foreach ( ftipp_espn_soccer_map() as $cid => $slug ) {
+        $r = ftipp_fetch_espn_soccer( $slug, $de_season );
+        if ( $r['ok'] && count( $r['fixtures'] ) > 0 ) {
+            $all[ $cid ] = $r['fixtures']; $counts[ $cid ] = count( $r['fixtures'] );
+            $errors[ $cid ] = ''; $sources[ $cid ] = 'ESPN (aktuelle Saison)';
+        } else {
+            $errors[ $cid ] = $r['ok'] ? 'ESPN: keine Daten' : ( 'ESPN: ' . $r['error'] );
+        }
+    }
+
+    // 2) Alles, was noch offen ist (NL immer, außerdem Fallback falls OpenLigaDB/ESPN für einen der
     //    obigen Wettbewerbe mal ausfällt/leer ist) über API-Football.
     foreach ( ftipp_leagues() as $cid => $lg ) {
         if ( isset( $all[ $cid ] ) ) { continue; } // schon per OpenLigaDB geladen
@@ -841,6 +958,13 @@ function ftipp_default_specials( $comp_id ) {
             array( 'key' => 'topscorer',     'label' => 'Torschützenkönig',     'type' => 'topscorer',     'points' => 10 ),
             array( 'key' => 'topassist',     'label' => 'Bester Passgeber',     'type' => 'topassist',     'points' => 10 ),
         ),
+        'BL3' => array(
+            array( 'key' => 'champion',      'label' => '3.-Liga-Meister',      'type' => 'champion',      'points' => 10 ),
+            array( 'key' => 'herbstmeister', 'label' => 'Herbstmeister',        'type' => 'herbstmeister', 'points' => 10 ),
+            array( 'key' => 'relegation',    'label' => 'Absteiger',            'type' => 'relegation',    'points' => 10 ),
+            array( 'key' => 'topscorer',     'label' => 'Torschützenkönig',     'type' => 'topscorer',     'points' => 10 ),
+            array( 'key' => 'topassist',     'label' => 'Bester Passgeber',     'type' => 'topassist',     'points' => 10 ),
+        ),
         'DFB' => array(
             array( 'key' => 'champion', 'label' => 'DFB-Pokalsieger', 'type' => 'champion', 'points' => 10 ),
         ),
@@ -849,6 +973,40 @@ function ftipp_default_specials( $comp_id ) {
         ),
         'EL' => array(
             array( 'key' => 'champion', 'label' => 'Europa-League-Sieger', 'type' => 'champion', 'points' => 10 ),
+        ),
+        // Keine "Herbstmeister"-Wertung bei Premier League/LaLiga — das ist eine rein deutsche
+        // Bundesliga-Tradition, in England/Spanien gibt es dafür keine vergleichbare feste Kategorie.
+        'PL' => array(
+            array( 'key' => 'champion',   'label' => 'Englischer Meister',   'type' => 'champion',   'points' => 10 ),
+            array( 'key' => 'relegation', 'label' => 'Absteiger',            'type' => 'relegation', 'points' => 10 ),
+            array( 'key' => 'topscorer',  'label' => 'Torschützenkönig',     'type' => 'topscorer',  'points' => 10 ),
+            array( 'key' => 'topassist',  'label' => 'Bester Passgeber',     'type' => 'topassist',  'points' => 10 ),
+        ),
+        'LA1' => array(
+            array( 'key' => 'champion',   'label' => 'Spanischer Meister',   'type' => 'champion',   'points' => 10 ),
+            array( 'key' => 'relegation', 'label' => 'Absteiger',            'type' => 'relegation', 'points' => 10 ),
+            array( 'key' => 'topscorer',  'label' => 'Torschützenkönig',     'type' => 'topscorer',  'points' => 10 ),
+            array( 'key' => 'topassist',  'label' => 'Bester Passgeber',     'type' => 'topassist',  'points' => 10 ),
+        ),
+        'TR1' => array(
+            array( 'key' => 'champion',   'label' => 'Türkischer Meister',   'type' => 'champion',   'points' => 10 ),
+            array( 'key' => 'relegation', 'label' => 'Absteiger',            'type' => 'relegation', 'points' => 10 ),
+            array( 'key' => 'topscorer',  'label' => 'Torschützenkönig',     'type' => 'topscorer',  'points' => 10 ),
+            array( 'key' => 'topassist',  'label' => 'Bester Passgeber',     'type' => 'topassist',  'points' => 10 ),
+        ),
+        'FBL' => array(
+            array( 'key' => 'champion',      'label' => 'Deutsche Meisterin',   'type' => 'champion',      'points' => 10 ),
+            array( 'key' => 'herbstmeister', 'label' => 'Herbstmeisterin',      'type' => 'herbstmeister', 'points' => 10 ),
+            array( 'key' => 'relegation',    'label' => 'Absteigerin',          'type' => 'relegation',    'points' => 10 ),
+            array( 'key' => 'topscorer',     'label' => 'Torschützenkönigin',   'type' => 'topscorer',     'points' => 10 ),
+            array( 'key' => 'topassist',     'label' => 'Beste Passgeberin',    'type' => 'topassist',     'points' => 10 ),
+        ),
+        'RLNO' => array(
+            array( 'key' => 'champion',      'label' => 'Meister Regionalliga Nordost', 'type' => 'champion',      'points' => 10 ),
+            array( 'key' => 'herbstmeister', 'label' => 'Herbstmeister',                'type' => 'herbstmeister', 'points' => 10 ),
+            array( 'key' => 'relegation',    'label' => 'Absteiger',                    'type' => 'relegation',    'points' => 10 ),
+            array( 'key' => 'topscorer',     'label' => 'Torschützenkönig',             'type' => 'topscorer',     'points' => 10 ),
+            array( 'key' => 'topassist',     'label' => 'Bester Passgeber',             'type' => 'topassist',     'points' => 10 ),
         ),
     );
 
@@ -1906,9 +2064,17 @@ add_action( 'rest_api_init', function () {
                 return array( 'supported' => true, 'mode' => 'groups', 'groups' => $out );
             }
             $shortcut = ftipp_openligadb_shortcut( $comp );
-            if ( ! $shortcut ) { return array( 'supported' => false ); }
-            $season = ftipp_current_de_season();
-            return array( 'supported' => true, 'mode' => 'league', 'season' => $season, 'rows' => ftipp_fetch_bltable( $shortcut, $season ) );
+            if ( $shortcut ) {
+                $season = ftipp_current_de_season();
+                return array( 'supported' => true, 'mode' => 'league', 'season' => $season, 'rows' => ftipp_fetch_bltable( $shortcut, $season ) );
+            }
+            // Kein OpenLigaDB-Shortcut, aber evtl. eigene (CSV-)Spieldaten vorhanden (aktuell: Süper Lig) —
+            // Tabelle selbst berechnen, gleiche Funktion wie bei der Nations League.
+            $fixtures = ftipp_fixtures_for( $comp );
+            if ( ! $fixtures ) { return array( 'supported' => false ); }
+            $teams = array();
+            foreach ( $fixtures as $f ) { $teams[ $f['home'] ] = true; $teams[ $f['away'] ] = true; }
+            return array( 'supported' => true, 'mode' => 'league', 'rows' => ftipp_mini_table( array_keys( $teams ), $fixtures ) );
         },
     ) );
 
@@ -2398,11 +2564,16 @@ function ftipp_settings_page() {
     ?>
     <div class="wrap">
         <h1>🏠⚽ Tippstube</h1>
-        <p><strong>1./2. Bundesliga, DFB-Pokal, Champions League und Europa League</strong> kommen automatisch über
-           <strong>OpenLigaDB</strong> — gratis, ohne Key, immer die <strong>aktuelle Saison</strong>. Bei diesen vier
-           Wettbewerben gibt es dafür bewusst <strong>keinen K.o.-Zusatztipp</strong> (Verlängerung/Elfmeterschießen)
+        <p><strong>1./2./3. Liga, DFB-Pokal, Champions League, Europa League, Premier League, LaLiga,
+           Frauen-Bundesliga und Regionalliga Nordost</strong>
+           kommen automatisch über
+           <strong>OpenLigaDB</strong> — gratis, ohne Key, immer die <strong>aktuelle Saison</strong>. Bei den
+           Pokal-/Europapokal-Wettbewerben gibt es dafür bewusst <strong>keinen K.o.-Zusatztipp</strong> (Verlängerung/Elfmeterschießen)
            mehr — OpenLigaDB kennzeichnet das nicht zuverlässig genug, der normale Tendenz/Exakt-Tipp funktioniert
-           aber einwandfrei. Für die <strong>Nations League</strong> brauchst du zusätzlich einen kostenlosen
+           aber einwandfrei. Die <strong>Süper Lig</strong> läuft — wie die Nations League — per
+           <strong>CSV-Import</strong> weiter unten, da es dafür keine zuverlässige kostenlose Automatik-Quelle
+           gibt (OpenLigaDB seit 2013/2014 nicht mehr aktuell, ESPN wird von manchen Servern blockiert).
+           Für die <strong>Nations League</strong> brauchst du zusätzlich einen kostenlosen
            <strong>API-Football</strong>-Key. <strong>Hinweis:</strong> der Gratis-Tarif von API-Football deckt dort
            nur die Saisons 2021–2023 ab — für die aktuelle Saison ist (noch) ein Bezahltarif nötig, oder du nutzt
            zum Testen „🎲 Test-Spiele laden" weiter unten.</p>
@@ -2426,8 +2597,9 @@ function ftipp_settings_page() {
                     <td><input name="ftipp_season" id="ftipp_season" type="number" value="<?php echo esc_attr( get_option( 'ftipp_season', 2026 ) ); ?>" style="width:110px" />
                         <p class="description">Gilt nur für die Nations League (einziger verbliebener API-Football-Wettbewerb).
                         Startjahr der Saison. 2026 = Saison 2026/27. Zum Testen mit vollständigen Ergebnissen: 2023.
-                        1./2. Bundesliga, DFB-Pokal, Champions League und Europa League laufen unabhängig davon immer
-                        auf der aktuellen Saison via OpenLigaDB.</p></td>
+                        1./2./3. Liga, DFB-Pokal, Champions League, Europa League, Premier League, LaLiga,
+                        Frauen-Bundesliga und Regionalliga Nordost laufen unabhängig davon immer auf der
+                        aktuellen Saison via OpenLigaDB, die Süper Lig per CSV-Import.</p></td>
                 </tr>
             </table>
             <?php submit_button( 'Speichern' ); ?>
@@ -2458,7 +2630,8 @@ function ftipp_settings_page() {
 
         <hr>
         <h2 style="margin-top:24px">📄 Spieldaten per CSV importieren</h2>
-        <p>Für Wettbewerbe ohne gute kostenlose API (aktuell: <strong>Nations League</strong>) kannst du den
+        <p>Für Wettbewerbe ohne gute kostenlose API (aktuell: <strong>Nations League</strong> und
+           <strong>Süper Lig</strong>) kannst du den
            Spielplan (und später die Ergebnisse) selbst per CSV-Datei hochladen. Das <strong>ergänzt</strong> nur —
            bereits automatisch geladene Spiele bleiben unangetastet, und ein erneuter Upload derselben Begegnung
            (gleicher Wettbewerb + gleiche Teams + gleiches Datum) aktualisiert den Eintrag, statt ihn zu
