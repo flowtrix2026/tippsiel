@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       Tippstube
- * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Nations League + Süper Lig per CSV-Import.
- * Version:           0.5.0
+ * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Nations League + Süper Lig + Serie A + Ligue 1 + Ekstraklasa per CSV-Import oder API-Football.
+ * Version:           0.7.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '0.5.0' );
+define( 'FTIPP_VERSION', '0.7.0' );
 define( 'FTIPP_DB_VERSION', '10' );
 
 /** Wettbewerbe: interne ID => [Name, API-Football Liga-ID, Art] */
@@ -30,6 +30,9 @@ function ftipp_leagues() {
         'TR1' => array( 'name' => 'Süper Lig',         'api' => 203, 'kind' => 'league' ),
         'FBL' => array( 'name' => 'Frauen-Bundesliga', 'api' => 0,   'kind' => 'league' ),
         'RLNO' => array( 'name' => 'Regionalliga Nordost', 'api' => 0, 'kind' => 'league' ),
+        'ITA1' => array( 'name' => 'Serie A',          'api' => 135, 'kind' => 'league' ),
+        'FRA1' => array( 'name' => 'Ligue 1',          'api' => 61,  'kind' => 'league' ),
+        'POL1' => array( 'name' => 'Ekstraklasa',      'api' => 106, 'kind' => 'league' ),
     );
 }
 function ftipp_comp_ids() { return array_keys( ftipp_leagues() ); }
@@ -596,7 +599,7 @@ add_action( 'admin_post_ftipp_demo', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_demo' );
     ftipp_load_test_fixtures();
-    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'ftipp_demo_done' => '1' ), admin_url( 'options-general.php' ) ) );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'ftipp_demo_done' => '1' ), admin_url( 'admin.php' ) ) );
     exit;
 } );
 
@@ -678,7 +681,7 @@ add_action( 'admin_post_ftipp_import_csv', function () {
             $args['ftipp_csv'] = 'ok'; $args['added'] = $result['added']; $args['updated'] = $result['updated']; $args['skipped'] = $result['skipped'];
         }
     }
-    wp_safe_redirect( add_query_arg( $args, admin_url( 'options-general.php' ) ) );
+    wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
     exit;
 } );
 
@@ -1007,6 +1010,24 @@ function ftipp_default_specials( $comp_id ) {
             array( 'key' => 'relegation',    'label' => 'Absteiger',                    'type' => 'relegation',    'points' => 10 ),
             array( 'key' => 'topscorer',     'label' => 'Torschützenkönig',             'type' => 'topscorer',     'points' => 10 ),
             array( 'key' => 'topassist',     'label' => 'Bester Passgeber',             'type' => 'topassist',     'points' => 10 ),
+        ),
+        'ITA1' => array(
+            array( 'key' => 'champion',   'label' => 'Italienischer Meister', 'type' => 'champion',   'points' => 10 ),
+            array( 'key' => 'relegation', 'label' => 'Absteiger',             'type' => 'relegation', 'points' => 10 ),
+            array( 'key' => 'topscorer',  'label' => 'Torschützenkönig',      'type' => 'topscorer',  'points' => 10 ),
+            array( 'key' => 'topassist',  'label' => 'Bester Passgeber',      'type' => 'topassist',  'points' => 10 ),
+        ),
+        'FRA1' => array(
+            array( 'key' => 'champion',   'label' => 'Französischer Meister', 'type' => 'champion',   'points' => 10 ),
+            array( 'key' => 'relegation', 'label' => 'Absteiger',             'type' => 'relegation', 'points' => 10 ),
+            array( 'key' => 'topscorer',  'label' => 'Torschützenkönig',      'type' => 'topscorer',  'points' => 10 ),
+            array( 'key' => 'topassist',  'label' => 'Bester Passgeber',      'type' => 'topassist',  'points' => 10 ),
+        ),
+        'POL1' => array(
+            array( 'key' => 'champion',   'label' => 'Polnischer Meister',    'type' => 'champion',   'points' => 10 ),
+            array( 'key' => 'relegation', 'label' => 'Absteiger',             'type' => 'relegation', 'points' => 10 ),
+            array( 'key' => 'topscorer',  'label' => 'Torschützenkönig',      'type' => 'topscorer',  'points' => 10 ),
+            array( 'key' => 'topassist',  'label' => 'Bester Passgeber',      'type' => 'topassist',  'points' => 10 ),
         ),
     );
 
@@ -2476,6 +2497,18 @@ function ftipp_favicon_href() {
 }
 
 /**
+ * Icon fürs WP-Admin-Menü: WordPress erkennt nur den Präfix "data:image/svg+xml;base64,"
+ * als Menü-Icon und faerbt es per CSS passend zum Adminmenü-Theme ein — dafür muss das SVG
+ * einfarbig (schwarz) sein, nicht die bunte Favicon-Version aus ftipp_favicon_href().
+ */
+function ftipp_menu_icon_href() {
+    $svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 260">'
+         . '<path d="M20 30 Q20 20 30 20 L210 20 Q220 20 220 30 L220 130 Q220 190 170 220 L120 250 L70 220 Q20 190 20 130 Z"/>'
+         . '</svg>';
+    return 'data:image/svg+xml;base64,' . base64_encode( $svg );
+}
+
+/**
  * Liefert die App (app/index.html) mit eingebettetem Boot-Objekt aus,
  * wenn ?ftipp_app=1 aufgerufen wird. Läuft same-origin, damit WP-Cookies
  * + REST-Nonce für die fetch()-Aufrufe der App funktionieren.
@@ -2523,10 +2556,10 @@ add_action( 'template_redirect', function () {
 } );
 
 /* ============================================================
- * Einstellungsseite (Einstellungen → Tippstube)
+ * Einstellungsseite — eigener Menüpunkt direkt im Admin-Menü (nicht mehr unter "Einstellungen" versteckt).
  * ============================================================ */
 add_action( 'admin_menu', function () {
-    add_options_page( 'Tippstube', 'Tippstube', 'manage_options', 'ftipp', 'ftipp_settings_page' );
+    add_menu_page( 'Tippstube', 'Tippstube', 'manage_options', 'ftipp', 'ftipp_settings_page', ftipp_menu_icon_href(), 30 );
 } );
 add_action( 'admin_init', function () {
     register_setting( 'ftipp_group', 'ftipp_api_key', array( 'sanitize_callback' => 'sanitize_text_field', 'default' => '' ) );
@@ -2540,21 +2573,21 @@ add_action( 'admin_post_ftipp_fetch', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_fetch' );
     $res = ftipp_fetch_all();
-    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'ftipp_done' => $res['ok'] ? 'ok' : 'err' ), admin_url( 'options-general.php' ) ) );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'ftipp_done' => $res['ok'] ? 'ok' : 'err' ), admin_url( 'admin.php' ) ) );
     exit;
 } );
 add_action( 'admin_post_ftipp_test_reminder', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_test_reminder' );
     ftipp_run_reminder_check();
-    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'ftipp_test' => 'reminder' ), admin_url( 'options-general.php' ) ) );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'ftipp_test' => 'reminder' ), admin_url( 'admin.php' ) ) );
     exit;
 } );
 add_action( 'admin_post_ftipp_test_newsletter', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_test_newsletter' );
     $n = ftipp_run_newsletter_check( true );
-    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'ftipp_test' => 'newsletter', 'n' => $n ), admin_url( 'options-general.php' ) ) );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'ftipp_test' => 'newsletter', 'n' => $n ), admin_url( 'admin.php' ) ) );
     exit;
 } );
 
@@ -2570,13 +2603,14 @@ function ftipp_settings_page() {
            <strong>OpenLigaDB</strong> — gratis, ohne Key, immer die <strong>aktuelle Saison</strong>. Bei den
            Pokal-/Europapokal-Wettbewerben gibt es dafür bewusst <strong>keinen K.o.-Zusatztipp</strong> (Verlängerung/Elfmeterschießen)
            mehr — OpenLigaDB kennzeichnet das nicht zuverlässig genug, der normale Tendenz/Exakt-Tipp funktioniert
-           aber einwandfrei. Die <strong>Süper Lig</strong> läuft — wie die Nations League — per
-           <strong>CSV-Import</strong> weiter unten, da es dafür keine zuverlässige kostenlose Automatik-Quelle
-           gibt (OpenLigaDB seit 2013/2014 nicht mehr aktuell, ESPN wird von manchen Servern blockiert).
-           Für die <strong>Nations League</strong> brauchst du zusätzlich einen kostenlosen
-           <strong>API-Football</strong>-Key. <strong>Hinweis:</strong> der Gratis-Tarif von API-Football deckt dort
-           nur die Saisons 2021–2023 ab — für die aktuelle Saison ist (noch) ein Bezahltarif nötig, oder du nutzt
-           zum Testen „🎲 Test-Spiele laden" weiter unten.</p>
+           aber einwandfrei. Die <strong>Süper Lig, Serie A, Ligue 1</strong> und <strong>Ekstraklasa</strong>
+           laufen — wie die Nations League — per <strong>CSV-Import</strong> weiter unten, da es dafür keine
+           zuverlässige kostenlose Automatik-Quelle gibt (OpenLigaDB hat diese vier gar nicht in der aktuellen
+           Saison, ESPN wird von manchen Servern blockiert). Für <strong>Nations League, Serie A, Ligue 1 und
+           Ekstraklasa</strong> versucht das Plugin zusätzlich automatisch <strong>API-Football</strong>, falls
+           du dort einen Key hinterlegst. <strong>Hinweis:</strong> der Gratis-Tarif von API-Football deckt
+           nur alte Saisons (2021–2023) ab — für die aktuelle Saison ist (noch) ein Bezahltarif nötig, oder du
+           nutzt zum Testen „🎲 Test-Spiele laden" weiter unten.</p>
 
         <?php if ( isset( $_GET['ftipp_done'] ) ) : ?>
             <div class="notice notice-<?php echo ( 'ok' === $_GET['ftipp_done'] ) ? 'success' : 'error'; ?> is-dismissible">
@@ -2593,10 +2627,11 @@ function ftipp_settings_page() {
                                value="<?php echo esc_attr( get_option( 'ftipp_api_key', '' ) ); ?>" autocomplete="off" placeholder="dein Key von api-football.com" /></td>
                 </tr>
                 <tr>
-                    <th scope="row"><label for="ftipp_season">Saison (Nations League)</label></th>
+                    <th scope="row"><label for="ftipp_season">Saison (API-Football)</label></th>
                     <td><input name="ftipp_season" id="ftipp_season" type="number" value="<?php echo esc_attr( get_option( 'ftipp_season', 2026 ) ); ?>" style="width:110px" />
-                        <p class="description">Gilt nur für die Nations League (einziger verbliebener API-Football-Wettbewerb).
-                        Startjahr der Saison. 2026 = Saison 2026/27. Zum Testen mit vollständigen Ergebnissen: 2023.
+                        <p class="description">Gilt für alle API-Football-Wettbewerbe (Nations League, Serie A,
+                        Ligue 1, Ekstraklasa). Startjahr der Saison. 2026 = Saison 2026/27. Zum Testen mit
+                        vollständigen Ergebnissen: 2023.
                         1./2./3. Liga, DFB-Pokal, Champions League, Europa League, Premier League, LaLiga,
                         Frauen-Bundesliga und Regionalliga Nordost laufen unabhängig davon immer auf der
                         aktuellen Saison via OpenLigaDB, die Süper Lig per CSV-Import.</p></td>
@@ -2630,8 +2665,10 @@ function ftipp_settings_page() {
 
         <hr>
         <h2 style="margin-top:24px">📄 Spieldaten per CSV importieren</h2>
-        <p>Für Wettbewerbe ohne gute kostenlose API (aktuell: <strong>Nations League</strong> und
-           <strong>Süper Lig</strong>) kannst du den
+        <p>Für Wettbewerbe ohne gute kostenlose API (aktuell: <strong>Nations League</strong>,
+           <strong>Süper Lig</strong>, <strong>Serie A</strong>, <strong>Ligue 1</strong> und
+           <strong>Ekstraklasa</strong> — für Serie A/Ligue 1/Ekstraklasa alternativ auch per
+           API-Football, falls du dort einen Bezahltarif mit aktueller Saison hast) kannst du den
            Spielplan (und später die Ergebnisse) selbst per CSV-Datei hochladen. Das <strong>ergänzt</strong> nur —
            bereits automatisch geladene Spiele bleiben unangetastet, und ein erneuter Upload derselben Begegnung
            (gleicher Wettbewerb + gleiche Teams + gleiches Datum) aktualisiert den Eintrag, statt ihn zu
@@ -2793,7 +2830,7 @@ function ftipp_settings_page() {
     <?php
 }
 add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), function ( $links ) {
-    $links[] = '<a href="' . esc_url( admin_url( 'options-general.php?page=ftipp' ) ) . '">Einstellungen</a>';
+    $links[] = '<a href="' . esc_url( admin_url( 'admin.php?page=ftipp' ) ) . '">Einstellungen</a>';
     return $links;
 } );
 

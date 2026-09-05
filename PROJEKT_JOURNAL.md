@@ -1440,6 +1440,51 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
   hochladen (Einstellungen → CSV importieren), "Spieldaten jetzt abrufen" für Frauen-Bundesliga/Regionalliga
   Nordost klicken, alle drei in einer Runde abonnieren und im Tippen-/Tabelle-Tab gegenprüfen.
 
+## v0.6.0 — Drei weitere Top-Ligen: Serie A, Ligue 1, Ekstraklasa (per CSV/API-Football)
+- **Anfrage:** Serie A (Italien), Ligue 1 (Frankreich) und Ekstraklasa (Polen) zusätzlich einbauen — sollen
+  sowohl über API-Football laufen können als auch alternativ per CSV, genau wie die Nations League.
+- **Vorab geprüft:** OpenLigaDB hat für alle drei aktuell keine Daten. ESPN (Terminal-Zugriff) hat Serie A
+  (`ita.1`: 380 Spiele, 20 Teams) und Ligue 1 (`fra.1`: 306 Spiele, 18 Teams) einwandfrei — beide als CSV
+  recherchiert und beigelegt (`serie-a-2026-27.csv`, `ligue-1-2026-27.csv`, inkl. bereits gespielter
+  Ergebnisse, Zeitzone korrekt nach Europe/Berlin umgerechnet). Für **Ekstraklasa** gibt es dagegen bei keiner
+  der bekannten kostenlosen Quellen (OpenLigaDB, ESPN, TheSportsDB) überhaupt Daten — komplette ESPN-
+  Ligenliste (218 Wettbewerbe) durchsucht, kein einziger Polen-Eintrag vorhanden.
+- **Umgesetzt:** Alle drei als neue Wettbewerbe registriert (`ITA1`, `FRA1`, `POL1`) mit echten
+  API-Football-Liga-IDs (Serie A 135, Ligue 1 61, Ekstraklasa 106) — dadurch automatisch **beide** vom Nutzer
+  gewünschten Wege nutzbar, ganz ohne Sondercode: die bestehende generische API-Football-Fallback-Schleife und
+  der generische CSV-Import greifen für jeden registrierten Wettbewerb automatisch. Für Ekstraklasa gibt es von
+  mir (mangels Quelle) keine fertige CSV — die Möglichkeit ist aber technisch bereits vorhanden, falls der
+  Nutzer selbst eine Datenquelle findet oder einen bezahlten API-Football-Tarif nutzt.
+  Passende Standard-Sonderwertungen ergänzt (Meister/Absteiger/Torschützenkönig/Bester Passgeber, wie bei
+  Premier League/LaLiga/Süper Lig — ohne Herbstmeister, das bleibt eine deutsche Eigenheit).
+- PHP-Syntax mit `php -l`, JS-Syntax mit `node --check` geprüft; CSV-Import für Serie A/Ligue 1 komplett lokal
+  durchgetestet (380 bzw. 306 Spiele fehlerfrei importiert, im Tippen-Tab sichtbar).
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.6.0 einspielen, `serie-a-2026-27.csv` und
+  `ligue-1-2026-27.csv` hochladen, alle drei neuen Wettbewerbe in einer Runde abonnieren und gegenprüfen.
+
+## v0.7.0 — Tippstube als eigener Menüpunkt im WP-Admin (nicht mehr unter „Einstellungen")
+- **Anfrage:** Screenshot der Admin-Sidebar zeigte, dass „Tippstube" dort nirgends als eigener
+  Menüpunkt auftaucht (nur versteckt unter „Einstellungen → Tippstube"). Wunsch: direkt als
+  Top-Level-Eintrag im Menü, gut sichtbar.
+- **Umgesetzt:** Registrierung von `add_options_page()` auf `add_menu_page()` umgestellt (Position 30,
+  eigenes Icon). Dadurch läuft die Einstellungsseite jetzt über `admin.php?page=ftipp` statt
+  `options-general.php?page=ftipp` — alle sechs betroffenen Stellen im Code angepasst (fünf
+  `wp_safe_redirect()`-Ziele nach Demo/CSV-Import/Abruf/Test-Mail-Aktionen sowie der „Einstellungen"-Link
+  in der Plugin-Übersicht). Der unabhängige Link zu WordPress' eigener „Einstellungen → Allgemein"-Seite
+  (Hinweistext zur Mitgliedschaft) blieb bewusst unverändert, da er nichts mit Tippstube zu tun hat.
+- Für das Menü-Icon eine eigene, einfarbige SVG-Variante (`ftipp_menu_icon_href()`) ergänzt: WordPress
+  erkennt fürs Admin-Menü nur den Präfix `data:image/svg+xml;base64,` und färbt ein einfarbiges SVG
+  passend zum Menü-Theme ein — die bunte Favicon-Version (`ftipp_favicon_href()`, weiterhin für den
+  Browser-Tab-Favicon genutzt) hätte dort nur ein leeres Icon ergeben (erst lokal getestet und genau so
+  beobachtet, dann korrigiert).
+- **Lokal komplett durchgetestet** (WordPress+SQLite-Testumgebung): neuer Menüpunkt erscheint korrekt
+  zwischen „Kommentare" und „Design" in der Sidebar, Icon wird sauber gerendert, „Einstellungen" zeigt
+  keinen Tippstube-Eintrag mehr. Alle Aktions-Buttons (Spieldaten abrufen, CSV-Import) per Browser bzw.
+  gezieltem `curl`-Test der `admin-post.php`-Endpunkte durchgespielt — beide leiten korrekt wieder auf
+  `admin.php?page=ftipp` (mit den erwarteten Status-Parametern) zurück, keine 404/kaputten Links.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.7.0 einspielen und den neuen
+  Menüpunkt sowie alle Buttons einmal live gegenprüfen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
