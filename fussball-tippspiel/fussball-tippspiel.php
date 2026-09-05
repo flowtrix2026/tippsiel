@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Nations League + Süper Lig + Serie A + Ligue 1 + Ekstraklasa per CSV-Import oder API-Football.
- * Version:           0.8.5
+ * Version:           0.8.6
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,8 +12,8 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '0.8.5' );
-define( 'FTIPP_DB_VERSION', '11' );
+define( 'FTIPP_VERSION', '0.8.6' );
+define( 'FTIPP_DB_VERSION', '12' );
 
 /**
  * Automatische Update-Prüfung gegen GitHub-Releases (statt WordPress.org-Verzeichnis) —
@@ -73,6 +73,9 @@ function ftipp_install() {
         mode VARCHAR(20) NOT NULL DEFAULT 'friendly',
         admin_user_id BIGINT UNSIGNED NOT NULL,
         created_at DATETIME NOT NULL,
+        accent_color VARCHAR(7) NULL,
+        logo_url VARCHAR(500) NULL,
+        subtitle VARCHAR(190) NULL,
         PRIMARY KEY  (id),
         UNIQUE KEY code (code)
     ) $charset_collate;" );
@@ -2663,7 +2666,167 @@ function ftipp_page_placeholder( $title ) {
     if ( ! current_user_can( 'manage_options' ) ) { return; }
     echo '<div class="wrap"><h1>' . esc_html( $title ) . '</h1><p>Kommt in Kürze.</p></div>';
 }
-function ftipp_page_design()    { ftipp_page_placeholder( 'Design' ); }
+/**
+ * Speichert die Design-Felder einer Tipprunde (Akzentfarbe/Untertitel/Logo-Reset) — von beiden
+ * admin_post-Handlern (Textfelder + separater Logo-Upload) genutzt, damit die Validierung/Speicherlogik
+ * nur an einer Stelle steht.
+ */
+function ftipp_save_round_design( $round_id, array $fields ) {
+    global $wpdb;
+    $update = array();
+    if ( array_key_exists( 'accent_color', $fields ) ) {
+        $color = trim( (string) $fields['accent_color'] );
+        $update['accent_color'] = ( '' === $color || preg_match( '/^#[0-9a-fA-F]{6}$/', $color ) ) ? ( '' === $color ? null : $color ) : null;
+    }
+    if ( array_key_exists( 'subtitle', $fields ) ) {
+        $update['subtitle'] = '' !== trim( (string) $fields['subtitle'] ) ? sanitize_text_field( $fields['subtitle'] ) : null;
+    }
+    if ( array_key_exists( 'logo_url', $fields ) ) {
+        $update['logo_url'] = $fields['logo_url'] ?: null;
+    }
+    if ( empty( $update ) ) { return false; }
+    return false !== $wpdb->update( $wpdb->prefix . 'ftipp_rounds', $update, array( 'id' => $round_id ) );
+}
+
+/**
+ * Design-Seite: Backend-Überblick aller Tipprunden für den Plattform-Admin (Akzentfarbe/Logo/Untertitel),
+ * unabhängig vom jeweiligen Runden-Admin. Zwei Modi: Übersichtstabelle, oder Bearbeiten-Formular
+ * (?edit={round_id}).
+ */
+function ftipp_page_design() {
+    if ( ! current_user_can( 'manage_options' ) ) { return; }
+    global $wpdb;
+    $editId = isset( $_GET['edit'] ) ? intval( $_GET['edit'] ) : 0;
+    ?>
+    <div class="wrap">
+        <h1>🎨 Design</h1>
+
+        <?php if ( isset( $_GET['ftipp_design_done'] ) ) : ?>
+            <div class="notice notice-success is-dismissible"><p>Gespeichert.</p></div>
+        <?php endif; ?>
+
+        <?php if ( $editId ) :
+            $round = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}ftipp_rounds WHERE id=%d", $editId ) );
+            if ( ! $round ) : ?>
+                <p>Runde nicht gefunden. <a href="<?php echo esc_url( admin_url( 'admin.php?page=ftipp_design' ) ); ?>">Zurück zur Übersicht</a></p>
+            <?php else : ?>
+                <p><a href="<?php echo esc_url( admin_url( 'admin.php?page=ftipp_design' ) ); ?>">← Zurück zur Übersicht</a></p>
+                <h2><?php echo esc_html( $round->name ); ?></h2>
+
+                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                    <input type="hidden" name="action" value="ftipp_save_round_design" />
+                    <input type="hidden" name="round_id" value="<?php echo esc_attr( $round->id ); ?>" />
+                    <?php wp_nonce_field( 'ftipp_save_round_design' ); ?>
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row">Akzentfarbe</th>
+                            <td><input type="color" name="accent_color" value="<?php echo esc_attr( $round->accent_color ?: '#2271b1' ); ?>" /></td>
+                        </tr>
+                        <tr>
+                            <th scope="row">Untertitel</th>
+                            <td><input type="text" name="subtitle" class="regular-text" maxlength="190" value="<?php echo esc_attr( $round->subtitle ?? '' ); ?>" /></td>
+                        </tr>
+                    </table>
+                    <?php submit_button( 'Speichern' ); ?>
+                </form>
+
+                <h3>Logo</h3>
+                <?php if ( $round->logo_url ) : ?>
+                    <p><img src="<?php echo esc_url( $round->logo_url ); ?>" alt="" style="max-width:120px;max-height:120px;display:block;margin-bottom:10px" /></p>
+                    <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline">
+                        <input type="hidden" name="action" value="ftipp_save_round_design" />
+                        <input type="hidden" name="round_id" value="<?php echo esc_attr( $round->id ); ?>" />
+                        <input type="hidden" name="remove_logo" value="1" />
+                        <?php wp_nonce_field( 'ftipp_save_round_design' ); ?>
+                        <?php submit_button( 'Logo entfernen', 'secondary', 'submit', false ); ?>
+                    </form>
+                <?php else : ?>
+                    <p>Kein Logo hinterlegt.</p>
+                <?php endif; ?>
+                <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data" style="margin-top:10px">
+                    <input type="hidden" name="action" value="ftipp_upload_round_design_logo" />
+                    <input type="hidden" name="round_id" value="<?php echo esc_attr( $round->id ); ?>" />
+                    <?php wp_nonce_field( 'ftipp_upload_round_design_logo' ); ?>
+                    <input type="file" name="logo_file" accept=".png,.jpg,.jpeg,.webp" required />
+                    <?php submit_button( 'Logo hochladen', 'secondary', 'submit', false ); ?>
+                </form>
+            <?php endif;
+        else :
+            $rounds = $wpdb->get_results( "SELECT * FROM {$wpdb->prefix}ftipp_rounds ORDER BY created_at DESC" );
+            ?>
+            <?php if ( empty( $rounds ) ) : ?>
+                <p>Noch keine Tipprunden vorhanden.</p>
+            <?php else : ?>
+                <table class="widefat striped">
+                    <thead>
+                        <tr>
+                            <th>Runde</th>
+                            <th>Code</th>
+                            <th>Admin</th>
+                            <th>Mitglieder</th>
+                            <th>Akzentfarbe</th>
+                            <th>Logo</th>
+                            <th>Untertitel</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ( $rounds as $r ) :
+                            $admin = get_userdata( $r->admin_user_id );
+                            $memberCount = (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->prefix}ftipp_round_members WHERE round_id=%d", $r->id ) );
+                        ?>
+                            <tr>
+                                <td><?php echo esc_html( $r->name ); ?></td>
+                                <td><code><?php echo esc_html( $r->code ); ?></code></td>
+                                <td><?php echo esc_html( $admin ? $admin->display_name : '—' ); ?></td>
+                                <td><?php echo esc_html( $memberCount ); ?></td>
+                                <td><?php if ( $r->accent_color ) : ?><span style="display:inline-block;width:18px;height:18px;border-radius:4px;background:<?php echo esc_attr( $r->accent_color ); ?>;border:1px solid #ccc;vertical-align:middle"></span> <?php echo esc_html( $r->accent_color ); ?><?php else : ?>—<?php endif; ?></td>
+                                <td><?php if ( $r->logo_url ) : ?><img src="<?php echo esc_url( $r->logo_url ); ?>" alt="" style="max-width:32px;max-height:32px;vertical-align:middle" /><?php else : ?>—<?php endif; ?></td>
+                                <td><?php echo esc_html( $r->subtitle ?: '—' ); ?></td>
+                                <td><a href="<?php echo esc_url( admin_url( 'admin.php?page=ftipp_design&edit=' . $r->id ) ); ?>">Bearbeiten</a></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
+        <?php endif; ?>
+    </div>
+    <?php
+}
+add_action( 'admin_post_ftipp_save_round_design', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_save_round_design' );
+    $round_id = intval( $_POST['round_id'] ?? 0 );
+
+    $fields = array();
+    if ( ! empty( $_POST['remove_logo'] ) ) {
+        $fields['logo_url'] = null;
+    } else {
+        $fields['accent_color'] = sanitize_text_field( $_POST['accent_color'] ?? '' );
+        $fields['subtitle']     = sanitize_text_field( $_POST['subtitle'] ?? '' );
+    }
+    ftipp_save_round_design( $round_id, $fields );
+
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_design', 'edit' => $round_id, 'ftipp_design_done' => '1' ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
+add_action( 'admin_post_ftipp_upload_round_design_logo', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_upload_round_design_logo' );
+    $round_id = intval( $_POST['round_id'] ?? 0 );
+
+    if ( ! empty( $_FILES['logo_file']['tmp_name'] ) ) {
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        $allowed = array( 'png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'webp' => 'image/webp' );
+        $result = wp_handle_upload( $_FILES['logo_file'], array( 'test_form' => false, 'mimes' => $allowed ) );
+        if ( ! empty( $result['url'] ) ) {
+            ftipp_save_round_design( $round_id, array( 'logo_url' => $result['url'] ) );
+        }
+    }
+
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_design', 'edit' => $round_id, 'ftipp_design_done' => '1' ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
 
 /**
  * History-Seite: Protokoll aller Aktionen, die Spieldaten verändern (siehe ftipp_log_history()).

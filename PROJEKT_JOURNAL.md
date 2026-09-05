@@ -1640,6 +1640,27 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.8.5 einspielen (inkl. DB-Migration),
   History-Seite nach ein paar echten Aktionen gegenprüfen.
 
+## v0.8.6 — Design-Seite: Backend-Überblick aller Tipprunden
+- Sechster und letzter Schritt des Untermenü-Ausbaus. Aus dem gestashten Design-Feature (v0.10.0-0.10.1,
+  Akzentfarbe/Logo/Untertitel pro Runde) wurde nur die Spalten-Idee übernommen — der Stash selbst war für
+  die App-Perspektive des jeweiligen Runden-Admins gebaut, hier ging es laut Nutzerentscheidung dagegen um
+  eine zentrale Backend-Ansicht für den Plattform-Admin über ALLE Runden hinweg. Kein `git stash pop`
+  (veraltete Liga-Liste, andere Zielgruppe/Berechtigung) — komplett neu gebaute Admin-Oberfläche.
+- **Umgesetzt:** `ftipp_rounds`-Tabelle um `accent_color`, `logo_url`, `subtitle` erweitert
+  (`FTIPP_DB_VERSION` 11→12). Neue Seite mit zwei Modi: Übersichtstabelle aller Runden (Name, Code, Admin,
+  Mitgliederzahl, Akzentfarbe als Farbmuster, Logo-Vorschau, Untertitel) und ein Bearbeiten-Formular pro
+  Runde (natives `<input type="color">`, Untertitel-Textfeld, separates Logo-Upload-Formular, "Logo
+  entfernen"). Speicherlogik zentral in `ftipp_save_round_design()` (von beiden `admin_post`-Handlern
+  genutzt), Berechtigung `manage_options` (nicht `ftipp_is_round_admin()` — das ist bewusst die
+  Plattform-Admin-Sicht, nicht die des jeweiligen Runden-Admins).
+- Lokal getestet: DB-Migration (drei neue Spalten an der bestehenden, produktiv befüllten Tabelle) korrekt
+  angewendet, Übersicht und Bearbeiten-Formular rendern fehlerfrei mit vorbefüllten Werten, Speichern von
+  Farbe/Untertitel und Logo-Upload (echte Datei landet in `wp-content/uploads/`) sowie "Logo entfernen"
+  funktionieren einzeln getestet korrekt. Farbvalidierung gezielt mit ungültiger/böswilliger Eingabe
+  (`<script>...`) geprüft — wird zuverlässig zu `NULL` statt gespeichert.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.8.6 einspielen (inkl. DB-Migration),
+  Design-Seite mit echten Tipprunden gegenprüfen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
