@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Nations League + Süper Lig + Serie A + Ligue 1 + Ekstraklasa per CSV-Import oder API-Football.
- * Version:           0.7.1
+ * Version:           0.8.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '0.7.1' );
+define( 'FTIPP_VERSION', '0.8.0' );
 define( 'FTIPP_DB_VERSION', '10' );
 
 /** Wettbewerbe: interne ID => [Name, API-Football Liga-ID, Art] */
@@ -2556,11 +2556,34 @@ add_action( 'template_redirect', function () {
 } );
 
 /* ============================================================
- * Einstellungsseite — eigener Menüpunkt direkt im Admin-Menü (nicht mehr unter "Einstellungen" versteckt).
+ * Einstellungsseite — eigener Menüpunkt direkt im Admin-Menü (nicht mehr unter "Einstellungen" versteckt),
+ * jetzt mit Untermenü (Einstellungen/Design/Cron-Job/History/Changelog/Info).
  * ============================================================ */
 add_action( 'admin_menu', function () {
     add_menu_page( 'Tippstube', 'Tippstube', 'manage_options', 'ftipp', 'ftipp_settings_page', ftipp_menu_icon_href(), 30 );
+    // Gleicher Slug wie der Parent ersetzt WordPress' automatisch erzeugten Default-Untermenüpunkt
+    // (sonst gäbe es "Tippstube" doppelt ganz oben in der Liste).
+    add_submenu_page( 'ftipp', 'Einstellungen', 'Einstellungen', 'manage_options', 'ftipp', 'ftipp_settings_page' );
+    add_submenu_page( 'ftipp', 'Design', 'Design', 'manage_options', 'ftipp_design', 'ftipp_page_design' );
+    add_submenu_page( 'ftipp', 'Cron-Job', 'Cron-Job', 'manage_options', 'ftipp_cron', 'ftipp_page_cron' );
+    add_submenu_page( 'ftipp', 'History', 'History', 'manage_options', 'ftipp_history', 'ftipp_page_history' );
+    add_submenu_page( 'ftipp', 'Changelog', 'Changelog', 'manage_options', 'ftipp_changelog', 'ftipp_page_changelog' );
+    add_submenu_page( 'ftipp', 'Info', 'Info', 'manage_options', 'ftipp_info', 'ftipp_page_info' );
 } );
+
+/**
+ * Platzhalter für die neuen Untermenüpunkte — Inhalt folgt in v0.8.1-v0.8.5,
+ * jeweils einzeln lokal und live getestet, bevor der nächste Punkt gebaut wird.
+ */
+function ftipp_page_placeholder( $title ) {
+    if ( ! current_user_can( 'manage_options' ) ) { return; }
+    echo '<div class="wrap"><h1>' . esc_html( $title ) . '</h1><p>Kommt in Kürze.</p></div>';
+}
+function ftipp_page_design()    { ftipp_page_placeholder( 'Design' ); }
+function ftipp_page_cron()      { ftipp_page_placeholder( 'Cron-Job' ); }
+function ftipp_page_history()   { ftipp_page_placeholder( 'History' ); }
+function ftipp_page_changelog() { ftipp_page_placeholder( 'Changelog' ); }
+function ftipp_page_info()      { ftipp_page_placeholder( 'Info' ); }
 add_action( 'admin_init', function () {
     register_setting( 'ftipp_group', 'ftipp_api_key', array( 'sanitize_callback' => 'sanitize_text_field', 'default' => '' ) );
     register_setting( 'ftipp_group', 'ftipp_season',  array( 'sanitize_callback' => 'absint', 'default' => 2026 ) );

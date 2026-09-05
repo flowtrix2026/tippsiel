@@ -1500,6 +1500,39 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.7.1 einspielen und Icon im echten
   Adminmenü gegenprüfen.
 
+## v0.8.0 — Tippstube-Adminmenü in Untermenüpunkte aufgeteilt (Einstellungen/Design/Cron-Job/History/Changelog/Info)
+- **Anfrage:** Nach dem Umzug ins Hauptmenü (v0.7.0) sollte "Tippstube" jetzt — analog zu WordPress' eigenem
+  "Einstellungen"-Menü mit seinen Untereinträgen — ein eigenes Untermenü bekommen: Einstellungen, Design,
+  Cron-Job, History, Changelog, Info.
+- **Vorab geklärt (Planungsrunde mit zwei Recherche-Agents + Plan-Agent, danach Nutzerentscheidungen):**
+  - *Design* wird ein neuer Backend-Überblick aller Tipprunden für den Plattform-Admin (Akzentfarbe, Logo,
+    Untertitel zentral einsehbar/editierbar) — NICHT identisch mit dem früher zurückgestellten Design-Tab
+    (der war fürs Frontend/Runden-Admin gebaut, siehe v0.10.0-Stash, bleibt separates Zukunftsfeature).
+  - *History* protokolliert künftig ALLE datenverändernden Aktionen (Cron-Abruf, manuelles Abrufen,
+    CSV-Import, Test-Spiele) — braucht eine neue Tabelle, da die bestehende `ftipp_meta`-Option nur den
+    letzten Zustand hält, keinen Verlauf.
+  - *Cron-Job* bekommt eine frei einstellbare Zeitangabe (Zahl + Einheit) statt fester Presets — das
+    bestehende Cron-System (`ftipp_weekly_fetch`, seit v0.x fest auf `weekly`) wird dafür erweitert.
+  - *Changelog* wird automatisch aus diesem Journal generiert. Wichtiger technischer Fund dabei: das Journal
+    liegt nur auf Projektebene, nicht im Plugin-Ordner — der Live-Server hat keinen Zugriff darauf. Ab dem
+    Changelog-Release (geplant v0.8.5) wird deshalb bei jedem künftigen Release-Build zusätzlich eine Kopie
+    als `fussball-tippspiel/CHANGELOG.md` mitgeführt.
+- **Umgesetzt (dieser Schritt, v0.8.0):** Nur die Menü-Struktur — sechs `add_submenu_page()`-Aufrufe unter
+  dem bestehenden `add_menu_page()` (Slug-Trick: der erste Untermenüpunkt bekommt denselben Slug `ftipp` wie
+  der Parent, das ersetzt WordPress' automatisch erzeugten Default-Eintrag statt "Tippstube" doppelt
+  anzuzeigen). Die bestehende Einstellungen-Seite (`ftipp_settings_page()`) bleibt komplett unverändert und
+  unter demselben Slug `ftipp` erreichbar — alle fünf bestehenden `admin_post`-Redirects und der
+  Plugin-Actions-Link mussten dadurch NICHT angepasst werden. Die fünf neuen Untermenüpunkte zeigen vorerst
+  nur einen "Kommt in Kürze"-Platzhalter (`ftipp_page_design/cron/history/changelog/info()`), Inhalt folgt
+  in den nächsten Versionsschritten (0.8.1 Info, 0.8.2 Cron-Job, 0.8.3 History, 0.8.4 Design, 0.8.5 Changelog
+  — bewusst inkrementell, jeder Schritt einzeln lokal und live getestet, DB-Migrationen (History/Design)
+  bewusst nach den risikoärmeren Schritten einsortiert).
+- Lokal getestet: alle sechs Menüpunkte erscheinen korrekt (kein doppelter "Tippstube"-Eintrag), jeder
+  Platzhalter lädt fehlerfrei mit korrekter Hervorhebung im Untermenü, Regressionstest des bestehenden
+  "Jetzt abrufen"-Buttons per `curl` bestätigt unveränderten Redirect auf `admin.php?page=ftipp&ftipp_done=ok`.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.8.0 einspielen, Untermenü-Struktur und
+  bestehende Aktionen (Fetch/CSV/Test-Buttons) einmal live gegenprüfen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
