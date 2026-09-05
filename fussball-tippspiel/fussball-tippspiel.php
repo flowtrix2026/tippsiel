@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Nations League + Süper Lig + Serie A + Ligue 1 + Ekstraklasa per CSV-Import oder API-Football.
- * Version:           0.8.4
+ * Version:           0.8.5
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,8 +12,8 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '0.8.4' );
-define( 'FTIPP_DB_VERSION', '10' );
+define( 'FTIPP_VERSION', '0.8.5' );
+define( 'FTIPP_DB_VERSION', '11' );
 
 /**
  * Automatische Update-Prüfung gegen GitHub-Releases (statt WordPress.org-Verzeichnis) —
@@ -169,9 +169,45 @@ function ftipp_install() {
         PRIMARY KEY  (fixture_id,user_id,type)
     ) $charset_collate;" );
 
+    // Ab v0.8.5 (History-Seite): Protokoll aller Aktionen, die Spieldaten verändern —
+    // automatischer/manueller Abruf, CSV-Import, Test-Spiele laden. Siehe ftipp_log_history().
+    dbDelta( "CREATE TABLE {$p}ftipp_history (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        created_at DATETIME NOT NULL,
+        action VARCHAR(30) NOT NULL,
+        comp_id VARCHAR(10) NULL,
+        summary VARCHAR(255) NOT NULL,
+        detail TEXT NULL,
+        user_id BIGINT UNSIGNED NULL,
+        PRIMARY KEY  (id),
+        KEY created_at (created_at)
+    ) $charset_collate;" );
+
     update_option( 'ftipp_db_version', FTIPP_DB_VERSION );
     ftipp_migrate_round_subs();
     ftipp_reset_nl_group_specials();
+}
+
+/**
+ * Schreibt einen History-Eintrag (Cron-Abruf, manueller Abruf, CSV-Import, Test-Spiele) und trimmt die
+ * Tabelle danach auf die letzten 200 Zeilen, damit sie nicht unbegrenzt wächst.
+ */
+function ftipp_log_history( $action, $summary, $comp_id = null, $detail = null, $user_id = null ) {
+    global $wpdb;
+    $table = $wpdb->prefix . 'ftipp_history';
+    $wpdb->insert( $table, array(
+        'created_at' => current_time( 'mysql' ),
+        'action'     => $action,
+        'comp_id'    => $comp_id,
+        'summary'    => $summary,
+        'detail'     => $detail,
+        'user_id'    => $user_id,
+    ) );
+    // Subquery statt "DELETE ... ORDER BY ... LIMIT" (letzteres ist eine MySQL-Erweiterung, die z.B. SQLite
+    // nicht unterstützt — mit der Subquery bleibt das Trimmen auf beiden Datenbanken funktionsfähig).
+    $wpdb->query(
+        "DELETE FROM {$table} WHERE id NOT IN ( SELECT id FROM ( SELECT id FROM {$table} ORDER BY id DESC LIMIT 200 ) AS keep_ids )"
+    );
 }
 
 /**
@@ -479,7 +515,7 @@ function ftipp_fetch_espn_soccer( $slug, $season_start_year ) {
     return array( 'ok' => true, 'error' => '', 'fixtures' => $fx );
 }
 
-function ftipp_fetch_all() {
+function ftipp_fetch_all( $trigger = 'cron' ) {
     $key       = trim( (string) get_option( 'ftipp_api_key', '' ) );
     $season    = intval( get_option( 'ftipp_season', 2026 ) );
     $de_season = ftipp_current_de_season();
@@ -568,6 +604,17 @@ function ftipp_fetch_all() {
     $meta = array( 'last_fetch' => time(), 'season' => $season, 'de_season' => $de_season, 'counts' => $counts, 'errors' => $errors, 'sources' => $sources );
     update_option( 'ftipp_meta', $meta, false );
 
+    $totalGames = array_sum( $counts );
+    $errorComps = array_keys( array_filter( $errors ) );
+    $summary = $totalGames . ' Spiele geladen' . ( $errorComps ? ', Fehler bei ' . implode( ', ', $errorComps ) : '' );
+    ftipp_log_history(
+        'manual' === $trigger ? 'manual_fetch' : 'cron_fetch',
+        $summary,
+        null,
+        wp_json_encode( array( 'counts' => $counts, 'errors' => $errors, 'sources' => $sources ) ),
+        'manual' === $trigger ? get_current_user_id() : null
+    );
+
     return array( 'ok' => true, 'meta' => $meta );
 }
 add_action( 'ftipp_weekly_fetch', 'ftipp_fetch_all' );
@@ -626,6 +673,7 @@ add_action( 'admin_post_ftipp_demo', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_demo' );
     ftipp_load_test_fixtures();
+    ftipp_log_history( 'test_fixtures', 'Test-Spiele geladen (Anpfiff in den nächsten Tagen)', null, null, get_current_user_id() );
     wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'ftipp_demo_done' => '1' ), admin_url( 'admin.php' ) ) );
     exit;
 } );
@@ -654,7 +702,7 @@ function ftipp_import_fixtures_csv( $tmp_path ) {
     }
 
     $manual = get_option( 'ftipp_manual_fixtures', array() );
-    $added = 0; $updated = 0; $skipped = 0;
+    $added = 0; $updated = 0; $skipped = 0; $comps = array();
 
     while ( ( $row = fgetcsv( $handle ) ) !== false ) {
         if ( 1 === count( $row ) && null === $row[0] ) { continue; } // leere Zeile
@@ -689,10 +737,11 @@ function ftipp_import_fixtures_csv( $tmp_path ) {
         );
         if ( null !== $existingIdx ) { $manual[ $comp ][ $existingIdx ] = $fixture; $updated++; }
         else { $manual[ $comp ][] = $fixture; $added++; }
+        $comps[ $comp ] = true;
     }
     fclose( $handle );
     update_option( 'ftipp_manual_fixtures', $manual, false );
-    return array( 'added' => $added, 'updated' => $updated, 'skipped' => $skipped );
+    return array( 'added' => $added, 'updated' => $updated, 'skipped' => $skipped, 'comps' => array_keys( $comps ) );
 }
 add_action( 'admin_post_ftipp_import_csv', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
@@ -706,6 +755,14 @@ add_action( 'admin_post_ftipp_import_csv', function () {
             $args['ftipp_csv'] = 'error'; $args['ftipp_csv_msg'] = rawurlencode( $result['error'] );
         } else {
             $args['ftipp_csv'] = 'ok'; $args['added'] = $result['added']; $args['updated'] = $result['updated']; $args['skipped'] = $result['skipped'];
+            $compList = implode( ', ', $result['comps'] );
+            ftipp_log_history(
+                'csv_import',
+                $result['added'] . ' neu, ' . $result['updated'] . ' aktualisiert, ' . $result['skipped'] . ' übersprungen (' . $compList . ')',
+                1 === count( $result['comps'] ) ? $result['comps'][0] : null,
+                null,
+                get_current_user_id()
+            );
         }
     }
     wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
@@ -2607,7 +2664,81 @@ function ftipp_page_placeholder( $title ) {
     echo '<div class="wrap"><h1>' . esc_html( $title ) . '</h1><p>Kommt in Kürze.</p></div>';
 }
 function ftipp_page_design()    { ftipp_page_placeholder( 'Design' ); }
-function ftipp_page_history()   { ftipp_page_placeholder( 'History' ); }
+
+/**
+ * History-Seite: Protokoll aller Aktionen, die Spieldaten verändern (siehe ftipp_log_history()).
+ */
+function ftipp_page_history() {
+    if ( ! current_user_can( 'manage_options' ) ) { return; }
+    global $wpdb;
+    $table = $wpdb->prefix . 'ftipp_history';
+    $per_page = 30;
+    $paged = max( 1, intval( $_GET['paged'] ?? 1 ) );
+    $offset = ( $paged - 1 ) * $per_page;
+
+    $total = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table}" );
+    $rows  = $wpdb->get_results( $wpdb->prepare(
+        "SELECT * FROM {$table} ORDER BY id DESC LIMIT %d OFFSET %d",
+        $per_page, $offset
+    ) );
+
+    $actionLabels = array(
+        'cron_fetch'    => '⏱️ Automatischer Abruf',
+        'manual_fetch'  => '⬇️ Manueller Abruf',
+        'csv_import'    => '📄 CSV-Import',
+        'test_fixtures' => '🎲 Test-Spiele',
+    );
+    ?>
+    <div class="wrap">
+        <h1>🕘 History</h1>
+        <p>Protokoll aller automatischen und manuellen Aktionen, die Spieldaten verändern.</p>
+
+        <?php if ( empty( $rows ) ) : ?>
+            <p>Noch keine Einträge vorhanden.</p>
+        <?php else : ?>
+            <table class="widefat striped">
+                <thead>
+                    <tr>
+                        <th>Zeitpunkt</th>
+                        <th>Aktion</th>
+                        <th>Wettbewerb</th>
+                        <th>Ergebnis</th>
+                        <th>Nutzer</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ( $rows as $row ) :
+                        $user = $row->user_id ? get_userdata( $row->user_id ) : null;
+                    ?>
+                        <tr>
+                            <td><?php echo esc_html( wp_date( 'd.m.Y H:i', strtotime( $row->created_at ) ) ); ?></td>
+                            <td><?php echo esc_html( isset( $actionLabels[ $row->action ] ) ? $actionLabels[ $row->action ] : $row->action ); ?></td>
+                            <td><?php echo esc_html( $row->comp_id ?: '—' ); ?></td>
+                            <td><?php echo esc_html( $row->summary ); ?></td>
+                            <td><?php echo esc_html( $user ? $user->display_name : '—' ); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+            <?php
+            $total_pages = (int) ceil( $total / $per_page );
+            if ( $total_pages > 1 ) {
+                echo '<div class="tablenav"><div class="tablenav-pages">';
+                echo paginate_links( array(
+                    'base'      => add_query_arg( 'paged', '%#%' ),
+                    'format'    => '',
+                    'current'   => $paged,
+                    'total'     => $total_pages,
+                    'prev_text' => '‹',
+                    'next_text' => '›',
+                ) );
+                echo '</div></div>';
+            }
+            ?>
+        <?php endif; ?>
+    </div>
+    <?php
+}
 
 /**
  * Liest CHANGELOG.md (eine bei jedem Release mitkopierte Kopie von PROJEKT_JOURNAL.md, siehe
@@ -2847,7 +2978,7 @@ add_action( 'admin_init', function () {
 add_action( 'admin_post_ftipp_fetch', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_fetch' );
-    $res = ftipp_fetch_all();
+    $res = ftipp_fetch_all( 'manual' );
     wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'ftipp_done' => $res['ok'] ? 'ok' : 'err' ), admin_url( 'admin.php' ) ) );
     exit;
 } );

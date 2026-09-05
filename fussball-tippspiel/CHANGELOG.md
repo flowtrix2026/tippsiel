@@ -1616,6 +1616,30 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
   einfach die Zip hochzuladen — Bestätigung, dass der in v0.8.3 gebaute GitHub-Update-Mechanismus auch im
   echten Admin-Interface (nicht nur per `wp-cli` lokal) zuverlässig funktioniert.
 
+## v0.8.5 — History-Seite: Protokoll aller Datenänderungen
+- Fünfter Schritt des Untermenü-Ausbaus (nach der vorgezogenen Changelog-Seite). Bisher hielt die Option
+  `ftipp_meta` nur den letzten Abruf-Zustand fest (wird bei jedem Abruf überschrieben) — keine Historie über
+  Zeit. Nutzerentscheidung von Anfang der Planungsrunde: History soll ALLE datenverändernden Aktionen
+  protokollieren, nicht nur automatische Abrufe.
+- **Umgesetzt:** neue Tabelle `ftipp_history` (`FTIPP_DB_VERSION` 10→11), Helper-Funktion
+  `ftipp_log_history()` schreibt einen Eintrag (Zeitpunkt, Aktion, Wettbewerb, Ergebnistext, auslösender
+  Nutzer) und kappt die Tabelle danach auf die letzten 200 Zeilen. Vier Aktionstypen werden geloggt:
+  automatischer Cron-Abruf und manuelles "Jetzt abrufen" (beide über `ftipp_fetch_all()`, jetzt mit
+  `$trigger`-Parameter erweitert), CSV-Import (mit den betroffenen Wettbewerben aus der Datei) und
+  Test-Spiele laden.
+- **Technisches Detail:** Die Kappungs-Query nutzt bewusst eine Subquery
+  (`DELETE ... WHERE id NOT IN (SELECT id FROM (SELECT id ... ORDER BY id DESC LIMIT 200))`) statt
+  `DELETE ... ORDER BY ... LIMIT` — letzteres ist eine MySQL-Erweiterung, die z. B. SQLite nicht
+  unterstützt; die Subquery-Variante funktioniert auf beiden Datenbanken (lokale SQLite-Testumgebung und
+  echtes MySQL auf Hostinger).
+- Lokal getestet: neue Tabelle wird bei Plugin-Aktivierung/Update korrekt angelegt (`wp_ftipp_history` in
+  SQLite verifiziert), alle drei manuell auslösbaren Aktionen (Abruf, CSV-Import, Test-Spiele) erzeugen
+  korrekte Log-Zeilen mit richtigem Nutzer/Wettbewerb/Ergebnistext, Anzeige mit Icons und Paginierung
+  rendert fehlerfrei. Kappungslogik gezielt mit 250 künstlichen Zeilen getestet — schneidet zuverlässig auf
+  die neuesten 200 zurück, auch auf SQLite.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.8.5 einspielen (inkl. DB-Migration),
+  History-Seite nach ein paar echten Aktionen gegenprüfen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
