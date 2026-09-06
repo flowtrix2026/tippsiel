@@ -1,2 +1,12 @@
 .DS_Store
 .claude/
+
+# Lokale Arbeitsdateien — nicht mehr im Repo getrackt (siehe README fürs Release-Vorgehen):
+# fussball-tippspiel.zip wird pro Version als GitHub-Release-Anhang veröffentlicht,
+# tippspiel.html ist die Roh-Quelle für fussball-tippspiel/app/index.html,
+# PROJEKT_JOURNAL.md/CONTEXT.md sind interne Arbeitsdokumente (Changelog steckt bereits
+# öffentlich in fussball-tippspiel/CHANGELOG.md).
+fussball-tippspiel.zip
+tippspiel.html
+PROJEKT_JOURNAL.md
+CONTEXT.md
