@@ -1777,12 +1777,90 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
   konsistent sind.
 - Lokal getestet: Link erscheint korrekt und zeigt auf `console.cron-job.org/settings`, keine PHP-Fehler.
 
+## v0.9.3 — Info-Seite: "Erste Schritte"-Anleitung für den Shortcode ergänzt
+- **Anfrage:** Beim Einrichten der zweiten/Test-WordPress-Installation fiel auf, dass nirgends im Plugin
+  selbst steht, wie man Tippstube überhaupt auf einer Seite zum Laufen bringt (Shortcode `[tippspiel]`) —
+  das musste bisher immer im Chat neu erklärt werden.
+- **Umgesetzt:** Neuer Abschnitt "Erste Schritte: Tippstube auf einer Seite anzeigen" ganz oben auf der
+  Info-Seite, vor allen anderen Themen — kurze Schritt-für-Schritt-Anleitung (Seite anlegen → Shortcode
+  `[tippspiel]` einfügen → veröffentlichen) inkl. Hinweis, dass der Shortcode nur auf einer einzigen Seite
+  sinnvoll ist.
+- Lokal getestet: Abschnitt rendert korrekt (nummerierte Liste, Shortcode als `<code>`), keine PHP-Fehler.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.9.3 einspielen, neuen Abschnitt gegenprüfen.
+
+## v0.9.4 — Untermenü-Reihenfolge geändert
+- **Anfrage:** Neue Reihenfolge im Tippstube-Untermenü: Info, Einstellungen, Design, Datensicherung,
+  Changelog, History, Cron-Job (statt bisher Einstellungen, Design, Cron-Job, History, Changelog, Info,
+  Datensicherung).
+- **Umgesetzt:** Nur die Reihenfolge der `add_submenu_page()`-Aufrufe geändert — WordPress rendert das
+  Untermenü exakt in Registrierungsreihenfolge. Dabei geprüft, ob der Slug-Trick (Einstellungen bekommt
+  denselben Slug `ftipp` wie der Parent, ersetzt den automatisch erzeugten Default-Eintrag) auch
+  funktioniert, wenn Einstellungen nicht mehr der ERSTE registrierte Untermenüpunkt ist — funktioniert
+  weiterhin einwandfrei, da der Top-Level-Link seinen Slug direkt von `add_menu_page()` bekommt, unabhängig
+  von der Untermenü-Registrierungsreihenfolge.
+- Lokal getestet: neue Reihenfolge erscheint exakt wie gewünscht, weiterhin nur ein einziger
+  "Tippstube"-Eintrag (kein Duplikat), Klick auf den Top-Level-Menüpunkt selbst öffnet weiterhin korrekt die
+  Einstellungen-Seite.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.9.4 einspielen, neue Reihenfolge
+  gegenprüfen.
+
+## v0.9.5 — Ekstraklasa (Polen) wieder entfernt
+- **Anfrage:** Für Ekstraklasa wurde nie eine funktionierende kostenlose Datenquelle gefunden (weder
+  OpenLigaDB noch ESPN haben Polen-Daten, API-Football-ID 106 war nur eine unbestätigte Vermutung ohne
+  gültigen Key je getestet) — Entscheidung, den Wettbewerb wieder komplett rauszunehmen, statt ihn als
+  dauerhaft leeren/nicht funktionierenden Punkt stehen zu lassen.
+- **Umgesetzt:** `POL1`-Eintrag aus `ftipp_leagues()` und den Standard-Sonderwertungen entfernt, alle
+  Beschreibungstexte (Plugin-Docblock, Einstellungen-Seite, Info-Seite-Verweis) bereinigt. Gleiche Änderung
+  im Frontend (`tippspiel.html`/`COMPS`-Array, Header-Untertitel) und in `CONTEXT.md`
+  (fünfzehn → vierzehn Wettbewerbe). Da nie echte Daten für Ekstraklasa geladen wurden (kein CSV, kein
+  API-Football-Key je hinterlegt), betrifft das keine bestehenden Tipps — reine Aufräumaktion.
+- Lokal getestet: "Letzter Abruf"-Tabelle zeigt korrekt nur noch 14 Wettbewerbe, Frontend-App lädt fehlerfrei
+  mit aktualisiertem Untertitel, keine Konsolen-/PHP-Fehler.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.9.5 einspielen, Übersicht gegenprüfen.
+
+## v0.9.6 — Feinschliff, Runde 1: README, toter Code, Spacing
+- **Anfrage:** Nach Abschluss des großen Untermenü-Ausbaus in eine Feinschliff-Phase gehen. Ideen dafür von
+  mir selbst und zusätzlich von operator-ole (Team-Lead-Agent) eingeholt — beide unabhängig auf
+  "README.txt veraltet" gekommen, Ole hat zusätzlich per Code-Durchsicht toten Code und eine
+  Spacing-Inkonsistenz gefunden. Nutzerentscheidung: Punkte 1 (README), 2 (toter Code) und 3 (Spacing)
+  zuerst umsetzen, danach Punkt 9 (Screenshots fürs Showcase).
+- **Umgesetzt:**
+  - `README.txt` komplett neu geschrieben (hing noch auf Stand v0.7.0/Rebrand-Ankündigung) — jetzt im
+    üblichen WordPress-Plugin-readme-Format (Header, Beschreibung, Funktionen für Mitspieler/Admin,
+    Installation, kurzer Changelog-Auszug mit Verweis auf die vollständige Historie in der
+    Changelog-Seite des Plugins bzw. im GitHub-Repo).
+  - `ftipp_page_placeholder()` entfernt — Überbleibsel aus der Gerüstphase des Untermenü-Ausbaus
+    (v0.8.0-v0.8.5), wurde seit dem letzten Platzhalter-Ersatz nirgends mehr aufgerufen.
+  - Einheitliches `margin-top:30px` für alle Abschnitts-Überschriften mit Extra-Abstand (vorher teils
+    24px auf der Einstellungen-Seite, 30px überall sonst).
+- Lokal getestet: alle sieben Untermenüpunkte laden weiterhin fehlerfrei (`ftipp`, `ftipp_design`,
+  `ftipp_cron`, `ftipp_history`, `ftipp_changelog`, `ftipp_info`, `ftipp_backup` je HTTP 200), keine
+  PHP-Fehler im Log.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.9.6 einspielen.
+
+## v0.9.7 — Datenschutz-Textbaustein-Shortcode entfernt
+- **Anfrage:** Der eingebaute Shortcode `[tippspiel_datenschutz]` (Textbaustein mit Platzhaltern für
+  Verantwortlicher/Hosting/etc.) wurde als unnötig eingestuft — jede Webseite regelt Impressum/
+  Datenschutzerklärung ohnehin schon selbst, ein eigener Generator dafür im Plugin bringt keinen Mehrwert.
+  Im Zuge dessen auch geklärt: Kubus Concept als Firma existiert nicht mehr, der ursprünglich angedachte
+  Firmenwebsite-Showcase-Plan ist damit hinfällig (siehe Erinnerung).
+- **Umgesetzt:** `add_shortcode( 'tippspiel_datenschutz', ... )` komplett entfernt. Der davon unabhängige
+  Zustimmungs-Mechanismus bei der Registrierung (Checkbox "Ich habe die Datenschutzerklärung gelesen",
+  verlinkt auf die eigene, bereits vorhandene `/datenschutz/`-Seite der jeweiligen Website) bleibt
+  unverändert bestehen — das ist ein separater Baustein, der nach wie vor sinnvoll ist.
+- Lokal getestet: Registrierung (temporär aktiviert, danach wieder zurückgesetzt) zeigt die
+  Consent-Checkbox weiterhin korrekt an, keine PHP-Fehler nach Entfernen des Shortcodes.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.9.7 einspielen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
-- [x] ~~DSGVO-Grundausstattung~~ → v0.6.0 (Export/Löschung/Consent/Datenschutz-Textbaustein), noch nicht live getestet.
-      *Weiterhin offen (Betreiber-Aufgabe, nicht code-lösbar):* echten Namen/Anschrift in Datenschutzerklärung eintragen,
-      EU-Hosting-Frage klären, AVV mit Hostinger/SMTP-Anbieter falls nötig.
+- [x] ~~DSGVO-Grundausstattung~~ → v0.6.0 (Export/Löschung/Consent), Datenschutz-Textbaustein-Shortcode
+      in v0.9.7 wieder entfernt (jede Website regelt Impressum/Datenschutz ohnehin selbst — der Consent-Haken
+      bei der Registrierung verlinkt stattdessen einfach auf die eigene, bereits vorhandene Datenschutzseite).
+      *Weiterhin offen (Betreiber-Aufgabe, nicht code-lösbar):* Tippstube-spezifische Datenverarbeitung
+      (Tipps, Pinnwand-Nachrichten, E-Mail-Versand) in die eigene, bestehende Datenschutzerklärung
+      einpflegen, EU-Hosting-Frage klären, AVV mit Hostinger/SMTP-Anbieter falls nötig.
 - [ ] Messenger/n8n-Benachrichtigung (optional, niedrige Prio, weiterhin zurückgestellt)
 - [x] ~~Offline-Modus~~ → Hybrid: wöchentlicher Auto-Refresh + lokaler Cache.
 - [x] ~~Gesamt-Rangliste~~ → nein, nur pro Wettbewerb.

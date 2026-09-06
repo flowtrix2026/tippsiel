@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       Tippstube
- * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Nations League + Süper Lig + Serie A + Ligue 1 + Ekstraklasa per CSV-Import oder API-Football.
- * Version:           0.9.2
+ * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Nations League + Süper Lig + Serie A + Ligue 1 per CSV-Import oder API-Football.
+ * Version:           0.9.7
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '0.9.2' );
+define( 'FTIPP_VERSION', '0.9.7' );
 define( 'FTIPP_DB_VERSION', '13' );
 
 /**
@@ -48,7 +48,6 @@ function ftipp_leagues() {
         'RLNO' => array( 'name' => 'Regionalliga Nordost', 'api' => 0, 'kind' => 'league' ),
         'ITA1' => array( 'name' => 'Serie A',          'api' => 135, 'kind' => 'league' ),
         'FRA1' => array( 'name' => 'Ligue 1',          'api' => 61,  'kind' => 'league' ),
-        'POL1' => array( 'name' => 'Ekstraklasa',      'api' => 106, 'kind' => 'league' ),
     );
 }
 function ftipp_comp_ids() { return array_keys( ftipp_leagues() ); }
@@ -1237,12 +1236,6 @@ function ftipp_default_specials( $comp_id ) {
         ),
         'FRA1' => array(
             array( 'key' => 'champion',   'label' => 'Französischer Meister', 'type' => 'champion',   'points' => 10 ),
-            array( 'key' => 'relegation', 'label' => 'Absteiger',             'type' => 'relegation', 'points' => 10 ),
-            array( 'key' => 'topscorer',  'label' => 'Torschützenkönig',      'type' => 'topscorer',  'points' => 10 ),
-            array( 'key' => 'topassist',  'label' => 'Bester Passgeber',      'type' => 'topassist',  'points' => 10 ),
-        ),
-        'POL1' => array(
-            array( 'key' => 'champion',   'label' => 'Polnischer Meister',    'type' => 'champion',   'points' => 10 ),
             array( 'key' => 'relegation', 'label' => 'Absteiger',             'type' => 'relegation', 'points' => 10 ),
             array( 'key' => 'topscorer',  'label' => 'Torschützenkönig',      'type' => 'topscorer',  'points' => 10 ),
             array( 'key' => 'topassist',  'label' => 'Bester Passgeber',      'type' => 'topassist',  'points' => 10 ),
@@ -2781,23 +2774,15 @@ add_action( 'admin_menu', function () {
     add_menu_page( 'Tippstube', 'Tippstube', 'manage_options', 'ftipp', 'ftipp_settings_page', ftipp_menu_icon_href(), 30 );
     // Gleicher Slug wie der Parent ersetzt WordPress' automatisch erzeugten Default-Untermenüpunkt
     // (sonst gäbe es "Tippstube" doppelt ganz oben in der Liste).
+    add_submenu_page( 'ftipp', 'Info', 'Info', 'manage_options', 'ftipp_info', 'ftipp_page_info' );
     add_submenu_page( 'ftipp', 'Einstellungen', 'Einstellungen', 'manage_options', 'ftipp', 'ftipp_settings_page' );
     add_submenu_page( 'ftipp', 'Design', 'Design', 'manage_options', 'ftipp_design', 'ftipp_page_design' );
-    add_submenu_page( 'ftipp', 'Cron-Job', 'Cron-Job', 'manage_options', 'ftipp_cron', 'ftipp_page_cron' );
-    add_submenu_page( 'ftipp', 'History', 'History', 'manage_options', 'ftipp_history', 'ftipp_page_history' );
-    add_submenu_page( 'ftipp', 'Changelog', 'Changelog', 'manage_options', 'ftipp_changelog', 'ftipp_page_changelog' );
-    add_submenu_page( 'ftipp', 'Info', 'Info', 'manage_options', 'ftipp_info', 'ftipp_page_info' );
     add_submenu_page( 'ftipp', 'Datensicherung', 'Datensicherung', 'manage_options', 'ftipp_backup', 'ftipp_page_backup' );
+    add_submenu_page( 'ftipp', 'Changelog', 'Changelog', 'manage_options', 'ftipp_changelog', 'ftipp_page_changelog' );
+    add_submenu_page( 'ftipp', 'History', 'History', 'manage_options', 'ftipp_history', 'ftipp_page_history' );
+    add_submenu_page( 'ftipp', 'Cron-Job', 'Cron-Job', 'manage_options', 'ftipp_cron', 'ftipp_page_cron' );
 } );
 
-/**
- * Platzhalter für die neuen Untermenüpunkte — Inhalt folgt in v0.8.1-v0.8.5,
- * jeweils einzeln lokal und live getestet, bevor der nächste Punkt gebaut wird.
- */
-function ftipp_page_placeholder( $title ) {
-    if ( ! current_user_can( 'manage_options' ) ) { return; }
-    echo '<div class="wrap"><h1>' . esc_html( $title ) . '</h1><p>Kommt in Kürze.</p></div>';
-}
 /**
  * Speichert die Design-Felder einer Tipprunde (Akzentfarbe/Untertitel/Logo-Reset) — von beiden
  * admin_post-Handlern (Textfelder + separater Logo-Upload) genutzt, damit die Validierung/Speicherlogik
@@ -3719,6 +3704,19 @@ function ftipp_page_info() {
     <div class="wrap">
         <h1>ℹ️ Info</h1>
 
+        <h2>Erste Schritte: Tippstube auf einer Seite anzeigen</h2>
+        <p>Tippstube läuft nicht automatisch irgendwo — die App muss über einen sogenannten
+           <strong>Shortcode</strong> auf einer WordPress-Seite eingebettet werden:</p>
+        <ol>
+            <li>Im WordPress-Menü <strong>Seiten → Erstellen</strong> eine neue Seite anlegen (z. B. mit dem
+                Titel „Tippspiel").</li>
+            <li>In den Inhalt der Seite folgenden Shortcode eintragen: <code>[tippspiel]</code></li>
+            <li>Die Seite <strong>veröffentlichen</strong>.</li>
+        </ol>
+        <p>Ruft man diese Seite jetzt auf, erscheint dort die komplette Tippstube-App (Login, Tipprunden,
+           Ranglisten usw.). Der Shortcode kann auf genau einer Seite verwendet werden — mehrfach eingebunden
+           macht keinen Sinn, da die App immer alle Tipprunden des eingeloggten Nutzers zeigt.</p>
+
         <h2>So funktioniert das Tippen</h2>
         <p>Jedes Spiel kann getippt werden, bis es anpfeift — danach ist die Frist abgelaufen und der Tipp
            gesperrt. Solange ein Tipp nicht aktiv über „Tipp abgeben" bestätigt wurde, ist er editierbar und
@@ -3745,7 +3743,7 @@ function ftipp_page_info() {
 
         <h2>CSV-Import</h2>
         <p>Für Wettbewerbe ohne zuverlässige kostenlose Quelle (aktuell z. B. Nations League, Süper Lig, Serie A,
-           Ligue 1, Ekstraklasa) lässt sich der Spielplan — und später das Ergebnis — per CSV-Datei auf der
+           Ligue 1) lässt sich der Spielplan — und später das Ergebnis — per CSV-Datei auf der
            Einstellungen-Seite hochladen. Bereits automatisch geladene Spiele bleiben unangetastet, und ein
            erneuter Upload derselben Begegnung (gleicher Wettbewerb + gleiche Teams + gleiches Datum)
            aktualisiert nur den bestehenden Eintrag, statt ihn zu duplizieren — so gehen keine Tipps verloren.</p>
@@ -3806,11 +3804,11 @@ function ftipp_settings_page() {
            <strong>OpenLigaDB</strong> — gratis, ohne Key, immer die <strong>aktuelle Saison</strong>. Bei den
            Pokal-/Europapokal-Wettbewerben gibt es dafür bewusst <strong>keinen K.o.-Zusatztipp</strong> (Verlängerung/Elfmeterschießen)
            mehr — OpenLigaDB kennzeichnet das nicht zuverlässig genug, der normale Tendenz/Exakt-Tipp funktioniert
-           aber einwandfrei. Die <strong>Süper Lig, Serie A, Ligue 1</strong> und <strong>Ekstraklasa</strong>
+           aber einwandfrei. Die <strong>Süper Lig, Serie A</strong> und <strong>Ligue 1</strong>
            laufen — wie die Nations League — per <strong>CSV-Import</strong> weiter unten, da es dafür keine
-           zuverlässige kostenlose Automatik-Quelle gibt (OpenLigaDB hat diese vier gar nicht in der aktuellen
-           Saison, ESPN wird von manchen Servern blockiert). Für <strong>Nations League, Serie A, Ligue 1 und
-           Ekstraklasa</strong> versucht das Plugin zusätzlich automatisch <strong>API-Football</strong>, falls
+           zuverlässige kostenlose Automatik-Quelle gibt (OpenLigaDB hat diese drei gar nicht in der aktuellen
+           Saison, ESPN wird von manchen Servern blockiert). Für <strong>Nations League, Serie A und Ligue
+           1</strong> versucht das Plugin zusätzlich automatisch <strong>API-Football</strong>, falls
            du dort einen Key hinterlegst. <strong>Hinweis:</strong> der Gratis-Tarif von API-Football deckt
            nur alte Saisons (2021–2023) ab — für die aktuelle Saison ist (noch) ein Bezahltarif nötig, oder du
            nutzt zum Testen „🎲 Test-Spiele laden" weiter unten.</p>
@@ -3833,7 +3831,7 @@ function ftipp_settings_page() {
                     <th scope="row"><label for="ftipp_season">Saison (API-Football)</label></th>
                     <td><input name="ftipp_season" id="ftipp_season" type="number" value="<?php echo esc_attr( get_option( 'ftipp_season', 2026 ) ); ?>" style="width:110px" />
                         <p class="description">Gilt für alle API-Football-Wettbewerbe (Nations League, Serie A,
-                        Ligue 1, Ekstraklasa). Startjahr der Saison. 2026 = Saison 2026/27. Zum Testen mit
+                        Ligue 1). Startjahr der Saison. 2026 = Saison 2026/27. Zum Testen mit
                         vollständigen Ergebnissen: 2023.
                         1./2./3. Liga, DFB-Pokal, Champions League, Europa League, Premier League, LaLiga,
                         Frauen-Bundesliga und Regionalliga Nordost laufen unabhängig davon immer auf der
@@ -3854,7 +3852,7 @@ function ftipp_settings_page() {
         <?php if ( isset( $_GET['ftipp_demo_done'] ) ) : ?>
             <div class="notice notice-success is-dismissible"><p>Test-Spiele geladen — lade die Tippspiel-Seite neu.</p></div>
         <?php endif; ?>
-        <h2 style="margin-top:24px">🎲 Test-Spiele laden</h2>
+        <h2 style="margin-top:30px">🎲 Test-Spiele laden</h2>
         <p>Die echten Daten oben (Gratis-Tarif) sind immer eine <strong>vergangene</strong> Saison — jedes Spiel ist
            damit sofort gesperrt, es gibt nichts zum Antippen. Zum <strong>Ausprobieren der Tipp-Mechanik</strong>
            (Frist/Sperre, K.o.-Zusatztipp, Tipp-Geheimhaltung) lädt dieser Button ein paar Beispiel-Spiele mit
@@ -3867,10 +3865,10 @@ function ftipp_settings_page() {
         </form>
 
         <hr>
-        <h2 style="margin-top:24px">📄 Spieldaten per CSV importieren</h2>
+        <h2 style="margin-top:30px">📄 Spieldaten per CSV importieren</h2>
         <p>Für Wettbewerbe ohne gute kostenlose API (aktuell: <strong>Nations League</strong>,
-           <strong>Süper Lig</strong>, <strong>Serie A</strong>, <strong>Ligue 1</strong> und
-           <strong>Ekstraklasa</strong> — für Serie A/Ligue 1/Ekstraklasa alternativ auch per
+           <strong>Süper Lig</strong>, <strong>Serie A</strong> und <strong>Ligue 1</strong>
+           — für Serie A/Ligue 1 alternativ auch per
            API-Football, falls du dort einen Bezahltarif mit aktueller Saison hast) kannst du den
            Spielplan (und später die Ergebnisse) selbst per CSV-Datei hochladen. Das <strong>ergänzt</strong> nur —
            bereits automatisch geladene Spiele bleiben unangetastet, und ein erneuter Upload derselben Begegnung
@@ -4104,7 +4102,7 @@ add_filter( 'login_redirect', function ( $redirect_to, $requested_redirect_to, $
 }, 10, 3 );
 
 /* ============================================================
- * DSGVO: Einwilligung bei Registrierung + Datenschutz-Textbaustein
+ * DSGVO: Einwilligung bei Registrierung
  * ============================================================ */
 add_action( 'register_form', function () {
     $checked = isset( $_POST['ftipp_consent'] ) ? ' checked' : ''; // phpcs:ignore -- nur zur Wiederherstellung des Häkchens nach Formularfehler
@@ -4126,48 +4124,3 @@ add_filter( 'registration_errors', function ( $errors, $sanitized_user_login, $u
     return $errors;
 }, 10, 3 );
 
-/**
- * Shortcode [tippspiel_datenschutz] — Textbaustein für die Datenschutzerklärung.
- * WICHTIG: Platzhalter in [ECKIGEN KLAMMERN] müssen vom Website-Betreiber ausgefüllt
- * werden (Name/Firma, Anschrift, Kontakt) — dieser Text ist bewusst ein Gerüst, kein
- * fertiges, rechtsgültiges Dokument, und keine Rechtsberatung.
- */
-add_shortcode( 'tippspiel_datenschutz', function () {
-    ob_start(); ?>
-    <div style="max-width:720px;margin:0 auto;line-height:1.6">
-        <h2>Datenschutzerklärung — Tippstube</h2>
-        <p><em>Hinweis für den Betreiber: Dies ist ein Textbaustein, kein fertiger Rechtstext. Bitte die
-        Platzhalter in [eckigen Klammern] ausfüllen bzw. mit einem Anwalt/Generator prüfen.</em></p>
-
-        <h3>Verantwortlicher</h3>
-        <p>[DEIN NAME / DEINE FIRMA]<br>[ANSCHRIFT]<br>[E-MAIL-ADRESSE]</p>
-
-        <h3>Welche Daten wir verarbeiten</h3>
-        <ul>
-            <li><strong>Kontodaten:</strong> E-Mail-Adresse (bleibt privat, nur für Login/Zustellung), Anzeigename (sichtbar für Mitspieler deiner Runden), Passwort (verschlüsselt gespeichert, Standard-WordPress-Verfahren).</li>
-            <li><strong>Spieldaten:</strong> deine Tipps, Wettbewerbs-Anmeldungen, Tipprunden-Mitgliedschaften.</li>
-            <li><strong>Pinnwand-Nachrichten:</strong> Texte, die du in einer Tipprunde schreibst — sichtbar für die Mitglieder dieser Runde.</li>
-        </ul>
-
-        <h3>Zweck & Sichtbarkeit</h3>
-        <p>Diese Daten dienen ausschließlich dem Betrieb des Tippspiels. Tipps, Anzeigename und Pinnwand-Nachrichten
-        sind für die Mitglieder deiner jeweiligen Tipprunde(n) sichtbar. Deine E-Mail-Adresse ist niemals für andere Mitspieler sichtbar.</p>
-
-        <h3>E-Mail-Benachrichtigungen</h3>
-        <p>Sofern aktiviert, erhältst du Fristen-Erinnerungen und/oder einen Ranking-Newsletter per E-Mail. Der Versand
-        erfolgt über [SMTP-ANBIETER EINTRAGEN, z.B. dein E-Mail-Provider].</p>
-
-        <h3>Speicherdauer</h3>
-        <p>Deine Daten bleiben gespeichert, solange dein Konto besteht. Du kannst deine Tippspiel-Daten jederzeit
-        selbst in der App unter „Mein Konto" exportieren oder löschen lassen.</p>
-
-        <h3>Deine Rechte</h3>
-        <p>Du hast das Recht auf Auskunft, Berichtigung, Löschung und Datenübertragbarkeit. Kontaktiere uns dazu unter
-        [E-MAIL-ADRESSE], oder nutze die Selbstbedienungs-Funktionen in der App.</p>
-
-        <h3>Hosting</h3>
-        <p>Diese Website wird gehostet bei [HOSTING-ANBIETER EINTRAGEN].</p>
-    </div>
-    <?php
-    return ob_get_clean();
-} );

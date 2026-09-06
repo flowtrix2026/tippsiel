@@ -1,29 +1,64 @@
-Tippstube — WordPress-Plugin  v0.7.0
-======================================
+=== Tippstube ===
+Contributors: florianhenschke
+Tags: fussball, tippspiel, sport, community, bundesliga
+Requires at least: 6.0
+Tested up to: 6.7
+Requires PHP: 7.4
+Stable tag: 0.9.5
+License: GPL-2.0-or-later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-NEU in 0.7.0: Rebrand "Tippstube"
-- Neuer Produktname "Tippstube" (statt generisch "Fußball-Tippspiel") überall:
-  Plugin-Name, App-Titel/Header, Login-/Registrierungsseite, wp-admin-Menü,
-  Datenschutz-Textbaustein.
-- Neue warme Farbwelt: dunkles Rasengrün + Bernstein/Gold statt kaltem
-  Navy/Türkis — durchgängig in App, Login-Seite und In-App-Login-Karte.
-- Neues Wappen-Logo (Schild mit Fenster + Fußball-Motiv) als:
-  * Header-Icon in der App
-  * Icon auf der In-App-Login-Karte
-  * Browser-Tab-Icon (Favicon) — nur auf der Tippstube-Seite selbst sowie
-    auf Login/Registrieren/Passwort-vergessen, nicht sitejweit.
-- Markante Headline-Schrift (Serif) für Überschriften/Logo, Fließtext und
-  Buttons bleiben aus Lesbarkeits-Gründen bei der neutralen Schrift.
-- Ranglisten-Verlauf-Diagramm: Farbfehler behoben (zwei Serien hatten durch
-  die Umfärbung versehentlich dieselbe Farbe — jetzt wieder unterscheidbar).
+Privates Fußball-Tippspiel für deine Familie oder Freundesrunde — echtes WordPress-Login, eigene Tipprunden, automatischer Datenabruf.
 
-Bisherige Funktionen (v0.6.x) unverändert: E-Mail-Versand (Fristen-Erinnerung
-+ Ranking-Newsletter), DSGVO (Datenexport/-löschung, Registrierungs-Einwilligung),
-OpenLigaDB + API-Football Datenquellen, Login/Tipprunden/Chat/Statistik.
+== Description ==
 
-UPDATE
-- Plugins -> Installieren -> Plugin hochladen -> diese ZIP -> "Aktuelle
-  durch die hochgeladene ersetzen". Reine Optik-/Namensänderung, keine
-  Datenbank-Änderungen — deine Tipprunden/Tipps/Daten bleiben erhalten.
-- WordPress zeigt das Plugin in der Liste künftig als "Tippstube" an
-  (vorher "Fußball-Tippspiel (Prototyp)").
+Tippstube ist ein WordPress-Plugin für private Fußball-Tippspiele unter Familie und Freunden. Jeder Nutzer meldet sich mit seinem echten WordPress-Konto an, tritt per Einladungscode einer oder mehreren "Tipprunden" bei und tippt dort gemeinsam mit den anderen Mitgliedern — jede Runde hat für jeden Wettbewerb ihre eigene, unabhängige Rangliste.
+
+= Funktionen für Mitspieler =
+
+* **14 Wettbewerbe**: 1./2./3. Bundesliga, DFB-Pokal, Champions League, Europa League, Nations League, Premier League, LaLiga, Süper Lig, Serie A, Ligue 1, Frauen-Bundesliga, Regionalliga Nordost
+* **Punktesystem**: 1 Punkt für die richtige Tendenz, 3 Punkte fürs exakte Ergebnis, optionaler K.o.-Zusatztipp bei Pokalspielen
+* **Zwei Ranglisten-Modi**: Freundschaftlich (geteilter Platz bei Gleichstand) oder Challenge (harter Tie-Break)
+* **Sonderwertungen** je Wettbewerb (Meister, Torschützenkönig etc.), automatische Auflösung per Textvergleich
+* **Pinnwand-Chat** und **Statistik/Achievements** pro Runde
+* **E-Mail-Benachrichtigungen**: Fristen-Erinnerung, wöchentlicher Ranking-Newsletter
+
+= Funktionen für den Plattform-Admin =
+
+Sieben Verwaltungsseiten unter "Tippstube" im WordPress-Adminmenü:
+
+* **Einstellungen** — API-Football-Key, automatischer Datenabruf, CSV-Import für Wettbewerbe ohne gute kostenlose Quelle
+* **Design** — Akzentfarbe, Logo und Untertitel jeder Tipprunde zentral einsehbar und bearbeitbar
+* **Cron-Job** — frei einstellbarer Abrufplan, dazu ein optionaler zuverlässiger externer Cron-Dienst (manuell oder automatisch über die cron-job.org-API)
+* **History** — Protokoll aller automatischen und manuellen Datenänderungen
+* **Changelog** — die komplette Versionshistorie direkt im Adminbereich
+* **Info** — Kurzanleitung und Glossar
+* **Datensicherung** — alle Tippstube-Daten als Datei sichern (Download oder automatisch per E-Mail) und bei Bedarf wiederherstellen, inklusive automatischer Sicherheitskopie vor jedem Restore
+
+Updates erscheinen wie bei einem regulären WordPress.org-Plugin direkt im Plugins-Bereich ("Update verfügbar").
+
+= Datenquellen =
+
+1./2./3. Liga, DFB-Pokal, Champions League, Europa League, Premier League, LaLiga, Frauen-Bundesliga und Regionalliga Nordost laufen automatisch über [OpenLigaDB](https://www.openligadb.de/) (kostenlos, kein Key nötig). Für Nations League, Süper Lig, Serie A und Ligue 1 gibt es dafür keine zuverlässige kostenlose Automatik-Quelle — hier hilft CSV-Import oder wahlweise [API-Football](https://www.api-football.com/) mit eigenem Key.
+
+== Installation ==
+
+1. Plugin hochladen und aktivieren (Plugins → Installieren → Plugin hochladen).
+2. Eine neue WordPress-Seite anlegen und den Shortcode `[tippspiel]` in den Inhalt eintragen, dann veröffentlichen.
+3. Unter Tippstube → Einstellungen ggf. einen API-Football-Key hinterlegen und die Spieldaten abrufen.
+4. Fertig — Nutzer können sich anmelden, eine Tipprunde erstellen oder per Einladungscode beitreten.
+
+Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-Adminmenü.
+
+== Changelog ==
+
+Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 0.9.5 =
+Ekstraklasa (Polen) entfernt — es wurde nie eine funktionierende kostenlose Datenquelle dafür gefunden.
+
+= 0.9.0 – 0.9.4 =
+Echte cron-job.org-API-Integration für Datenabruf und Datensicherung, Info-Seite mit Erste-Schritte-Anleitung, Untermenü-Reihenfolge angepasst.
+
+= 0.8.0 – 0.8.9 =
+Kompletter Ausbau des Adminbereichs in sieben Untermenüpunkte (Einstellungen, Design, Cron-Job, History, Changelog, Info, Datensicherung), automatischer Update-Mechanismus über GitHub-Releases.
