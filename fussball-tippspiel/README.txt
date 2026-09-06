@@ -4,7 +4,7 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 0.9.5
+Stable tag: 1.0.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,8 +54,13 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
 
-= 0.9.5 =
-Ekstraklasa (Polen) entfernt — es wurde nie eine funktionierende kostenlose Datenquelle dafür gefunden.
+= 1.0.0 =
+Erste stabile Version — kompletter Adminbereich (Einstellungen, Design, Cron-Job, History, Changelog, Info,
+Datensicherung), automatische Updates über GitHub, aufgeräumtes öffentliches Repository.
+
+= 0.9.5 – 0.9.7 =
+Ekstraklasa (Polen) entfernt (keine Datenquelle gefunden), README/Code aufgeräumt, Datenschutz-Textbaustein-
+Shortcode entfernt.
 
 = 0.9.0 – 0.9.4 =
 Echte cron-job.org-API-Integration für Datenabruf und Datensicherung, Info-Seite mit Erste-Schritte-Anleitung, Untermenü-Reihenfolge angepasst.

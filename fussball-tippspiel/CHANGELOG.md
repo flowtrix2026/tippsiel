@@ -1852,6 +1852,16 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
   Consent-Checkbox weiterhin korrekt an, keine PHP-Fehler nach Entfernen des Shortcodes.
 - *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.9.7 einspielen.
 
+## v1.0.0 — Erste stabile Version
+- **Anfrage:** Nach Abschluss des Untermenü-Ausbaus, der Datensicherung, der cron-job.org-Integration und
+  dem Aufräumen des öffentlichen Repos: "mach jetzt eine Version 1.0 daraus" — diesmal bewusst und
+  entschieden (anders als der frühere, zurückgenommene Versuch bei v0.5.0/v0.6.0).
+- **Umgesetzt:** Reine Versionsnummer-Änderung (`Version:`-Header, `FTIPP_VERSION`, `Stable tag` in
+  README.txt) auf 1.0.0, plus ein zusammenfassender Changelog-Eintrag in der README.txt. Keine
+  Code-/Funktionsänderung — der komplette Funktionsumfang war schon vorher fertig und live getestet.
+- Lokal geprüft: alle sieben Untermenüpunkte laden weiterhin fehlerfrei, keine PHP-Fehler.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.0.0 einspielen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
