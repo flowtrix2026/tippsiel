@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Nations League + Süper Lig + Serie A + Ligue 1 + Ekstraklasa per CSV-Import oder API-Football.
- * Version:           0.8.6
+ * Version:           0.9.2
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,8 +12,8 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '0.8.6' );
-define( 'FTIPP_DB_VERSION', '12' );
+define( 'FTIPP_VERSION', '0.9.2' );
+define( 'FTIPP_DB_VERSION', '13' );
 
 /**
  * Automatische Update-Prüfung gegen GitHub-Releases (statt WordPress.org-Verzeichnis) —
@@ -186,6 +186,18 @@ function ftipp_install() {
         KEY created_at (created_at)
     ) $charset_collate;" );
 
+    // Ab v0.8.7 (Datensicherung-Seite): gespeicherte Backups der Tippstube-eigenen Daten (JSON-Export
+    // aller ftipp_*-Tabellen) — siehe ftipp_create_backup(). Bewusst in der DB statt als Datei im
+    // Uploads-Ordner, damit nie ein direkt aufrufbarer, öffentlicher Datei-Link entsteht.
+    dbDelta( "CREATE TABLE {$p}ftipp_backups (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        created_at DATETIME NOT NULL,
+        trigger_type VARCHAR(20) NOT NULL,
+        size_bytes BIGINT UNSIGNED NOT NULL,
+        data LONGTEXT NOT NULL,
+        PRIMARY KEY  (id)
+    ) $charset_collate;" );
+
     update_option( 'ftipp_db_version', FTIPP_DB_VERSION );
     ftipp_migrate_round_subs();
     ftipp_reset_nl_group_specials();
@@ -212,6 +224,109 @@ function ftipp_log_history( $action, $summary, $comp_id = null, $detail = null, 
         "DELETE FROM {$table} WHERE id NOT IN ( SELECT id FROM ( SELECT id FROM {$table} ORDER BY id DESC LIMIT 200 ) AS keep_ids )"
     );
 }
+
+/** Namen aller Tippstube-eigenen Tabellen — Basis für die Datensicherung (ftipp_backups selbst bewusst ausgenommen). */
+function ftipp_backup_table_names() {
+    return array(
+        'ftipp_rounds', 'ftipp_round_members', 'ftipp_round_config', 'ftipp_subs', 'ftipp_round_subs',
+        'ftipp_tips', 'ftipp_special', 'ftipp_special_tips', 'ftipp_chat', 'ftipp_notified', 'ftipp_history',
+    );
+}
+
+/**
+ * Erstellt eine Sicherung aller Tippstube-eigenen Tabellen als JSON, speichert sie in ftipp_backups
+ * (nicht als Datei — so entsteht nie ein öffentlich aufrufbarer Datei-Link) und kappt danach auf die
+ * letzten 10 Sicherungen. Gibt die neue Backup-Zeile (inkl. JSON-Inhalt) zurück.
+ */
+function ftipp_create_backup( $trigger_type = 'manual' ) {
+    global $wpdb;
+    $tables = array();
+    foreach ( ftipp_backup_table_names() as $name ) {
+        $tables[ $name ] = $wpdb->get_results( "SELECT * FROM {$wpdb->prefix}{$name}", ARRAY_A );
+    }
+    $payload = wp_json_encode( array(
+        'created_at'    => current_time( 'mysql' ),
+        'ftipp_version' => FTIPP_VERSION,
+        'tables'        => $tables,
+    ) );
+
+    $table = $wpdb->prefix . 'ftipp_backups';
+    $wpdb->insert( $table, array(
+        'created_at'   => current_time( 'mysql' ),
+        'trigger_type' => $trigger_type,
+        'size_bytes'   => strlen( $payload ),
+        'data'         => $payload,
+    ) );
+    $id = $wpdb->insert_id;
+
+    // Auf die letzten 10 Sicherungen kappen (Backups können deutlich größer sein als History-Zeilen,
+    // daher ein kleineres Limit als bei ftipp_log_history()).
+    $wpdb->query(
+        "DELETE FROM {$table} WHERE id NOT IN ( SELECT id FROM ( SELECT id FROM {$table} ORDER BY id DESC LIMIT 10 ) AS keep_ids )"
+    );
+
+    return array( 'id' => $id, 'data' => $payload, 'size' => strlen( $payload ) );
+}
+
+/**
+ * Stellt eine Sicherung wieder her: ersetzt den Inhalt aller in der Sicherung enthaltenen Tippstube-
+ * Tabellen komplett durch die gesicherten Zeilen (inkl. ursprünglicher IDs, damit Verweise zwischen
+ * Tabellen — z.B. Tipps/Chat/Sonderwertungen auf eine Runden-ID — erhalten bleiben). Es gibt keine
+ * deklarierten Fremdschlüssel im Schema, daher spielt die Reihenfolge beim Wiederherstellen keine Rolle.
+ * Erstellt VORHER automatisch eine eigene Sicherheitskopie des aktuellen Stands (trigger_type
+ * "pre_restore"), damit ein versehentliches/falsches Wiederherstellen nicht endgültig ist.
+ */
+function ftipp_restore_backup_from_json( $json ) {
+    $decoded = json_decode( $json, true );
+    if ( ! is_array( $decoded ) || ! isset( $decoded['tables'] ) || ! is_array( $decoded['tables'] ) ) {
+        return array( 'ok' => false, 'error' => 'Ungültiges Sicherungs-Format (keine Tippstube-Sicherung?).' );
+    }
+
+    global $wpdb;
+    $safety = ftipp_create_backup( 'pre_restore' );
+
+    $known = ftipp_backup_table_names();
+    $restored = array();
+    foreach ( $decoded['tables'] as $name => $rows ) {
+        if ( ! in_array( $name, $known, true ) || ! is_array( $rows ) ) { continue; }
+        $table = $wpdb->prefix . $name;
+        $wpdb->query( "DELETE FROM {$table}" );
+        foreach ( $rows as $row ) {
+            if ( is_array( $row ) ) { $wpdb->insert( $table, $row ); }
+        }
+        $restored[ $name ] = count( $rows );
+    }
+
+    return array( 'ok' => true, 'restored' => $restored, 'safety_backup_id' => $safety['id'] );
+}
+
+/**
+ * Verschickt eine erstellte Sicherung (siehe ftipp_create_backup()) als Datei-Anhang per E-Mail — genutzt
+ * beim automatischen, zeitgesteuerten Backup (kein Admin da, um es direkt herunterzuladen). Die JSON-Daten
+ * werden dafür kurz in eine temporäre Datei geschrieben, da wp_mail() Anhänge nur als Dateipfad annimmt.
+ */
+function ftipp_email_backup( array $backup ) {
+    $to = trim( (string) get_option( 'ftipp_backup_email', get_option( 'admin_email' ) ) );
+    if ( '' === $to ) { return false; }
+
+    $tmp = wp_tempnam( 'tippstube-backup.json' );
+    file_put_contents( $tmp, $backup['data'] );
+
+    $sent = wp_mail(
+        $to,
+        'Tippstube: automatische Datensicherung',
+        'Im Anhang die aktuelle Sicherung der Tippstube-Daten (' . size_format( $backup['size'] ) . '), erstellt am ' . wp_date( 'd.m.Y H:i' ) . '.',
+        array(),
+        array( $tmp )
+    );
+
+    @unlink( $tmp );
+    return $sent;
+}
+add_action( 'ftipp_backup_scheduled', function () {
+    $backup = ftipp_create_backup( 'cron' );
+    ftipp_email_backup( $backup );
+} );
 
 /**
  * Einmalige Bereinigung (v0.9.7): Die erste Migration (v0.9.6) versuchte, bestehende "Gruppensieger"-
@@ -286,6 +401,16 @@ add_filter( 'cron_schedules', function ( $s ) {
     $s['ftipp_fetch_custom'] = array( 'interval' => $seconds, 'display' => 'Tippstube: benutzerdefiniert' );
     return $s;
 } );
+/**
+ * Frei einstellbares Intervall für die automatische Datensicherung (Datensicherung-Seite, v0.8.7) —
+ * gleiches Muster wie beim Spieldaten-Abruf, eigener Schedule-Key/eigene Option. Untergrenze 1 Stunde
+ * (Backups sind größer als ein einzelner Abruf, weniger häufig sinnvoll als 15-Minuten-Intervalle).
+ */
+add_filter( 'cron_schedules', function ( $s ) {
+    $seconds = max( HOUR_IN_SECONDS, intval( get_option( 'ftipp_backup_interval_seconds', DAY_IN_SECONDS ) ) );
+    $s['ftipp_backup_custom'] = array( 'interval' => $seconds, 'display' => 'Tippstube: Datensicherung' );
+    return $s;
+} );
 register_activation_hook( __FILE__, function () {
     ftipp_install();
     if ( ! wp_next_scheduled( 'ftipp_weekly_fetch' ) ) {
@@ -297,6 +422,8 @@ register_activation_hook( __FILE__, function () {
     if ( ! wp_next_scheduled( 'ftipp_newsletter_check' ) ) {
         wp_schedule_event( time() + 180, 'hourly', 'ftipp_newsletter_check' );
     }
+    // Automatische Datensicherung ist bewusst opt-in (Standard: aus) — wird erst geplant, wenn der Admin
+    // sie auf der Datensicherung-Seite aktiviert, siehe admin_post_ftipp_save_backup_settings.
 } );
 add_action( 'plugins_loaded', function () {
     if ( get_option( 'ftipp_db_version' ) !== FTIPP_DB_VERSION ) { ftipp_install(); }
@@ -304,11 +431,15 @@ add_action( 'plugins_loaded', function () {
     if ( ! wp_next_scheduled( 'ftipp_weekly_fetch' ) ) { wp_schedule_event( time() + 60, 'weekly', 'ftipp_weekly_fetch' ); }
     if ( ! wp_next_scheduled( 'ftipp_reminder_check' ) ) { wp_schedule_event( time() + 120, 'ftipp_15min', 'ftipp_reminder_check' ); }
     if ( ! wp_next_scheduled( 'ftipp_newsletter_check' ) ) { wp_schedule_event( time() + 180, 'hourly', 'ftipp_newsletter_check' ); }
+    if ( get_option( 'ftipp_backup_enabled' ) && ! wp_next_scheduled( 'ftipp_backup_scheduled' ) ) {
+        wp_schedule_event( time() + 240, 'ftipp_backup_custom', 'ftipp_backup_scheduled' );
+    }
 } );
 register_deactivation_hook( __FILE__, function () {
     wp_clear_scheduled_hook( 'ftipp_weekly_fetch' );
     wp_clear_scheduled_hook( 'ftipp_reminder_check' );
     wp_clear_scheduled_hook( 'ftipp_newsletter_check' );
+    wp_clear_scheduled_hook( 'ftipp_backup_scheduled' );
 } );
 
 /* ============================================================
@@ -2656,6 +2787,7 @@ add_action( 'admin_menu', function () {
     add_submenu_page( 'ftipp', 'History', 'History', 'manage_options', 'ftipp_history', 'ftipp_page_history' );
     add_submenu_page( 'ftipp', 'Changelog', 'Changelog', 'manage_options', 'ftipp_changelog', 'ftipp_page_changelog' );
     add_submenu_page( 'ftipp', 'Info', 'Info', 'manage_options', 'ftipp_info', 'ftipp_page_info' );
+    add_submenu_page( 'ftipp', 'Datensicherung', 'Datensicherung', 'manage_options', 'ftipp_backup', 'ftipp_page_backup' );
 } );
 
 /**
@@ -2850,6 +2982,7 @@ function ftipp_page_history() {
         'manual_fetch'  => '⬇️ Manueller Abruf',
         'csv_import'    => '📄 CSV-Import',
         'test_fixtures' => '🎲 Test-Spiele',
+        'restore'       => '💾 Sicherung wiederhergestellt',
     );
     ?>
     <div class="wrap">
@@ -3008,6 +3141,50 @@ function ftipp_page_changelog() {
 }
 
 /**
+ * Kleiner Client für die cron-job.org-REST-API (https://docs.cron-job.org/rest-api.html) — Auth per
+ * Bearer-Token, JSON-Payload. Genutzt, um den externen "Wecker" für wp-cron.php automatisch statt von
+ * Hand einzurichten.
+ */
+function ftipp_cronjoborg_api( $api_key, $method, $path, $body = null ) {
+    $args = array(
+        'method'  => $method,
+        'headers' => array(
+            'Authorization' => 'Bearer ' . $api_key,
+            'Content-Type'  => 'application/json',
+        ),
+        'timeout' => 20,
+    );
+    if ( null !== $body ) { $args['body'] = wp_json_encode( $body ); }
+
+    $resp = wp_remote_request( 'https://api.cron-job.org' . $path, $args );
+    if ( is_wp_error( $resp ) ) { return array( 'ok' => false, 'error' => $resp->get_error_message() ); }
+
+    $code = (int) wp_remote_retrieve_response_code( $resp );
+    $data = json_decode( wp_remote_retrieve_body( $resp ), true );
+    if ( $code < 200 || $code >= 300 ) {
+        return array( 'ok' => false, 'error' => 'HTTP ' . $code, 'data' => $data );
+    }
+    return array( 'ok' => true, 'data' => $data );
+}
+
+/** Baut das cron-job.org-Zeitplan-Objekt für "alle N Minuten" (N muss 60 teilen: 5/10/15/30). */
+function ftipp_cronjoborg_schedule( $interval_minutes ) {
+    $minutes = array();
+    for ( $m = 0; $m < 60; $m += $interval_minutes ) { $minutes[] = $m; }
+    $tz = get_option( 'timezone_string' );
+    if ( empty( $tz ) ) { $tz = 'UTC'; }
+    return array(
+        'timezone'  => $tz,
+        'expiresAt' => 0,
+        'hours'     => array( -1 ),
+        'mdays'     => array( -1 ),
+        'minutes'   => $minutes,
+        'months'    => array( -1 ),
+        'wdays'     => array( -1 ),
+    );
+}
+
+/**
  * Cron-Job-Seite: frei einstellbares Intervall für den automatischen Spieldaten-Abruf (ftipp_weekly_fetch).
  */
 function ftipp_page_cron() {
@@ -3015,6 +3192,9 @@ function ftipp_page_cron() {
     $value = intval( get_option( 'ftipp_cron_interval_value', 7 ) );
     $unit  = get_option( 'ftipp_cron_interval_unit', 'days' );
     $next  = wp_next_scheduled( 'ftipp_weekly_fetch' );
+
+    $cronjoborg_job_id   = intval( get_option( 'ftipp_cronjoborg_job_id', 0 ) );
+    $cronjoborg_interval = intval( get_option( 'ftipp_cronjoborg_interval', 15 ) );
     ?>
     <div class="wrap">
         <h1>⏱️ Cron-Job</h1>
@@ -3049,12 +3229,187 @@ function ftipp_page_cron() {
         <p><strong>Nächster automatischer Abruf:</strong>
            <?php echo $next ? esc_html( wp_date( 'd.m.Y H:i', $next ) ) : 'nicht geplant'; ?></p>
         <p class="description">Hinweis: WordPress-Cron („WP-Cron") wird durch Seitenaufrufe ausgelöst — bei
-           wenig Besucherverkehr kann der Abruf verzögert stattfinden. Bei Bedarf lässt sich stattdessen ein
-           externer Cron-Dienst (z. B. cron-job.org) auf <code>wp-cron.php</code> einrichten, der regelmäßig
-           aufgerufen wird.</p>
+           wenig Besucherverkehr kann der Abruf verzögert stattfinden.</p>
+
+        <h2 style="margin-top:30px">Zuverlässiger per externem Cron-Dienst</h2>
+        <p>Damit der Abruf pünktlich passiert, unabhängig davon, ob gerade jemand die Seite besucht, kann ein
+           kostenloser externer Cron-Dienst regelmäßig folgende Adresse aufrufen (löst dann alle fälligen
+           WordPress-Cron-Aufgaben aus, nicht nur den Tippstube-Abruf):</p>
+        <p><input type="text" readonly onclick="this.select()" value="<?php echo esc_url( site_url( 'wp-cron.php' ) ); ?>" class="regular-text" style="width:100%;max-width:500px" /></p>
+        <p class="description">Empfohlenes Intervall beim externen Dienst: alle 5–15 Minuten (unabhängig vom
+           oben eingestellten Tippstube-Zeitplan — WP-Cron kümmert sich auch um andere WordPress-interne
+           Aufgaben). Bekannte kostenlose Anbieter:
+           <a href="https://cron-job.org" target="_blank" rel="noopener noreferrer">cron-job.org</a>,
+           <a href="https://www.easycron.com" target="_blank" rel="noopener noreferrer">EasyCron</a>. Einfach
+           dort ein Konto anlegen und die obige Adresse als Ziel-URL eintragen.</p>
+
+        <h2 style="margin-top:30px">Automatisch über cron-job.org einrichten</h2>
+
+        <?php if ( isset( $_GET['ftipp_cronjoborg'] ) ) : ?>
+            <?php if ( 'ok' === $_GET['ftipp_cronjoborg'] ) : ?>
+                <div class="notice notice-success is-dismissible"><p>Verbunden — der externe Cron-Job wurde bei cron-job.org eingerichtet.</p></div>
+            <?php elseif ( 'disconnected' === $_GET['ftipp_cronjoborg'] ) : ?>
+                <div class="notice notice-success is-dismissible"><p>Verbindung zu cron-job.org getrennt.</p></div>
+            <?php else : ?>
+                <div class="notice notice-error is-dismissible"><p><?php echo esc_html( isset( $_GET['ftipp_cronjoborg_msg'] ) ? rawurldecode( $_GET['ftipp_cronjoborg_msg'] ) : 'Unbekannter Fehler.' ); ?></p></div>
+            <?php endif; ?>
+        <?php endif; ?>
+
+        <?php if ( $cronjoborg_job_id ) : ?>
+            <p>✅ Verbunden — externer Job <code>#<?php echo esc_html( $cronjoborg_job_id ); ?></code>,
+               ruft alle <?php echo esc_html( $cronjoborg_interval ); ?> Minuten
+               <code><?php echo esc_html( site_url( 'wp-cron.php' ) ); ?></code> auf.</p>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                <input type="hidden" name="action" value="ftipp_cronjoborg_disconnect" />
+                <?php wp_nonce_field( 'ftipp_cronjoborg_disconnect' ); ?>
+                <?php submit_button( 'Trennen (löscht den Job bei cron-job.org)', 'secondary', 'submit', false ); ?>
+            </form>
+        <?php else : ?>
+            <p>Statt die obige Adresse von Hand bei cron-job.org einzutragen, kann Tippstube den externen
+               Cron-Job auch automatisch für dich einrichten — dafür einen kostenlosen API-Key aus dem
+               <a href="https://console.cron-job.org/settings" target="_blank" rel="noopener noreferrer">cron-job.org-Konto</a>
+               (Bereich „Einstellungen" → „API-Keys") hier eintragen:</p>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                <input type="hidden" name="action" value="ftipp_cronjoborg_connect" />
+                <?php wp_nonce_field( 'ftipp_cronjoborg_connect' ); ?>
+                <table class="form-table">
+                    <tr>
+                        <th scope="row">API-Key</th>
+                        <td><input type="text" name="cronjoborg_api_key" class="regular-text" autocomplete="off" placeholder="dein API-Key von cron-job.org" /></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Alle</th>
+                        <td>
+                            <select name="cronjoborg_interval">
+                                <option value="5">5 Minuten</option>
+                                <option value="10">10 Minuten</option>
+                                <option value="15" selected>15 Minuten</option>
+                                <option value="30">30 Minuten</option>
+                            </select>
+                        </td>
+                    </tr>
+                </table>
+                <?php submit_button( 'Verbinden & einrichten' ); ?>
+            </form>
+        <?php endif; ?>
     </div>
     <?php
 }
+add_action( 'admin_post_ftipp_cronjoborg_connect', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_cronjoborg_connect' );
+    $args = array( 'page' => 'ftipp_cron' );
+
+    $api_key  = sanitize_text_field( $_POST['cronjoborg_api_key'] ?? '' );
+    $interval = in_array( intval( $_POST['cronjoborg_interval'] ?? 15 ), array( 5, 10, 15, 30 ), true )
+        ? intval( $_POST['cronjoborg_interval'] ) : 15;
+
+    if ( '' === $api_key ) {
+        $args['ftipp_cronjoborg'] = 'error'; $args['ftipp_cronjoborg_msg'] = rawurlencode( 'Bitte einen API-Key eingeben.' );
+    } else {
+        $job = array(
+            'title'         => 'Tippstube – Spieldaten-Abruf',
+            'url'           => site_url( 'wp-cron.php' ),
+            'enabled'       => true,
+            'saveResponses' => false,
+            'schedule'      => ftipp_cronjoborg_schedule( $interval ),
+        );
+        $existing_id = intval( get_option( 'ftipp_cronjoborg_job_id', 0 ) );
+        $res = $existing_id
+            ? ftipp_cronjoborg_api( $api_key, 'PATCH', '/jobs/' . $existing_id, array( 'job' => $job ) )
+            : ftipp_cronjoborg_api( $api_key, 'PUT', '/jobs', array( 'job' => $job ) );
+
+        if ( ! $res['ok'] ) {
+            $args['ftipp_cronjoborg'] = 'error'; $args['ftipp_cronjoborg_msg'] = rawurlencode( 'Verbindung fehlgeschlagen: ' . $res['error'] );
+        } else {
+            update_option( 'ftipp_cronjoborg_api_key', $api_key );
+            update_option( 'ftipp_cronjoborg_interval', $interval );
+            if ( ! $existing_id && isset( $res['data']['jobId'] ) ) {
+                update_option( 'ftipp_cronjoborg_job_id', intval( $res['data']['jobId'] ) );
+            }
+            $args['ftipp_cronjoborg'] = 'ok';
+        }
+    }
+
+    wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
+    exit;
+} );
+add_action( 'admin_post_ftipp_cronjoborg_disconnect', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_cronjoborg_disconnect' );
+
+    $api_key = get_option( 'ftipp_cronjoborg_api_key', '' );
+    $job_id  = intval( get_option( 'ftipp_cronjoborg_job_id', 0 ) );
+    if ( $api_key && $job_id ) {
+        ftipp_cronjoborg_api( $api_key, 'DELETE', '/jobs/' . $job_id );
+    }
+    delete_option( 'ftipp_cronjoborg_api_key' );
+    delete_option( 'ftipp_cronjoborg_job_id' );
+    delete_option( 'ftipp_cronjoborg_interval' );
+
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_cron', 'ftipp_cronjoborg' => 'disconnected' ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
+/**
+ * Zweiter, eigenständiger cron-job.org-Job für die Datensicherung (bewusst getrennt vom Job auf der
+ * Cron-Job-Seite, auch wenn technisch ein einzelner Job auf wp-cron.php beide Aufgaben mit auslösen würde
+ * — dient nur der Übersichtlichkeit im cron-job.org-Konto, eigener Titel/eigene Job-ID).
+ */
+add_action( 'admin_post_ftipp_backup_cronjoborg_connect', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_backup_cronjoborg_connect' );
+    $args = array( 'page' => 'ftipp_backup' );
+
+    $api_key  = sanitize_text_field( $_POST['cronjoborg_api_key'] ?? '' );
+    $interval = in_array( intval( $_POST['cronjoborg_interval'] ?? 15 ), array( 5, 10, 15, 30 ), true )
+        ? intval( $_POST['cronjoborg_interval'] ) : 15;
+
+    if ( '' === $api_key ) {
+        $args['ftipp_backup_cronjoborg'] = 'error'; $args['ftipp_backup_cronjoborg_msg'] = rawurlencode( 'Bitte einen API-Key eingeben.' );
+    } else {
+        $job = array(
+            'title'         => 'Tippstube – Datensicherung',
+            'url'           => site_url( 'wp-cron.php' ),
+            'enabled'       => true,
+            'saveResponses' => false,
+            'schedule'      => ftipp_cronjoborg_schedule( $interval ),
+        );
+        $existing_id = intval( get_option( 'ftipp_backup_cronjoborg_job_id', 0 ) );
+        $res = $existing_id
+            ? ftipp_cronjoborg_api( $api_key, 'PATCH', '/jobs/' . $existing_id, array( 'job' => $job ) )
+            : ftipp_cronjoborg_api( $api_key, 'PUT', '/jobs', array( 'job' => $job ) );
+
+        if ( ! $res['ok'] ) {
+            $args['ftipp_backup_cronjoborg'] = 'error'; $args['ftipp_backup_cronjoborg_msg'] = rawurlencode( 'Verbindung fehlgeschlagen: ' . $res['error'] );
+        } else {
+            update_option( 'ftipp_backup_cronjoborg_api_key', $api_key );
+            update_option( 'ftipp_backup_cronjoborg_interval', $interval );
+            if ( ! $existing_id && isset( $res['data']['jobId'] ) ) {
+                update_option( 'ftipp_backup_cronjoborg_job_id', intval( $res['data']['jobId'] ) );
+            }
+            $args['ftipp_backup_cronjoborg'] = 'ok';
+        }
+    }
+
+    wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
+    exit;
+} );
+add_action( 'admin_post_ftipp_backup_cronjoborg_disconnect', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_backup_cronjoborg_disconnect' );
+
+    $api_key = get_option( 'ftipp_backup_cronjoborg_api_key', '' );
+    $job_id  = intval( get_option( 'ftipp_backup_cronjoborg_job_id', 0 ) );
+    if ( $api_key && $job_id ) {
+        ftipp_cronjoborg_api( $api_key, 'DELETE', '/jobs/' . $job_id );
+    }
+    delete_option( 'ftipp_backup_cronjoborg_api_key' );
+    delete_option( 'ftipp_backup_cronjoborg_job_id' );
+    delete_option( 'ftipp_backup_cronjoborg_interval' );
+
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_backup', 'ftipp_backup_cronjoborg' => 'disconnected' ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
 add_action( 'admin_post_ftipp_save_cron', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_save_cron' );
@@ -3073,6 +3428,285 @@ add_action( 'admin_post_ftipp_save_cron', function () {
     wp_schedule_event( time() + 60, 'ftipp_fetch_custom', 'ftipp_weekly_fetch' );
 
     wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_cron', 'ftipp_cron_done' => '1' ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
+
+/**
+ * Datensicherung-Seite: manuelle Sicherung (sofortiger Download), automatischer Zeitplan (Cron + E-Mail-
+ * Versand), und eine Liste der letzten gespeicherten Sicherungen mit Download-Link.
+ */
+function ftipp_page_backup() {
+    if ( ! current_user_can( 'manage_options' ) ) { return; }
+    global $wpdb;
+    $enabled = (bool) get_option( 'ftipp_backup_enabled', false );
+    $value   = intval( get_option( 'ftipp_backup_interval_value', 1 ) );
+    $unit    = get_option( 'ftipp_backup_interval_unit', 'days' );
+    $email   = get_option( 'ftipp_backup_email', get_option( 'admin_email' ) );
+    $next    = wp_next_scheduled( 'ftipp_backup_scheduled' );
+
+    $backups = $wpdb->get_results( "SELECT id, created_at, trigger_type, size_bytes FROM {$wpdb->prefix}ftipp_backups ORDER BY id DESC" );
+    $triggerLabels = array( 'manual' => 'Manuell', 'cron' => 'Automatisch', 'pre_restore' => 'Vor Wiederherstellung' );
+
+    $backup_cronjoborg_job_id   = intval( get_option( 'ftipp_backup_cronjoborg_job_id', 0 ) );
+    $backup_cronjoborg_interval = intval( get_option( 'ftipp_backup_cronjoborg_interval', 15 ) );
+    ?>
+    <div class="wrap">
+        <h1>💾 Datensicherung</h1>
+        <p>Sichert alle Tippstube-eigenen Daten (Tipprunden, Tipps, Sonderwertungen, Pinnwand-Chat, History
+           usw.) als Datei — nicht die komplette WordPress-Seite, dafür gibt es bereits ein eigenes
+           Backup-Plugin.</p>
+
+        <?php if ( isset( $_GET['ftipp_backup_done'] ) ) : ?>
+            <div class="notice notice-success is-dismissible"><p>Einstellungen gespeichert.</p></div>
+        <?php endif; ?>
+        <?php if ( isset( $_GET['ftipp_restore'] ) ) : ?>
+            <?php if ( 'ok' === $_GET['ftipp_restore'] ) : ?>
+                <div class="notice notice-success is-dismissible"><p>Sicherung wiederhergestellt. Eine Sicherheitskopie des vorherigen Stands wurde automatisch angelegt (siehe Liste unten, Art "Vor Wiederherstellung").</p></div>
+            <?php else : ?>
+                <div class="notice notice-error is-dismissible"><p>Wiederherstellung fehlgeschlagen: <?php echo esc_html( isset( $_GET['ftipp_restore_msg'] ) ? rawurldecode( $_GET['ftipp_restore_msg'] ) : 'Unbekannter Fehler.' ); ?></p></div>
+            <?php endif; ?>
+        <?php endif; ?>
+
+        <h2>Jetzt sichern</h2>
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <input type="hidden" name="action" value="ftipp_backup_now" />
+            <?php wp_nonce_field( 'ftipp_backup_now' ); ?>
+            <?php submit_button( '⬇️ Sicherung jetzt herunterladen', 'primary', 'submit', false ); ?>
+        </form>
+
+        <h2 style="margin-top:30px">Automatische Sicherung</h2>
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <input type="hidden" name="action" value="ftipp_save_backup_settings" />
+            <?php wp_nonce_field( 'ftipp_save_backup_settings' ); ?>
+            <table class="form-table">
+                <tr>
+                    <th scope="row">Aktiv</th>
+                    <td><label><input type="checkbox" name="backup_enabled" value="1" <?php checked( $enabled ); ?> /> Automatische Sicherung per Zeitplan</label></td>
+                </tr>
+                <tr>
+                    <th scope="row">Alle</th>
+                    <td>
+                        <input type="number" name="backup_interval_value" min="1" step="1" value="<?php echo esc_attr( $value ); ?>" style="width:80px" />
+                        <select name="backup_interval_unit">
+                            <option value="hours" <?php selected( $unit, 'hours' ); ?>>Stunden</option>
+                            <option value="days"  <?php selected( $unit, 'days' ); ?>>Tage</option>
+                        </select>
+                        <p class="description">Mindestens 1 Stunde.</p>
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">E-Mail-Adresse</th>
+                    <td>
+                        <input type="email" name="backup_email" class="regular-text" value="<?php echo esc_attr( $email ); ?>" />
+                        <p class="description">Hierhin wird jede automatisch erstellte Sicherung als Anhang geschickt.</p>
+                    </td>
+                </tr>
+            </table>
+            <?php submit_button( 'Speichern' ); ?>
+        </form>
+        <p><strong>Nächste automatische Sicherung:</strong>
+           <?php echo ( $enabled && $next ) ? esc_html( wp_date( 'd.m.Y H:i', $next ) ) : 'nicht aktiv'; ?></p>
+
+        <h2 style="margin-top:30px">Automatisch über cron-job.org einrichten</h2>
+        <p>Wie beim Datenabruf lässt sich auch für die Datensicherung ein externer Cron-Dienst einrichten,
+           damit der Zeitplan zuverlässig eingehalten wird — als eigener, separat benannter Job im
+           cron-job.org-Konto (ruft ebenfalls <code>wp-cron.php</code> auf; ein einzelner cron-job.org-Job
+           würde technisch schon reichen, hier geht es nur um Übersichtlichkeit im eigenen Konto). Dafür
+           einen kostenlosen API-Key aus dem
+           <a href="https://console.cron-job.org/settings" target="_blank" rel="noopener noreferrer">cron-job.org-Konto</a>
+           (Bereich „Einstellungen" → „API-Keys") hier eintragen:</p>
+
+        <?php if ( isset( $_GET['ftipp_backup_cronjoborg'] ) ) : ?>
+            <?php if ( 'ok' === $_GET['ftipp_backup_cronjoborg'] ) : ?>
+                <div class="notice notice-success is-dismissible"><p>Verbunden — der externe Job für die Datensicherung wurde bei cron-job.org eingerichtet.</p></div>
+            <?php elseif ( 'disconnected' === $_GET['ftipp_backup_cronjoborg'] ) : ?>
+                <div class="notice notice-success is-dismissible"><p>Verbindung zu cron-job.org getrennt.</p></div>
+            <?php else : ?>
+                <div class="notice notice-error is-dismissible"><p><?php echo esc_html( isset( $_GET['ftipp_backup_cronjoborg_msg'] ) ? rawurldecode( $_GET['ftipp_backup_cronjoborg_msg'] ) : 'Unbekannter Fehler.' ); ?></p></div>
+            <?php endif; ?>
+        <?php endif; ?>
+
+        <?php if ( $backup_cronjoborg_job_id ) : ?>
+            <p>✅ Verbunden — externer Job <code>#<?php echo esc_html( $backup_cronjoborg_job_id ); ?></code>
+               ("Tippstube – Datensicherung"), ruft alle <?php echo esc_html( $backup_cronjoborg_interval ); ?>
+               Minuten <code><?php echo esc_html( site_url( 'wp-cron.php' ) ); ?></code> auf.</p>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                <input type="hidden" name="action" value="ftipp_backup_cronjoborg_disconnect" />
+                <?php wp_nonce_field( 'ftipp_backup_cronjoborg_disconnect' ); ?>
+                <?php submit_button( 'Trennen (löscht den Job bei cron-job.org)', 'secondary', 'submit', false ); ?>
+            </form>
+        <?php else : ?>
+            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+                <input type="hidden" name="action" value="ftipp_backup_cronjoborg_connect" />
+                <?php wp_nonce_field( 'ftipp_backup_cronjoborg_connect' ); ?>
+                <table class="form-table">
+                    <tr>
+                        <th scope="row">API-Key</th>
+                        <td><input type="text" name="cronjoborg_api_key" class="regular-text" autocomplete="off" placeholder="dein API-Key von cron-job.org" /></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Alle</th>
+                        <td>
+                            <select name="cronjoborg_interval">
+                                <option value="5">5 Minuten</option>
+                                <option value="10">10 Minuten</option>
+                                <option value="15" selected>15 Minuten</option>
+                                <option value="30">30 Minuten</option>
+                            </select>
+                        </td>
+                    </tr>
+                </table>
+                <?php submit_button( 'Verbinden & einrichten' ); ?>
+            </form>
+        <?php endif; ?>
+
+        <h2 style="margin-top:30px">Sicherung wiederherstellen</h2>
+        <div class="notice notice-warning inline" style="margin:0 0 12px"><p>⚠️ Beim Wiederherstellen werden
+           <strong>alle aktuellen Tippstube-Daten</strong> (Tipprunden, Tipps, Sonderwertungen, Chat usw.)
+           durch den Stand der ausgewählten Sicherung ersetzt. Vorher wird automatisch eine Sicherheitskopie
+           des aktuellen Stands angelegt, falls doch die falsche Sicherung gewählt wurde.</p></div>
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" enctype="multipart/form-data">
+            <input type="hidden" name="action" value="ftipp_restore_backup_upload" />
+            <?php wp_nonce_field( 'ftipp_restore_backup' ); ?>
+            <input type="file" name="restore_file" accept=".json" required />
+            <label style="display:block;margin:10px 0"><input type="checkbox" name="confirm_restore" value="1" required /> Ich weiß, dass dabei alle aktuellen Tippstube-Daten überschrieben werden.</label>
+            <?php submit_button( 'Sicherung aus Datei wiederherstellen', 'secondary', 'submit', false ); ?>
+        </form>
+
+        <h2 style="margin-top:30px">Gespeicherte Sicherungen</h2>
+        <?php if ( empty( $backups ) ) : ?>
+            <p>Noch keine Sicherungen vorhanden.</p>
+        <?php else : ?>
+            <table class="widefat striped">
+                <thead><tr><th>Zeitpunkt</th><th>Art</th><th>Größe</th><th></th><th></th></tr></thead>
+                <tbody>
+                <?php foreach ( $backups as $b ) : ?>
+                    <tr>
+                        <td><?php echo esc_html( wp_date( 'd.m.Y H:i', strtotime( $b->created_at ) ) ); ?></td>
+                        <td><?php echo esc_html( $triggerLabels[ $b->trigger_type ] ?? $b->trigger_type ); ?></td>
+                        <td><?php echo esc_html( size_format( $b->size_bytes ) ); ?></td>
+                        <td>
+                            <a href="<?php echo esc_url( wp_nonce_url( add_query_arg( array( 'action' => 'ftipp_download_backup', 'id' => $b->id ), admin_url( 'admin-post.php' ) ), 'ftipp_download_backup_' . $b->id ) ); ?>">Herunterladen</a>
+                        </td>
+                        <td>
+                            <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:flex;align-items:center;gap:6px;margin:0">
+                                <input type="hidden" name="action" value="ftipp_restore_backup_stored" />
+                                <input type="hidden" name="backup_id" value="<?php echo esc_attr( $b->id ); ?>" />
+                                <?php wp_nonce_field( 'ftipp_restore_backup_stored_' . $b->id ); ?>
+                                <label style="font-weight:normal"><input type="checkbox" name="confirm_restore" value="1" required /> sicher?</label>
+                                <?php submit_button( 'Wiederherstellen', 'secondary small', 'submit', false ); ?>
+                            </form>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table>
+            <p class="description">Es werden immer nur die letzten 10 Sicherungen aufbewahrt, ältere werden automatisch entfernt.</p>
+        <?php endif; ?>
+    </div>
+    <?php
+}
+add_action( 'admin_post_ftipp_backup_now', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_backup_now' );
+    $backup = ftipp_create_backup( 'manual' );
+    nocache_headers();
+    header( 'Content-Type: application/json' );
+    header( 'Content-Disposition: attachment; filename="tippstube-backup-' . gmdate( 'Y-m-d-His' ) . '.json"' );
+    header( 'Content-Length: ' . strlen( $backup['data'] ) );
+    echo $backup['data'];
+    exit;
+} );
+add_action( 'admin_post_ftipp_download_backup', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    $id = intval( $_GET['id'] ?? 0 );
+    check_admin_referer( 'ftipp_download_backup_' . $id );
+
+    global $wpdb;
+    $row = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}ftipp_backups WHERE id=%d", $id ) );
+    if ( ! $row ) { wp_die( 'Sicherung nicht gefunden.' ); }
+
+    nocache_headers();
+    header( 'Content-Type: application/json' );
+    header( 'Content-Disposition: attachment; filename="tippstube-backup-' . gmdate( 'Y-m-d-His', strtotime( $row->created_at ) ) . '.json"' );
+    header( 'Content-Length: ' . strlen( $row->data ) );
+    echo $row->data;
+    exit;
+} );
+add_action( 'admin_post_ftipp_save_backup_settings', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_save_backup_settings' );
+
+    $enabled = ! empty( $_POST['backup_enabled'] );
+    $value   = max( 1, intval( $_POST['backup_interval_value'] ?? 1 ) );
+    $unit    = in_array( $_POST['backup_interval_unit'] ?? 'days', array( 'hours', 'days' ), true )
+        ? $_POST['backup_interval_unit'] : 'days';
+    $unit_seconds = array( 'hours' => HOUR_IN_SECONDS, 'days' => DAY_IN_SECONDS );
+    $seconds = max( HOUR_IN_SECONDS, $value * $unit_seconds[ $unit ] );
+    $email   = sanitize_email( $_POST['backup_email'] ?? '' );
+
+    update_option( 'ftipp_backup_enabled', $enabled ? 1 : 0 );
+    update_option( 'ftipp_backup_interval_value', $value );
+    update_option( 'ftipp_backup_interval_unit', $unit );
+    update_option( 'ftipp_backup_interval_seconds', $seconds );
+    update_option( 'ftipp_backup_email', $email ?: get_option( 'admin_email' ) );
+
+    wp_clear_scheduled_hook( 'ftipp_backup_scheduled' );
+    if ( $enabled ) {
+        wp_schedule_event( time() + 60, 'ftipp_backup_custom', 'ftipp_backup_scheduled' );
+    }
+
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_backup', 'ftipp_backup_done' => '1' ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
+add_action( 'admin_post_ftipp_restore_backup_upload', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_restore_backup' );
+    $args = array( 'page' => 'ftipp_backup' );
+
+    if ( empty( $_POST['confirm_restore'] ) ) {
+        $args['ftipp_restore'] = 'error'; $args['ftipp_restore_msg'] = rawurlencode( 'Bitte die Bestätigung ankreuzen.' );
+    } elseif ( empty( $_FILES['restore_file']['tmp_name'] ) || ! is_uploaded_file( $_FILES['restore_file']['tmp_name'] ) ) {
+        $args['ftipp_restore'] = 'error'; $args['ftipp_restore_msg'] = rawurlencode( 'Keine Datei ausgewählt.' );
+    } else {
+        $json = file_get_contents( $_FILES['restore_file']['tmp_name'] );
+        $result = ftipp_restore_backup_from_json( $json );
+        if ( ! $result['ok'] ) {
+            $args['ftipp_restore'] = 'error'; $args['ftipp_restore_msg'] = rawurlencode( $result['error'] );
+        } else {
+            ftipp_log_history( 'restore', 'Sicherung per Datei-Upload wiederhergestellt (Sicherheitskopie #' . $result['safety_backup_id'] . ' vorher erstellt)', null, null, get_current_user_id() );
+            $args['ftipp_restore'] = 'ok';
+        }
+    }
+
+    wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
+    exit;
+} );
+add_action( 'admin_post_ftipp_restore_backup_stored', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    $id = intval( $_POST['backup_id'] ?? 0 );
+    check_admin_referer( 'ftipp_restore_backup_stored_' . $id );
+    $args = array( 'page' => 'ftipp_backup' );
+
+    if ( empty( $_POST['confirm_restore'] ) ) {
+        $args['ftipp_restore'] = 'error'; $args['ftipp_restore_msg'] = rawurlencode( 'Bitte die Bestätigung ankreuzen.' );
+    } else {
+        global $wpdb;
+        $row = $wpdb->get_row( $wpdb->prepare( "SELECT data FROM {$wpdb->prefix}ftipp_backups WHERE id=%d", $id ) );
+        if ( ! $row ) {
+            $args['ftipp_restore'] = 'error'; $args['ftipp_restore_msg'] = rawurlencode( 'Sicherung nicht gefunden.' );
+        } else {
+            $result = ftipp_restore_backup_from_json( $row->data );
+            if ( ! $result['ok'] ) {
+                $args['ftipp_restore'] = 'error'; $args['ftipp_restore_msg'] = rawurlencode( $result['error'] );
+            } else {
+                ftipp_log_history( 'restore', 'Sicherung #' . $id . ' wiederhergestellt (Sicherheitskopie #' . $result['safety_backup_id'] . ' vorher erstellt)', null, null, get_current_user_id() );
+                $args['ftipp_restore'] = 'ok';
+            }
+        }
+    }
+
+    wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
     exit;
 } );
 

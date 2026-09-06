@@ -1661,6 +1661,122 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.8.6 einspielen (inkl. DB-Migration),
   Design-Seite mit echten Tipprunden gegenprüfen.
 
+## v0.8.7 — Datensicherung-Seite: Export aller Tippstube-Daten (Download + E-Mail)
+- **Anfrage:** Nach Abschluss des Untermenü-Ausbaus zusätzlicher Wunsch: eine Datensicherungs-Funktion.
+  Geklärt per Rückfrage: nur die eigenen Tippstube-Daten (nicht die komplette WordPress-Seite — dafür gibt
+  es bereits "All-in-One WP Migration"), sowohl manuell per Knopfdruck als auch automatisch nach Zeitplan,
+  und die fertige Sicherung sowohl als Download als auch per E-Mail.
+- **Umgesetzt:** Neue Tabelle `ftipp_backups` (`FTIPP_DB_VERSION` 12→13) speichert Sicherungen als JSON
+  **in der Datenbank** statt als Datei im Uploads-Ordner — bewusst so, damit nie ein direkt aufrufbarer,
+  öffentlicher Datei-Link mit persönlichen Daten (Tipps, Chat-Nachrichten) entstehen kann. Jede Sicherung
+  exportiert alle 11 Tippstube-eigenen Tabellen (`ftipp_rounds`, `_round_members`, `_round_config`, `_subs`,
+  `_round_subs`, `_tips`, `_special`, `_special_tips`, `_chat`, `_notified`, `_history`) als ein JSON-Objekt,
+  gekappt auf die letzten 10 Sicherungen (kleineres Limit als bei History, weil Backups deutlich größer sind).
+  Neue Untermenü-Seite "Datensicherung": Button für sofortigen Download, Einstellungen für automatischen
+  Zeitplan (Zahl + Stunden/Tage, gleiches Muster wie beim Cron-Job — eigener `cron_schedules`-Eintrag
+  `ftipp_backup_custom`, der live aus der Option liest) inkl. Ziel-E-Mail-Adresse (Standard: Admin-E-Mail),
+  und eine Liste der gespeicherten Sicherungen mit Download-Link (nonce-geschützt über `admin-post.php`,
+  kein öffentlicher URL). Bei automatischem Lauf wird die Sicherung zusätzlich per `wp_mail()` mit
+  Datei-Anhang verschickt (JSON kurz in eine temporäre Datei geschrieben, direkt danach wieder gelöscht).
+  Automatische Sicherung ist bewusst standardmäßig **aus** (Opt-in) — anders als die immer aktiven Cron-Jobs
+  für Abruf/Erinnerungen/Newsletter, da automatischer E-Mail-Versand personenbezogener Daten eine bewusste
+  Entscheidung des Admins sein sollte.
+- Lokal komplett durchgetestet: DB-Migration (neue Tabelle), manueller Sofort-Download (korrekte Header,
+  valides JSON mit allen 11 Tabellen, ~32 KB), Einstellungen speichern inkl. Cron-Neuplanung (verifiziert:
+  2 Stunden = 7200 Sekunden), manuelles Auslösen des Cron-Events (`wp cron event run`) erzeugt korrekt einen
+  weiteren Backup-Datensatz, temporäre E-Mail-Anhang-Datei wird zuverlässig wieder gelöscht, Download
+  einzelner gespeicherter Sicherungen über die Liste funktioniert (ein erster 403 beim Testen war nur ein
+  Nonce-Mismatch zwischen zwei verschiedenen Test-Sessions, kein echter Fehler), Deaktivieren der
+  automatischen Sicherung entfernt den geplanten Cron-Job zuverlässig wieder.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.8.7 einspielen (inkl. DB-Migration),
+  einmal eine echte Sicherung herunterladen und die automatische Sicherung mit echtem Mailversand
+  ausprobieren (hängt vom auf dem Server konfigurierten Mailversand ab, z. B. WP Mail SMTP).
+
+## v0.8.8 — Datensicherung: Wiederherstellen (Restore) ergänzt
+- **Anfrage direkt nach v0.8.7:** Eine Sicherung ohne Möglichkeit, sie auch wiederherzustellen, ist nur die
+  halbe Funktion — Wunsch nach einem Upload-Fenster, um eine Sicherung zurückzuspielen.
+- **Umgesetzt:** `ftipp_restore_backup_from_json()` ersetzt den Inhalt aller in der Sicherung enthaltenen
+  Tippstube-Tabellen komplett durch die gesicherten Zeilen — inklusive der ursprünglichen IDs, damit Verweise
+  zwischen Tabellen (z. B. Tipps/Chat/Sonderwertungen auf eine Runden-ID) erhalten bleiben; das Schema hat
+  keine deklarierten Fremdschlüssel, daher spielt die Reihenfolge beim Zurückschreiben keine Rolle.
+  **Wichtigste Sicherheitsmaßnahme:** Vor jeder Wiederherstellung wird automatisch eine eigene
+  Sicherheitskopie des aktuellen Stands angelegt (neuer `trigger_type` "pre_restore") — ein versehentliches
+  oder falsches Wiederherstellen ist dadurch nicht endgültig, sondern selbst wieder rückgängig zu machen.
+  Zwei Wege auf der Datensicherung-Seite: Sicherung aus hochgeladener Datei wiederherstellen, oder direkt
+  eine der gelisteten gespeicherten Sicherungen per Klick zurückspielen — beide verlangen eine explizite
+  Bestätigungs-Checkbox ("Ich weiß, dass dabei alle aktuellen Tippstube-Daten überschrieben werden"), dazu
+  ein deutlicher Warnhinweis auf der Seite. Jede erfolgreiche Wiederherstellung wird zusätzlich in der
+  History protokolliert (neue Aktion "restore", mit Verweis auf die Nummer der Sicherheitskopie).
+- Lokal **besonders gründlich** getestet, da destruktiv: kompletter Zyklus nachgestellt — Rundenname
+  geändert, Sicherung A erstellt, danach Rundenname erneut geändert und eine zweite Runde angelegt,
+  anschließend Sicherung A wiederhergestellt → Zustand exakt auf den Stand von Sicherung A zurückgesetzt,
+  automatisch erstellte Sicherheitskopie enthielt nachweislich den Zwischenstand (mit der zweiten Runde) und
+  wäre damit selbst wieder herstellbar gewesen. Zusätzlich getestet: Wiederherstellen per Klick aus der
+  gespeicherten Liste (ohne Datei-Umweg) funktioniert ebenso korrekt; eine ungültige/fremde Datei wird mit
+  klarer Fehlermeldung abgelehnt, **ohne** dass dabei irgendetwas an den bestehenden Daten verändert wird.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.8.8 einspielen, Wiederherstellung einmal
+  mit einer echten (unwichtigen/Test-)Sicherung ausprobieren.
+
+## v0.8.9 — Cron-Job-Seite: konkreter Link/URL für externen Cron-Dienst
+- **Anfrage:** Der bisherige Hinweistext ("bei Bedarf externen Cron-Dienst einrichten") war nur ein
+  allgemeiner Satz ohne echten Link oder die tatsächliche URL, die man dort eintragen müsste.
+- **Umgesetzt:** Neuer Abschnitt "Zuverlässiger per externem Cron-Dienst" zeigt die konkrete, korrekt
+  zusammengesetzte `wp-cron.php`-Adresse der eigenen Seite (per `site_url()`, in einem anklickbaren
+  Textfeld zum einfachen Kopieren), echte Links zu zwei bekannten kostenlosen Anbietern (cron-job.org,
+  EasyCron) sowie eine Intervall-Empfehlung (5–15 Minuten, unabhängig vom Tippstube-eigenen Zeitplan, da
+  WP-Cron auch andere WordPress-interne Aufgaben erledigt).
+- Lokal getestet: URL wird korrekt für die jeweilige Seite zusammengesetzt, Links funktionieren, keine
+  PHP-Fehler.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v0.8.9 einspielen, URL gegenprüfen.
+
+## v0.9.0 — cron-job.org: echte API-Integration zusätzlich zum manuellen Link
+- **Anfrage:** Nach dem in v0.8.9 ergänzten Link zu cron-job.org die Nachfrage, ob man das "mitbauen" kann,
+  da der Dienst kostenlos ist — auf Rückfrage (nur Link vs. echte API-Integration) die Antwort "beides".
+- **Umgesetzt:** Neuer Abschnitt "Automatisch über cron-job.org einrichten" auf der Cron-Job-Seite,
+  zusätzlich zur bestehenden manuellen Anleitung (bleibt unverändert als Alternative für alle, die keinen
+  API-Key hinterlegen wollen). Kleiner REST-Client `ftipp_cronjoborg_api()` gegen
+  [docs.cron-job.org](https://docs.cron-job.org/rest-api.html) (Bearer-Token-Auth, JSON), erstellt beim
+  Verbinden per `PUT /jobs` automatisch einen externen Cron-Job, der `wp-cron.php` alle 5/10/15/30 Minuten
+  (wählbar) aufruft — bei erneutem Speichern wird der bestehende Job stattdessen per `PATCH` aktualisiert
+  statt einen zweiten anzulegen. "Trennen"-Button löscht den externen Job per `DELETE` und räumt die eigenen
+  Optionen auf, auch falls der Lösch-Aufruf selbst fehlschlägt (z. B. Job wurde extern schon entfernt) — kein
+  verwaister lokaler "verbunden"-Zustand möglich.
+- Lokal getestet: Anfrage-Format gezielt gegen die echte cron-job.org-API verifiziert (mit einem ungültigen
+  Test-Key — `GET /jobs` und `PUT /jobs` liefern beide korrekt HTTP 401 statt eines Formatfehlers, bestätigt
+  also Endpunkt/Header/Body-Struktur als korrekt). Fehlerbehandlung bei ungültigem Key in der eigenen
+  Oberfläche geprüft (klare deutsche Fehlermeldung statt Rohdaten). "Verbunden"-Anzeige und "Trennen" gezielt
+  mit simuliertem Verbindungsstatus durchgespielt.
+- *Ohne echten cron-job.org-Account nicht vollständig testbar:* der eigentliche Erfolgsfall (Job wird
+  wirklich angelegt) braucht einen echten API-Key aus einem cron-job.org-Konto — das kann nur der Nutzer
+  selbst mit seinem eigenen Konto abschließend bestätigen.
+
+## v0.9.1 — Zweiter, eigenständiger cron-job.org-Job für die Datensicherung
+- **Anfrage:** Direkt nach v0.9.0 der Wunsch, dieselbe cron-job.org-Automatik auch auf der
+  Datensicherung-Seite anzubieten, als zweiten, separat benannten Job — nicht denselben wie beim
+  Spieldaten-Abruf. Vorab transparent gemacht: technisch reicht ein einzelner cron-job.org-Job auf
+  `wp-cron.php` bereits aus, um beide Aufgaben (Abruf UND Sicherung) mit auszulösen, da WordPress bei jedem
+  Aufruf selbst prüft, was gerade fällig ist — ein zweiter Job ist also nur fürs übersichtlichere
+  cron-job.org-Konto gedacht, nicht technisch zwingend nötig. Nutzerentscheidung: trotzdem bauen.
+- **Umgesetzt:** Gleiches Muster wie in v0.9.0 (dieselben `ftipp_cronjoborg_api()`/
+  `ftipp_cronjoborg_schedule()`-Helfer wiederverwendet), aber mit eigenem, unabhängigem Optionsraum
+  (`ftipp_backup_cronjoborg_*` statt `ftipp_cronjoborg_*`) und eigenen `admin_post`-Handlern
+  (`ftipp_backup_cronjoborg_connect`/`_disconnect`). Beide Jobs bekommen jetzt außerdem einen eigenen Titel
+  im cron-job.org-Konto ("Tippstube – Spieldaten-Abruf" bzw. "Tippstube – Datensicherung"), damit sie dort
+  auf einen Blick unterscheidbar sind.
+- Lokal getestet: neue Sektion auf der Datensicherung-Seite rendert korrekt, Fehlerbehandlung bei ungültigem
+  API-Key gegen die echte cron-job.org-API geprüft (HTTP 401, wie beim ersten Job), beide Optionsräume
+  bestätigt unabhängig voneinander (kein Vermischen der beiden Cron-Job.org-Verbindungen).
+- *Ohne echten cron-job.org-Account nicht vollständig testbar* (wie schon bei v0.9.0) — der Erfolgsfall
+  selbst kann nur mit einem echten API-Key final vom Nutzer bestätigt werden.
+
+## v0.9.2 — Datensicherung-Seite: fehlenden Hinweis/Link zum API-Key nachgetragen
+- **Anfrage:** Auf der Cron-Job-Seite gibt es einen direkten Link + Hinweistext, wo man den kostenlosen
+  API-Key bei cron-job.org findet ("Einstellungen" → "API-Keys") — dieser fehlte bei der in v0.9.1 gebauten
+  gleichartigen Sektion auf der Datensicherung-Seite.
+- **Umgesetzt:** Denselben Link/Hinweistext auf der Datensicherung-Seite ergänzt, damit beide Stellen
+  konsistent sind.
+- Lokal getestet: Link erscheint korrekt und zeigt auf `console.cron-job.org/settings`, keine PHP-Fehler.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
