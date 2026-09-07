@@ -64,4 +64,5 @@ mitgelieferten [`README.txt`](fussball-tippspiel/README.txt).
 
 ## Lizenz
 
-Wird noch final festgelegt.
+GPL-2.0-or-later — siehe [LICENSE](LICENSE). Tippstube ist freie Software: du darfst es kostenlos
+nutzen, verändern und weitergeben.
