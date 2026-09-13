@@ -2263,8 +2263,8 @@ async function renderTennisAuswertung(){
       return;
     }
     if(!data.rows.length){ box.appendChild(el('<div class="card"><div class="hint">Noch keine Mitspieler mit aktivem Tennis-Tippen in dieser Runde.</div></div>')); return; }
-    const rowsHtml = data.rows.map(r=>`<tr><td class="num">${r.rank}</td><td>${esc(r.name)}</td><td class="num">${r.hits}</td><td class="num">${r.total}</td></tr>`).join('');
-    box.appendChild(el(`<div class="card"><table><thead><tr><th class="num">#</th><th>Spieler</th><th class="num">Treffer</th><th class="num">Punkte</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
+    const rowsHtml = data.rows.map(r=>`<tr><td class="num">${r.rank}</td><td>${esc(r.name)}</td><td class="num">${r.total}</td><td class="num">${r.hits}</td><td class="num">${r.cup||0}</td></tr>`).join('');
+    box.appendChild(el(`<div class="card"><table><thead><tr><th class="num">#</th><th>Spieler</th><th class="num">Punkte</th><th class="num">Richtige Sieger</th><th class="num">Sonder</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
   }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; }
 }
 
@@ -2428,10 +2428,12 @@ async function renderTennisEinstellungen(){
   box.appendChild(card);
 }
 
-/* ---------------- Eishockey (NHL) ----------------
-   Ergebnis-Tipp wie beim Fußball (zwei Torfelder), aber eigenständig. Statt Spieltagen gibt es im
-   Eishockey Kalendertage — deshalb wird nach Datum ausgewählt. */
-let nhlDate = '';
+/* ---------------- Eishockey ----------------
+   Bewusst genauso aufgebaut wie Fußball, inklusive Liga-Auswahl (weitere Ligen wie die DEL kommen
+   dazu) und derselben Spielzeilen-Darstellung. Statt Spieltagen gibt es Kalendertage — im Eishockey
+   wird fast täglich gespielt. */
+let hkLeague = 'NHL';
+let hkDate = '';
 
 function switchNhlMode(mode){
   document.querySelectorAll('#nhl-shell .tab').forEach(t=>t.classList.toggle('active', t.dataset.mode===mode));
@@ -2451,6 +2453,11 @@ function nhlGuard(box){
 }
 const nhlDay = iso => { const d=new Date(iso+'T12:00:00Z');
   return d.toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit'}); };
+/* Liga-Auswahl — bei nur einer Liga bringt ein Dropdown nichts, dann bleibt es weg. */
+function mkHkLeagueSelect(leagues, onChange){
+  if(!leagues || leagues.length<2) return null;
+  return mkSelect('Liga', leagues.map(l=>({v:l.id,label:l.name})), hkLeague, v=>{ hkLeague=v; hkDate=''; onChange(); });
+}
 
 async function renderNhlTippen(){
   const box = document.getElementById('nhmode-nhtippen');
@@ -2460,115 +2467,189 @@ async function renderNhlTippen(){
   let subs, data;
   try{
     subs = await api_get(`rounds/${currentRoundId}/subs`);
-    if(subs.subs && subs.subs.NHL){ data = await api_get(`nhl/games?round=${currentRoundId}&date=${encodeURIComponent(nhlDate)}`); }
+    if(subs.subs && subs.subs[hkLeague]){
+      data = await api_get(`nhl/games?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}&date=${encodeURIComponent(hkDate)}`);
+    } else {
+      data = await api_get(`nhl/games?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}`);
+    }
   }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
 
-  box.innerHTML = '';
-  box.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderNhlTippen(); }));
+  const round = roundById(currentRoundId) || {name:''};
+  const leagues = (data && data.leagues) || [];
+  const days = (data && data.days) || [];
+  const cfg = (data && data.cfg) || {};
+  hkDate = (data && data.date) || hkDate;
+  const dIdx = days.findIndex(d=>d.date===hkDate);
 
-  if(!subs.subs || !subs.subs.NHL){
-    const card = el('<div class="card"><div class="hint">Eishockey-Tippen ist für diese Runde noch nicht aktiviert.</div></div>');
-    const btn = el('<button style="margin-top:10px">🏒 Eishockey-Tippen für diese Runde aktivieren</button>');
-    btn.onclick = async ()=>{ try{ await api_post('nhl/subscribe', {round_id: currentRoundId, active:true}); renderNhlTippen(); }catch(e){ alert('Fehler: '+e.message); } };
+  box.innerHTML = '';
+  const head = el('<div class="card"></div>');
+  head.appendChild(el(`<div class="hint">Runde: <b>${esc(round.name)}</b>. Ergebnis eintragen → <b>„Tipp abgeben"</b>. Die Tipps deiner Mitspieler siehst du erst, sobald die Frist des jeweiligen Spiels abgelaufen ist — nicht schon, sobald du selbst abgegeben hast.</div>`));
+  const ctrl = el('<div class="row"></div>');
+  ctrl.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderNhlTippen(); }));
+  const ls = mkHkLeagueSelect(leagues, renderNhlTippen); if(ls) ctrl.appendChild(ls);
+  if(days.length){
+    ctrl.appendChild(mkSelect('Spieltag', days.map(d=>({
+      v:d.date, label:`${nhlDay(d.date)} — ${d.total} Spiele${d.final?` (${d.final} gespielt)`:''}`})),
+      hkDate, v=>{ hkDate=v; renderNhlTippen(); }));
+    const navWrap = el('<div class="flexcol"><label>&nbsp;</label><div class="row" style="gap:6px"></div></div>');
+    const navRow = navWrap.querySelector('.row');
+    const prevBtn = el(`<button class="mini sec" ${dIdx<=0?'disabled':''}>◀</button>`);
+    prevBtn.onclick = ()=>{ hkDate = days[dIdx-1].date; renderNhlTippen(); };
+    const nextBtn = el(`<button class="mini sec" ${dIdx<0||dIdx>=days.length-1?'disabled':''}>▶</button>`);
+    nextBtn.onclick = ()=>{ hkDate = days[dIdx+1].date; renderNhlTippen(); };
+    navRow.appendChild(prevBtn); navRow.appendChild(nextBtn);
+    ctrl.appendChild(navWrap);
+  }
+  head.appendChild(ctrl); box.appendChild(head);
+
+  if(!subs.subs || !subs.subs[hkLeague]){
+    const card = el(`<div class="card"><div class="hint">${esc(ftippHkName(leagues))}-Tippen ist für diese Runde noch nicht aktiviert.</div></div>`);
+    const btn = el(`<button style="margin-top:10px">🏒 ${esc(ftippHkName(leagues))} für diese Runde aktivieren</button>`);
+    btn.onclick = async ()=>{ try{ await api_post('nhl/subscribe', {round_id: currentRoundId, league: hkLeague, active:true}); renderNhlTippen(); }catch(e){ alert('Fehler: '+e.message); } };
     card.appendChild(btn); box.appendChild(card);
     return;
   }
-
-  const days = (data && data.days) || [];
-  const games = (data && data.games) || [];
-  const cfg = (data && data.cfg) || {};
   if(!days.length){
     box.appendChild(el('<div class="card"><div class="hint">Noch keine Spiele geladen — der Admin muss unter Tippstube → Sportarten → Eishockey einmal „Jetzt abrufen" klicken.</div></div>'));
     return;
   }
-  nhlDate = (data && data.date) || days[0].date;
-  box.appendChild(mkSelect('Spieltag', days.map(d=>({
-    v:d.date, label:`${nhlDay(d.date)} — ${d.total} Spiele${d.final?` (${d.final} gespielt)`:''}`})),
-    nhlDate, v=>{ nhlDate=v; renderNhlTippen(); }));
-  box.appendChild(el(`<div class="card"><div class="meta">${cfg.pTend||0} Punkte für den richtigen Sieger, ${cfg.pExact||0} für das exakte Ergebnis. Im Eishockey gibt es kein Unentschieden — Gleichstand wird in der Verlängerung entschieden.</div></div>`));
 
-  games.forEach(row=>{
-    const g = row.game;
-    const c = el('<div class="card"></div>');
-    const zeit = g.start ? fmtDate(g.start) : '';
-    c.appendChild(el(`<div class="row" style="margin-bottom:8px">`
-      + `<b>${esc(g.away.name)} @ ${esc(g.home.name)}</b>`
-      + (zeit?`<span class="meta">${esc(zeit)}</span>`:'')
-      + (g.type===3?`<span class="pill gold">Playoffs</span>`:'')
-      + (row.locked?`<span class="pill warn">🔒 gesperrt</span>`:'')
-      + `</div>`));
+  const list = el('<div class="card"></div>');
+  list.appendChild(el(`<div class="phase-h">${esc(nhlDay(hkDate))}</div>`));
+  ((data && data.games) || []).forEach(row=> list.appendChild(mkHkMatchRow(row, cfg)));
+  box.appendChild(list);
+  if(cfg.malusOn){ box.appendChild(el(`<div class="warnbox">⚠️ Verpasste Spiele geben <b>${cfg.malus} Punkt(e)</b> (Regel dieser Runde).</div>`)); }
+}
+function ftippHkName(leagues){ const l=(leagues||[]).find(x=>x.id===hkLeague); return l?l.name:'Eishockey'; }
 
-    const mine = row.mine || {hg:null, ag:null, committed:false};
-    const werte = {hg:mine.hg, ag:mine.ag};
-    const r = el('<div class="row"></div>');
-    const feld = (slot, label)=>{
-      const w = el('<div class="flexcol" style="align-items:center"></div>');
-      w.appendChild(el(`<label>${esc(label)}</label>`));
-      const i = el(`<input type="number" class="score" min="0" style="width:60px" value="${werte[slot]===null||werte[slot]===undefined?'':werte[slot]}" ${row.locked?'disabled':''}>`);
-      i.onchange = ()=>{ const v=parseInt(i.value); werte[slot] = isNaN(v)?null:Math.max(0,v); };
-      w.appendChild(i); return w;
-    };
-    r.appendChild(feld('ag', g.away.abbrev || 'Gast'));
-    r.appendChild(feld('hg', g.home.abbrev || 'Heim'));
-    if(!row.locked){
-      const btn = el('<button class="mini right">✅ Tipp abgeben</button>');
-      btn.onclick = async ()=>{
-        if(werte.hg===null || werte.ag===null){ alert('Bitte beide Felder ausfüllen.'); return; }
-        try{ await api_post('nhl/tips', {round_id: currentRoundId, game_id: g.id, hg: werte.hg, ag: werte.ag, committed:true}); renderNhlTippen(); }
-        catch(e){ alert('Fehler: '+e.message); }
+/* Eine Spielzeile — gleiche Struktur und dieselben CSS-Klassen wie beim Fußball. */
+function mkHkMatchRow(row, cfg){
+  const g = row.game;
+  const mine = row.mine || {hg:null, ag:null, committed:false};
+  const editing = !!row.editing;
+  const disabled = row.locked || (mine.committed && !editing);
+  const el0 = el(`<div class="match ${row.locked?'locked':''}"></div>`);
+
+  let pill='';
+  if(g.final){
+    const richtig = mine.committed && mine.hg!=null && mine.ag!=null;
+    if(richtig){
+      const exakt = (mine.hg===g.home.score && mine.ag===g.away.score);
+      const sign=(a,b)=>a>b?1:(a<b?-1:0);
+      const tend = sign(mine.hg,mine.ag)===sign(g.home.score,g.away.score);
+      const pts = exakt?(cfg.pExact||0):(tend?(cfg.pTend||0):0);
+      const art = exakt?'exakt':(tend?'tendenz':'daneben');
+      pill=`<span class="pill ${exakt?'good':(tend?'warn':'bad')}">${pts>0?'+':''}${pts} P · ${art}</span>`;
+    } else { pill=`<span class="pill bad">${cfg.malusOn?cfg.malus+' P · verpasst':'kein Tipp'}</span>`; }
+  } else if(row.locked){ pill=`<span class="pill warn">gesperrt</span>`; }
+  else if(!mine.committed){ pill=`<span class="pill">offen</span>`; }
+  el0.appendChild(el(`<div class="mno">${g.start?fmtDate(g.start):''}<br>${pill}</div>`));
+
+  const res = g.final
+    ? `<div class="meta">Ergebnis: <b style="color:var(--gold)">${g.home.score}:${g.away.score}</b>${g.ot?' <span class="tag">n.V.</span>':''}</div>` : '';
+  // Heim links, Gast rechts — wie beim Fußball. Die NHL nennt Spiele zwar "Gast @ Heim", die
+  // Darstellung bleibt hier aber bewusst identisch zum Rest der App.
+  el0.appendChild(el(`<div class="t1"><div class="tname">${esc(g.home.name)}</div></div>`));
+  const vs = el('<div class="vs"></div>');
+  const werte = {hg:mine.hg, ag:mine.ag};
+  const hIn = mkNum(werte.hg, disabled, v=>{ werte.hg = v===''?null:Math.max(0,parseInt(v)||0); sync(); });
+  const aIn = mkNum(werte.ag, disabled, v=>{ werte.ag = v===''?null:Math.max(0,parseInt(v)||0); sync(); });
+  vs.appendChild(hIn); vs.appendChild(el('<span>:</span>')); vs.appendChild(aIn);
+  el0.appendChild(vs);
+  el0.appendChild(el(`<div class="t2"><div class="tname">${esc(g.away.name)}</div>${res}</div>`));
+
+  let commitBtn=null, commitHint=null;
+  const sync=()=>{
+    const ok = werte.hg!=null && werte.ag!=null;
+    if(commitBtn) commitBtn.disabled = !ok;
+    if(commitHint) commitHint.textContent = ok?'Danach ist der Tipp fix — und du siehst die Tipps deiner Mitspieler.':'Erst beide Felder ausfüllen.';
+  };
+  const speichern = async (committed)=>{
+    await api_post('nhl/tips', {round_id: currentRoundId, game_id: g.id, hg: werte.hg, ag: werte.ag, committed: committed});
+  };
+
+  if(!row.locked && !g.final){
+    const commit = el('<div class="commit"></div>');
+    if(!mine.committed){
+      const ok = werte.hg!=null && werte.ag!=null;
+      const btn = el(`<button class="mini" ${ok?'':'disabled'}>✅ Tipp abgeben</button>`);
+      btn.onclick = async ()=>{ try{ await speichern(true); renderNhlTippen(); }catch(e){ alert('Fehler: '+e.message); } };
+      commit.appendChild(btn);
+      const hint = el(`<span class="meta">${ok?'Danach ist der Tipp fix — und du siehst die Tipps deiner Mitspieler.':'Erst beide Felder ausfüllen.'}</span>`);
+      commit.appendChild(hint);
+      commitBtn=btn; commitHint=hint;
+    } else if(!editing){
+      commit.appendChild(el('<span class="meta">✅ abgegeben — Tipp ist fix.</span>'));
+      const editBtn = el('<button class="mini ghost right">✏️ Bearbeiten</button>');
+      editBtn.onclick = ()=>{ el0.replaceWith(mkHkMatchRow(Object.assign({}, row, {editing:true, mine:{hg:werte.hg, ag:werte.ag, committed:true}}), cfg)); };
+      commit.appendChild(editBtn);
+    } else {
+      commit.appendChild(el('<span class="meta">✏️ Ergebnis ändern — mit „Fertig" bestätigen.</span>'));
+      const doneBtn = el('<button class="mini right">✅ Fertig</button>');
+      doneBtn.onclick = async ()=>{
+        try{ await speichern(true); }catch(e){ alert('Fehler: '+e.message); return; }
+        el0.replaceWith(mkHkMatchRow(Object.assign({}, row, {editing:false, mine:{hg:werte.hg, ag:werte.ag, committed:true}}), cfg));
       };
-      r.appendChild(btn);
-    } else if(mine.committed){
-      r.appendChild(el(`<span class="pill good">dein Tipp: ${mine.ag}:${mine.hg}</span>`));
+      commit.appendChild(doneBtn);
     }
-    c.appendChild(r);
+    el0.appendChild(commit);
+  }
 
-    if(g.final){
-      c.appendChild(el(`<div style="margin-top:8px"><b>Ergebnis:</b> ${g.away.score}:${g.home.score}${g.ot?' <span class="meta">(nach Verlängerung)</span>':''}</div>`));
-    }
-    if(!row.locked){
-      c.appendChild(el('<div class="meta" style="margin-top:6px">🔒 Die Tipps der Mitspieler siehst du erst nach Ablauf der Frist.</div>'));
-    } else if(row.others && row.others.length){
-      const list = row.others.map(o=>`<b>${esc(o.name)}</b> ${o.ag}:${o.hg}`).join(' · ');
-      c.appendChild(el(`<div class="meta" style="margin-top:6px">👀 Tipps der Mitspieler: ${list}</div>`));
-    }
-    box.appendChild(c);
-  });
+  if(row.locked){
+    const others = row.others || [];
+    const txt = others.length ? others.map(o=>`<b>${esc(o.name)}</b> ${o.hg}:${o.ag}`).join(' · ') : '—';
+    el0.appendChild(el(`<div class="others">👀 Tipps der Mitspieler: ${txt}</div>`));
+  } else {
+    el0.appendChild(el('<div class="others">🔒 Die Tipps der Mitspieler siehst du erst, sobald die Frist abgelaufen ist.</div>'));
+  }
+  return el0;
 }
 
 async function renderNhlAuswertung(){
   const box = document.getElementById('nhmode-nhauswertung');
   if(!nhlGuard(box)) return;
   box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
+  let data, games;
   try{
-    const data = await api_get(`nhl/leaderboard?round=${currentRoundId}`);
-    box.innerHTML = '';
-    box.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderNhlAuswertung(); }));
-    if(!data.rows.length){ box.appendChild(el('<div class="card"><div class="hint">Noch keine Mitspieler mit aktivem Eishockey-Tippen in dieser Runde.</div></div>')); return; }
-    const rowsHtml = data.rows.map(r=>`<tr><td class="num">${r.rank}</td><td>${esc(r.name)}</td><td class="num">${r.hits}</td><td class="num">${r.exact}</td><td class="num">${r.total}</td></tr>`).join('');
-    box.appendChild(el(`<div class="card"><table><thead><tr><th class="num">#</th><th>Spieler</th><th class="num">Treffer</th><th class="num">exakt</th><th class="num">Punkte</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
-  }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; }
+    data = await api_get(`nhl/leaderboard?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}`);
+    games = await api_get(`nhl/games?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}`);
+  }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
+  box.innerHTML = '';
+  const ctrl = el('<div class="card"><div class="row"></div></div>');
+  const row0 = ctrl.querySelector('.row');
+  row0.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderNhlAuswertung(); }));
+  const ls = mkHkLeagueSelect((games&&games.leagues)||[], renderNhlAuswertung); if(ls) row0.appendChild(ls);
+  box.appendChild(ctrl);
+  if(!data.rows.length){ box.appendChild(el('<div class="card"><div class="hint">Noch keine Mitspieler mit aktivem Eishockey-Tippen in dieser Runde.</div></div>')); return; }
+  const rowsHtml = data.rows.map(r=>`<tr><td class="num">${r.rank}</td><td>${esc(r.name)}</td><td class="num">${r.total}</td><td class="num">${r.exact}</td><td class="num">${r.tend}</td><td class="num">${r.special}</td><td class="num">${r.missed}</td></tr>`).join('');
+  box.appendChild(el(`<div class="card"><table><thead><tr><th class="num">#</th><th>Spieler</th><th class="num">Punkte</th><th class="num">Exakt</th><th class="num">Tendenz</th><th class="num">Sonder</th><th class="num">Verpasst</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
 }
 
-/* Sonderwertung "Stanley-Cup-Sieger" — gleicher Aufbau wie bei Fußball, Formel 1 und Tennis. */
+/* Sonderwertung je Liga (NHL: Stanley-Cup-Sieger) — gleicher Aufbau wie bei Fußball, F1 und Tennis. */
 async function renderNhlSonder(){
   const box = document.getElementById('nhmode-nhsonder');
   if(!nhlGuard(box)) return;
   box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
 
-  let subs, data;
+  let subs, data, games;
   try{
     subs = await api_get(`rounds/${currentRoundId}/subs`);
-    if(subs.subs && subs.subs.NHL){ data = await api_get(`nhl/special?round=${currentRoundId}`); }
+    data = await api_get(`nhl/special?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}`);
+    games = await api_get(`nhl/games?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}`);
   }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
 
   box.innerHTML = '';
-  box.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderNhlSonder(); }));
-  if(!subs.subs || !subs.subs.NHL){
+  const ctrl = el('<div class="card"><div class="row"></div></div>');
+  const row0 = ctrl.querySelector('.row');
+  row0.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderNhlSonder(); }));
+  const ls = mkHkLeagueSelect((games&&games.leagues)||[], renderNhlSonder); if(ls) row0.appendChild(ls);
+  box.appendChild(ctrl);
+
+  if(!subs.subs || !subs.subs[hkLeague]){
     box.appendChild(el('<div class="card"><div class="hint">Eishockey-Tippen ist für diese Runde noch nicht aktiviert — das geht im Tab „📝 Tippen".</div></div>'));
     return;
   }
-  const teams = (data && data.teams) || [];
+  const teams = data.teams || [];
   if(!teams.length){
     box.appendChild(el('<div class="card"><div class="hint">Noch keine Teams geladen — der Admin muss einmal „Jetzt abrufen" klicken.</div></div>'));
     return;
@@ -2578,29 +2659,29 @@ async function renderNhlSonder(){
   const isAdmin = !!(roundById(currentRoundId)||{}).is_admin;
 
   const card = el('<div class="card"></div>');
-  card.appendChild(el(`<div class="row" style="margin-bottom:8px"><b>⭐ Stanley-Cup-Sieger</b>`
+  card.appendChild(el(`<div class="row" style="margin-bottom:8px"><b>⭐ ${esc(data.title||'Meister')}</b>`
     + (isAdmin ? '' : `<span class="pill gold">${data.points} Punkte</span>`
         + (data.deadline?`<span class="meta">Frist ${esc(fmtDate(data.deadline))}</span>`:''))
     + (data.winner?`<span class="pill gold">Sieger: ${esc(nameOf(data.winner))}</span>`:'')
     + `</div>`));
-  card.appendChild(el('<div class="meta">Wer gewinnt am Saisonende den Stanley Cup? Getippt wird vor dem ersten Spiel der Saison.</div>'));
+  card.appendChild(el('<div class="meta">Wer gewinnt am Saisonende? Getippt wird vor dem ersten Spiel der Saison.</div>'));
 
   if(isAdmin){
     const adm = el('<div class="row" style="margin-top:8px"></div>');
     const pw = el('<div class="flexcol" style="align-items:center"></div>');
     pw.appendChild(el('<label>Punkte</label>'));
     const pi = el(`<input type="number" class="score" value="${data.points}" style="width:70px">`);
-    pi.onchange = async ()=>{ try{ await api_post('nhl/special/config', {round_id:currentRoundId, points: parseInt(pi.value)||0}); renderNhlSonder(); }catch(e){ alert('Fehler: '+e.message); } };
+    pi.onchange = async ()=>{ try{ await api_post('nhl/special/config', {round_id:currentRoundId, league:hkLeague, points: parseInt(pi.value)||0}); renderNhlSonder(); }catch(e){ alert('Fehler: '+e.message); } };
     pw.appendChild(pi); adm.appendChild(pw);
     const dw = el('<div class="flexcol" style="align-items:center"></div>');
     dw.appendChild(el('<label>Tipp-Frist</label>'));
     const di = el(`<input type="datetime-local" value="${esc(data.deadline||'')}">`);
-    di.onchange = async ()=>{ try{ await api_post('nhl/special/config', {round_id:currentRoundId, deadline: di.value}); renderNhlSonder(); }catch(e){ alert('Fehler: '+e.message); } };
+    di.onchange = async ()=>{ try{ await api_post('nhl/special/config', {round_id:currentRoundId, league:hkLeague, deadline: di.value}); renderNhlSonder(); }catch(e){ alert('Fehler: '+e.message); } };
     dw.appendChild(di); adm.appendChild(dw);
     const ww = el('<div class="flexcol" style="align-items:center"></div>');
     ww.appendChild(el('<label>Sieger eintragen</label>'));
     ww.appendChild(mkSelect('', opts, data.winner||'', async v=>{
-      try{ await api_post('nhl/special/config', {round_id:currentRoundId, winner: v||''}); renderNhlSonder(); }
+      try{ await api_post('nhl/special/config', {round_id:currentRoundId, league:hkLeague, winner: v||''}); renderNhlSonder(); }
       catch(e){ alert('Fehler: '+e.message); }
     }));
     adm.appendChild(ww);
@@ -2620,7 +2701,7 @@ async function renderNhlSonder(){
     const btn = el('<button class="mini right">✅ Tipp abgeben</button>');
     btn.onclick = async ()=>{
       if(!pick){ alert('Bitte erst ein Team wählen.'); return; }
-      try{ await api_post('nhl/special/tip', {round_id:currentRoundId, team:pick, committed:true}); renderNhlSonder(); }
+      try{ await api_post('nhl/special/tip', {round_id:currentRoundId, league:hkLeague, team:pick, committed:true}); renderNhlSonder(); }
       catch(e){ alert('Fehler: '+e.message); }
     };
     statusRow.appendChild(btn);
@@ -2645,7 +2726,7 @@ function mkNhlCfgNum(label, value, key, onSaved){
   const inp = el(`<input type="number" class="score" value="${value}" style="width:70px">`);
   inp.onchange = async ()=>{
     const v = parseInt(inp.value);
-    const payload = {round_id: currentRoundId}; payload[key] = isNaN(v) ? 0 : v;
+    const payload = {round_id: currentRoundId, league: hkLeague}; payload[key] = isNaN(v) ? 0 : v;
     try{ await api_post('nhl/config', payload); if(onSaved) onSaved(); }
     catch(e){ alert('Fehler: '+e.message); }
   };
@@ -2656,16 +2737,22 @@ async function renderNhlEinstellungen(){
   const box = document.getElementById('nhmode-nheinstellungen');
   if(!nhlGuard(box)) return;
   box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
-  let cfg;
-  try{ cfg = await api_get(`nhl/config?round=${currentRoundId}`); }
-  catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
+  let cfg, games;
+  try{
+    cfg = await api_get(`nhl/config?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}`);
+    games = await api_get(`nhl/games?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}`);
+  }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
 
   box.innerHTML = '';
-  box.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderNhlEinstellungen(); }));
+  const ctrl = el('<div class="card"><div class="row"></div></div>');
+  const row0 = ctrl.querySelector('.row');
+  row0.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderNhlEinstellungen(); }));
+  const ls = mkHkLeagueSelect((games&&games.leagues)||[], renderNhlEinstellungen); if(ls) row0.appendChild(ls);
+  box.appendChild(ctrl);
 
   if(!(roundById(currentRoundId)||{}).is_admin){
     box.appendChild(el(`<div class="card"><div class="hint">Die Eishockey-Regeln legt der Runden-Admin fest.</div>`
-      + `<div class="row" style="margin-top:8px"><span class="pill gold">${cfg.pTend} Punkte für den richtigen Sieger</span>`
+      + `<div class="row" style="margin-top:8px"><span class="pill gold">${cfg.pTend} Punkte für die richtige Tendenz</span>`
       + `<span class="pill gold">${cfg.pExact} fürs exakte Ergebnis</span>`
       + `<span class="meta">Tipp-Frist ${cfg.deadlineMin} Min. vor Spielbeginn</span>`
       + (cfg.malusOn?`<span class="pill warn">Malus ${cfg.malus}</span>`:'') + `</div></div>`));
@@ -2673,10 +2760,10 @@ async function renderNhlEinstellungen(){
   }
 
   const card = el('<div class="card"></div>');
-  card.appendChild(el('<div class="hint">Regeln für die Eishockey-<b>Spiele</b> dieser Tipprunde. Punkte und Frist der Stanley-Cup-Wette stellst du im Tab „⭐ Sonderwertungen" ein.</div>'));
+  card.appendChild(el('<div class="hint">Regeln für die <b>Spiele</b> dieser Liga in dieser Tipprunde. Punkte und Frist der Meister-Wette stellst du im Tab „⭐ Sonderwertungen" ein.</div>'));
   const row = el('<div class="row" style="margin-top:8px"></div>');
-  row.appendChild(mkNhlCfgNum('Punkte für richtigen Sieger', cfg.pTend, 'pTend'));
-  row.appendChild(mkNhlCfgNum('Punkte fürs exakte Ergebnis', cfg.pExact, 'pExact'));
+  row.appendChild(mkNhlCfgNum('Tendenz', cfg.pTend, 'pTend'));
+  row.appendChild(mkNhlCfgNum('Exakt', cfg.pExact, 'pExact'));
   row.appendChild(mkNhlCfgNum('Tipp-Frist (Min. vor Start)', cfg.deadlineMin, 'deadlineMin'));
   card.appendChild(row);
 
@@ -2685,7 +2772,7 @@ async function renderNhlEinstellungen(){
   mw.appendChild(el('<label>Malus, wenn nicht getippt</label>'));
   const chk = el(`<input type="checkbox" ${cfg.malusOn?'checked':''}>`);
   chk.onchange = async ()=>{
-    try{ await api_post('nhl/config', {round_id: currentRoundId, malusOn: chk.checked?1:0}); renderNhlEinstellungen(); }
+    try{ await api_post('nhl/config', {round_id: currentRoundId, league: hkLeague, malusOn: chk.checked?1:0}); renderNhlEinstellungen(); }
     catch(e){ alert('Fehler: '+e.message); }
   };
   mw.appendChild(chk); row2.appendChild(mw);

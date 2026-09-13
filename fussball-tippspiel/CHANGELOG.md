@@ -2454,6 +2454,46 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
   Sportarten → Eishockey einmal "Jetzt abrufen" (dauert ~10 Sekunden) und im Frontend eine Runde
   aktivieren.
 
+## v1.13.0 — Eishockey wie Fußball: Liga-Ebene und gleiche Tippen-Ansicht
+
+- **Anfrage:** "beim Eishockey muss das genau so sein wie beim Fußball, nimm Fußball immer als perfekt,
+  weil es kommen ja noch andere Eishockeyligen dazu." Vorher fehlte in der Auswertung außerdem die
+  Tendenz-Spalte ("müsste da nicht Tendenz rein") — "Treffer" hatte Tendenz und exakte Treffer
+  stillschweigend zusammengezählt.
+- **Liga-Ebene eingezogen:** Eishockey hat jetzt, wie Fußball seine Wettbewerbe, eine Liga-Registry
+  (`ftipp_hockey_leagues()`, aktuell nur NHL). Jede Liga hat ihre **eigene Rangliste, eigene
+  Punkteregeln, eigene Sonderwertung und eigene Aktivierung je Tipprunde** — eine weitere Liga wie die
+  DEL ist damit nur ein Registry-Eintrag plus eine Abruf-Funktion, ohne Eingriff in Tipps, Wertung oder
+  Oberfläche. Die Liga-Auswahl blendet sich im Frontend automatisch ein, sobald es mehr als eine gibt.
+  Spiel-IDs tragen jetzt die Liga vorangestellt (`NHL-2026020001`), damit sie ligaübergreifend
+  eindeutig bleiben.
+- **Datenbank:** Die vier `ftipp_nhl_*`-Tabellen aus v1.12.0 hatten im Primärschlüssel keinen Platz für
+  die Liga. Sie werden durch `ftipp_hockey_*`-Tabellen ersetzt — **aber nur, solange sie wirklich leer
+  sind** (geprüft per COUNT vor dem Löschen), damit niemals abgegebene Tipps verloren gehen.
+  `FTIPP_DB_VERSION` 19 → 20. Auch die Optionen heißen jetzt `ftipp_hockey_games`/`_last_sync`.
+- **Tippen-Ansicht 1:1 wie Fußball:** gleicher Hinweiskasten oben, gleiche Bedienleiste
+  (Runde · Liga · Spieltag · ◀ ▶), und vor allem dieselbe **Spielzeile mit denselben CSS-Klassen**
+  (`.match`/`.mno`/`.t1`/`.vs`/`.t2`/`.commit`/`.others`): Datum und Status-Pill links, Heimteam,
+  Torfelder, Auswärtsteam, darunter „Tipp abgeben" → „✅ abgegeben — Tipp ist fix." mit
+  „✏️ Bearbeiten" und „✅ Fertig". Gespielte Partien zeigen wie beim Fußball eine Punkte-Pill
+  („+3 P · exakt", „kein Tipp"), das Ergebnis inklusive „n.V." und die Tipps der Mitspieler.
+- **Auswertung:** Spalten jetzt identisch zum Fußball — **Punkte · Exakt · Tendenz · Sonder ·
+  Verpasst**. Neu ist `ftipp_hockey_tip_kind()`, das die Art des Treffers bestimmt, statt sie aus der
+  Punktzahl abzuleiten: der Runden-Admin darf Tendenz und Exakt gleich hoch einstellen, dann wären
+  beide über die Punkte nicht mehr unterscheidbar. Bei Tennis wurde derselbe Unklarheits-Fall behoben,
+  indem die bisher stillschweigend eingerechneten Sonderwertungs-Punkte eine eigene Spalte bekamen.
+- Lokal getestet: `php -l` fehlerfrei, Script-Blöcke geprüft, außerdem statisch abgeglichen, dass jede
+  aufgerufene `ftipp_hockey_*`-Funktion auch definiert ist. Isolierter Punkte-Test mit 13 Fällen
+  (u.a. der Knackpunkt "Tendenz und Exakt gleich hoch eingestellt" — Art bleibt trotzdem korrekt).
+  Browser-Test: Hinweiskasten, Runde/Spieltag/◀▶ vorhanden, Spielzeile hat exakt die
+  Fußball-Klassenstruktur; „Tipp abgeben" ist erst nach beiden Feldern klickbar, speichert
+  `{game_id, hg, ag, committed:true}` und wird danach zu „abgegeben — Tipp ist fix" mit Bearbeiten und
+  Fertig; ein gespielter Tag sperrt die Felder, zeigt „Ergebnis: 4:2 n.V." und die Mitspieler-Tipps;
+  mit zwei Ligen im Test erscheint die Liga-Auswahl automatisch. Regression: Fußball, Formel 1 und
+  Tennis unverändert.
+- *Noch nicht auf der echten Seite getestet:* Update einspielen (ersetzt die vier leeren
+  Eishockey-Tabellen), einmal „Jetzt abrufen" und im Frontend einen Tipp abgeben.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
