@@ -175,11 +175,11 @@
       <div class="hub-tile-meta">NHL — Spielplan &amp; Ergebnisse pro Team, komplette Saison.</div>
       <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
     </div>
-    <div class="hub-tile" onclick="enterSport('f1')">
+    <div class="hub-tile is-active" onclick="enterSport('f1')">
       <div class="hub-tile-icon">🏎️</div>
       <p class="hub-tile-name">Formel 1</p>
-      <div class="hub-tile-meta">Rennkalender, Quali- &amp; Rennergebnisse, Fahrer- und Team-Wertung.</div>
-      <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
+      <div class="hub-tile-meta">Podium-Tipp: Platz 1, 2, 3 vor jedem Rennen — pro Tipprunde aktivierbar.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-live">Aktiv</span><span style="color:var(--accent-hi)">→</span></div>
     </div>
     <div class="hub-tile" onclick="enterSport('ussport')">
       <div class="hub-tile-icon">🏈</div>
@@ -1728,25 +1728,156 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
 </script>
 </div><!-- #app-shell -->
 
+<div id="f1-shell" style="display:none">
+<header>
+  <h1>
+    <svg width="30" height="33" viewBox="0 0 240 260" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="flex:none">
+      <path d="M20 30 Q20 20 30 20 L210 20 Q220 20 220 30 L220 130 Q220 190 170 220 L120 250 L70 220 Q20 190 20 130 Z" fill="#173a22" stroke="#d9a441" stroke-width="6"/>
+      <path d="M70 150 L70 100 Q70 60 120 60 Q170 60 170 100 L170 150 Z" fill="#e3a83f"/>
+      <line x1="120" y1="62" x2="120" y2="150" stroke="#d9a441" stroke-width="5"/>
+      <line x1="73" y1="112" x2="167" y2="112" stroke="#d9a441" stroke-width="5"/>
+      <circle cx="120" cy="112" r="26" fill="#f3ead9"/>
+      <path d="M120,101.5 L129,108 L125.7,118.6 L114.3,118.6 L111,108 Z" fill="#1c4127"/>
+    </svg>
+    Tippstube — Formel 1
+  </h1>
+  <div class="sub">Podium-Tipp: Platz 1, 2 und 3 vor jedem Rennen tippen.
+    <br><button class="hub-switch" onclick="showSportHub()">🏁 Sportart wechseln</button>
+  </div>
+</header>
+<div class="wrap">
+  <div class="tabs">
+    <div class="tab active" data-mode="f1tippen" onclick="switchF1Mode('f1tippen')">📝 Tippen</div>
+    <div class="tab" data-mode="f1auswertung" onclick="switchF1Mode('f1auswertung')">🏆 Auswertung</div>
+  </div>
+  <section id="f1mode-f1tippen"></section>
+  <section id="f1mode-f1auswertung" style="display:none"></section>
+</div>
+</div><!-- #f1-shell -->
+
 <script>
 /* ---------------- Sportarten-Hub ---------------- */
-// Nur Fußball ist echt angebunden — alle anderen Kacheln sind bewusst nur eine Vorschau (siehe Journal).
-// Wer Fußball einmal gewählt hat, landet beim nächsten Besuch direkt wieder im Tippspiel.
-function enterSport(sport){
-  if(sport!=='football'){ alert('Kommt bald! Diese Sportart ist noch nicht angebunden.'); return; }
-  try{ localStorage.setItem('ftipp_sport','football'); }catch(e){}
+// Nur Fußball und Formel 1 sind echt angebunden — alle anderen Kacheln sind bewusst nur eine Vorschau
+// (siehe Journal). Wer eine Sportart einmal gewählt hat, landet beim nächsten Besuch direkt wieder dort.
+function hideAllShells(){
   document.getElementById('sport-hub').style.display='none';
-  document.getElementById('app-shell').style.display='';
+  document.getElementById('app-shell').style.display='none';
+  document.getElementById('f1-shell').style.display='none';
+}
+function enterSport(sport){
+  if(sport!=='football' && sport!=='f1'){ alert('Kommt bald! Diese Sportart ist noch nicht angebunden.'); return; }
+  try{ localStorage.setItem('ftipp_sport',sport); }catch(e){}
+  hideAllShells();
+  if(sport==='football'){ document.getElementById('app-shell').style.display=''; }
+  else { document.getElementById('f1-shell').style.display=''; switchF1Mode('f1tippen'); }
 }
 function showSportHub(){
   try{ localStorage.removeItem('ftipp_sport'); }catch(e){}
-  document.getElementById('app-shell').style.display='none';
+  hideAllShells();
   document.getElementById('sport-hub').style.display='';
 }
 (function(){
   let chosen=null; try{ chosen=localStorage.getItem('ftipp_sport'); }catch(e){}
-  if(chosen==='football'){ document.getElementById('sport-hub').style.display='none'; document.getElementById('app-shell').style.display=''; }
+  if(chosen==='football'){ hideAllShells(); document.getElementById('app-shell').style.display=''; }
+  else if(chosen==='f1'){ hideAllShells(); document.getElementById('f1-shell').style.display=''; }
 })();
+</script>
+
+<script>
+/* ---------------- Formel 1: Podium-Tipp ---------------- */
+// Nutzt bewusst dieselben BOOT/api_get/api_post/el/esc/mkSelect-Helfer und ROUNDS/currentRoundId-Globals
+// wie die Fußball-App oben (script-Tags laufen unabhängig von der CSS-Sichtbarkeit ihres Elternelements,
+// initConnected() lädt ROUNDS also auch, während der Sportarten-Hub oder die F1-Ansicht sichtbar ist).
+let f1Drivers = [];
+let f1CurrentRaceId = null;
+
+function switchF1Mode(mode){
+  document.querySelectorAll('#f1-shell .tab').forEach(t=>t.classList.toggle('active', t.dataset.mode===mode));
+  document.getElementById('f1mode-f1tippen').style.display = mode==='f1tippen' ? '' : 'none';
+  document.getElementById('f1mode-f1auswertung').style.display = mode==='f1auswertung' ? '' : 'none';
+  if(mode==='f1tippen') renderF1Tippen(); else renderF1Auswertung();
+}
+
+async function renderF1Tippen(){
+  const box = document.getElementById('f1mode-f1tippen');
+  if(!CONNECTED){ box.innerHTML = '<div class="card"><div class="hint">Formel 1 steht nur im echten WordPress-Betrieb zur Verfügung.</div></div>'; return; }
+  if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde. Das geht in der ⚽ Fußball-Ansicht unter „Runden".</div></div>'; return; }
+  box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
+
+  let subs, tipsData;
+  try{
+    subs = await api_get(`rounds/${currentRoundId}/subs`);
+    if(subs.subs && subs.subs.F1){ tipsData = await api_get(`f1/tips?round=${currentRoundId}`); }
+  }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
+
+  box.innerHTML = '';
+  box.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderF1Tippen(); }));
+
+  if(!subs.subs || !subs.subs.F1){
+    const card = el('<div class="card"><div class="hint">Formel-1-Tippen ist für diese Runde noch nicht aktiviert.</div></div>');
+    const btn = el('<button style="margin-top:10px">🏁 F1-Tippen für diese Runde aktivieren</button>');
+    btn.onclick = async ()=>{ try{ await api_post(`f1/subscribe`, {round_id: currentRoundId, active:true}); renderF1Tippen(); }catch(e){ alert('Fehler: '+e.message); } };
+    card.appendChild(btn);
+    box.appendChild(card);
+    return;
+  }
+
+  if(!f1Drivers.length){ try{ const d = await api_get('f1/drivers'); f1Drivers = d.drivers||[]; }catch(e){} }
+
+  const races = (tipsData && tipsData.races) || [];
+  if(!races.length){ box.appendChild(el('<div class="card"><div class="hint">Noch keine Rennen geladen — der Admin muss unter Tippstube → Formel 1 einmal „Jetzt abrufen" klicken.</div></div>')); return; }
+
+  if(!f1CurrentRaceId || !races.find(r=>r.race.raceId===f1CurrentRaceId)){
+    const next = races.find(r=>!r.locked);
+    f1CurrentRaceId = next ? next.race.raceId : races[races.length-1].race.raceId;
+  }
+  box.appendChild(mkSelect('Rennen', races.map(r=>({v:r.race.raceId, label:`Runde ${r.race.round}: ${r.race.raceName}`})), f1CurrentRaceId, v=>{ f1CurrentRaceId=v; renderF1Tippen(); }));
+
+  const race = races.find(r=>r.race.raceId===f1CurrentRaceId);
+  const driverOpts = [{v:'',label:'– wählen –'}].concat(f1Drivers.map(d=>({v:d.driverId,label:d.name})));
+  const mine = race.mine || {p1:null,p2:null,p3:null,committed:false};
+  const picks = {p1:mine.p1, p2:mine.p2, p3:mine.p3};
+
+  const card = el('<div class="card"></div>');
+  card.appendChild(el(`<div class="phase-h" style="font-size:17px;margin-bottom:6px">🏁 ${esc(race.race.raceName)}</div>`));
+  card.appendChild(el(`<div class="meta" style="margin-bottom:10px">${esc(race.race.circuit)} · ${esc(race.race.date)}</div>`));
+  if(race.locked){ card.appendChild(el('<div class="warnbox">🔒 Gesperrt — das Rennen hat begonnen oder die Tipp-Frist ist abgelaufen.</div>')); }
+  ['p1','p2','p3'].forEach((slot,i)=>{
+    card.appendChild(mkSelect(`Platz ${i+1}`, driverOpts, picks[slot]||'', v=>{ picks[slot]=v||null; }, race.locked));
+  });
+  if(!race.locked){
+    const saveBtn = el('<button style="margin-top:10px">Tipp abgeben</button>');
+    saveBtn.onclick = async ()=>{
+      try{
+        await api_post('f1/tips', {round_id: currentRoundId, race_id: race.race.raceId, p1_driver_id:picks.p1, p2_driver_id:picks.p2, p3_driver_id:picks.p3, committed:true});
+        alert('Tipp gespeichert!'); renderF1Tippen();
+      }catch(e){ alert('Fehler: '+e.message); }
+    };
+    card.appendChild(saveBtn);
+  } else if(race.others && race.others.length){
+    const lines = race.others.map(o=>`Nutzer #${o.user_id}: ${o.p1_driver_id||'–'} / ${o.p2_driver_id||'–'} / ${o.p3_driver_id||'–'}`).join('<br>');
+    card.appendChild(el(`<div style="margin-top:10px"><div class="meta"><b>Tipps aller Mitspieler:</b></div><div>${lines}</div></div>`));
+  }
+  if(race.race.result){
+    const res = race.race.result.map(r=>`P${r.position}: ${esc(r.driverName)}`).join(' · ');
+    card.appendChild(el(`<div style="margin-top:10px"><b>Ergebnis:</b> ${res}</div>`));
+  }
+  box.appendChild(card);
+}
+
+async function renderF1Auswertung(){
+  const box = document.getElementById('f1mode-f1auswertung');
+  if(!CONNECTED || !ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde.</div></div>'; return; }
+  box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
+  try{
+    const data = await api_get(`f1/leaderboard?round=${currentRoundId}`);
+    box.innerHTML = '';
+    box.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderF1Auswertung(); }));
+    if(!data.rows.length){ box.appendChild(el('<div class="card"><div class="hint">Noch keine Mitspieler mit aktivem F1-Tippen in dieser Runde.</div></div>')); return; }
+    const rowsHtml = data.rows.map(r=>`<tr><td class="num">${r.rank}</td><td>${esc(r.name)}</td><td class="num">${r.total}</td></tr>`).join('');
+    box.appendChild(el(`<div class="card"><table><thead><tr><th class="num">#</th><th>Spieler</th><th class="num">Punkte</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
+  }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; }
+}
 </script>
 </body>
 </html>

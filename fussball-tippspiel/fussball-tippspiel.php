@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Serie A + Ligue 1 + Süper Lig + Eredivisie + Primeira Liga + Saudi Pro League + Österreichische Bundesliga + Brasilianische Serie A via SportScore.com (gratis, Spieltag für Spieltag), Nations League per CSV-Import oder API-Football.
- * Version:           1.3.0
+ * Version:           1.4.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,8 +12,8 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.3.0' );
-define( 'FTIPP_DB_VERSION', '13' );
+define( 'FTIPP_VERSION', '1.4.0' );
+define( 'FTIPP_DB_VERSION', '14' );
 
 /**
  * Automatische Update-Prüfung gegen GitHub-Releases (statt WordPress.org-Verzeichnis) —
@@ -202,6 +202,30 @@ function ftipp_install() {
         PRIMARY KEY  (id)
     ) $charset_collate;" );
 
+    // Ab v1.4.0 (Formel 1 Podium-Tipp): eigenständiges Datenmodell, bewusst NICHT über ftipp_tips/
+    // ftipp_leagues() — ein Podium-Tipp (3 Fahrer-Plätze) passt nicht in die Zwei-Team-Ergebnis-Form
+    // (hg/ag), auf der die komplette Fußball-Maschinerie aufbaut. Siehe ftipp_f1_sync().
+    dbDelta( "CREATE TABLE {$p}ftipp_f1_tips (
+        user_id BIGINT UNSIGNED NOT NULL,
+        race_id VARCHAR(64) NOT NULL,
+        p1_driver_id VARCHAR(64) NULL,
+        p2_driver_id VARCHAR(64) NULL,
+        p3_driver_id VARCHAR(64) NULL,
+        committed TINYINT NOT NULL DEFAULT 0,
+        updated_at DATETIME NULL,
+        PRIMARY KEY  (user_id,race_id)
+    ) $charset_collate;" );
+
+    dbDelta( "CREATE TABLE {$p}ftipp_f1_round_config (
+        round_id BIGINT UNSIGNED NOT NULL,
+        p_exact INT NOT NULL DEFAULT 5,
+        p_partial INT NOT NULL DEFAULT 2,
+        malus_on TINYINT NOT NULL DEFAULT 0,
+        malus INT NOT NULL DEFAULT 0,
+        deadline_min INT NOT NULL DEFAULT 60,
+        PRIMARY KEY  (round_id)
+    ) $charset_collate;" );
+
     update_option( 'ftipp_db_version', FTIPP_DB_VERSION );
     ftipp_migrate_round_subs();
     ftipp_reset_nl_group_specials();
@@ -234,6 +258,7 @@ function ftipp_backup_table_names() {
     return array(
         'ftipp_rounds', 'ftipp_round_members', 'ftipp_round_config', 'ftipp_subs', 'ftipp_round_subs',
         'ftipp_tips', 'ftipp_special', 'ftipp_special_tips', 'ftipp_chat', 'ftipp_notified', 'ftipp_history',
+        'ftipp_f1_tips', 'ftipp_f1_round_config',
     );
 }
 
@@ -426,6 +451,9 @@ register_activation_hook( __FILE__, function () {
     if ( ! wp_next_scheduled( 'ftipp_newsletter_check' ) ) {
         wp_schedule_event( time() + 180, 'hourly', 'ftipp_newsletter_check' );
     }
+    if ( ! wp_next_scheduled( 'ftipp_f1_weekly_fetch' ) ) {
+        wp_schedule_event( time() + 90, 'weekly', 'ftipp_f1_weekly_fetch' );
+    }
     // Automatische Datensicherung ist bewusst opt-in (Standard: aus) — wird erst geplant, wenn der Admin
     // sie auf der Datensicherung-Seite aktiviert, siehe admin_post_ftipp_save_backup_settings.
 } );
@@ -435,6 +463,7 @@ add_action( 'plugins_loaded', function () {
     if ( ! wp_next_scheduled( 'ftipp_weekly_fetch' ) ) { wp_schedule_event( time() + 60, 'weekly', 'ftipp_weekly_fetch' ); }
     if ( ! wp_next_scheduled( 'ftipp_reminder_check' ) ) { wp_schedule_event( time() + 120, 'ftipp_15min', 'ftipp_reminder_check' ); }
     if ( ! wp_next_scheduled( 'ftipp_newsletter_check' ) ) { wp_schedule_event( time() + 180, 'hourly', 'ftipp_newsletter_check' ); }
+    if ( ! wp_next_scheduled( 'ftipp_f1_weekly_fetch' ) ) { wp_schedule_event( time() + 90, 'weekly', 'ftipp_f1_weekly_fetch' ); }
     if ( get_option( 'ftipp_backup_enabled' ) && ! wp_next_scheduled( 'ftipp_backup_scheduled' ) ) {
         wp_schedule_event( time() + 240, 'ftipp_backup_custom', 'ftipp_backup_scheduled' );
     }
@@ -444,6 +473,7 @@ register_deactivation_hook( __FILE__, function () {
     wp_clear_scheduled_hook( 'ftipp_reminder_check' );
     wp_clear_scheduled_hook( 'ftipp_newsletter_check' );
     wp_clear_scheduled_hook( 'ftipp_backup_scheduled' );
+    wp_clear_scheduled_hook( 'ftipp_f1_weekly_fetch' );
 } );
 
 /* ============================================================
@@ -965,6 +995,194 @@ function ftipp_fetch_all( $trigger = 'cron' ) {
     return array( 'ok' => true, 'meta' => $meta );
 }
 add_action( 'ftipp_weekly_fetch', 'ftipp_fetch_all' );
+
+/* ============================================================
+ * Formel 1 — Podium-Tipp (ab v1.4.0)
+ * Bewusst NICHT über ftipp_leagues()/ftipp_comp_ids() und NICHT über ftipp_tips/ftipp_fixtures_for() —
+ * ein Podium-Tipp (3 Fahrer-Plätze) passt nicht in die Zwei-Team-Ergebnis-Form (hg/ag), auf der die
+ * komplette Fußball-Maschinerie aufbaut (Fixture-Form, ftipp_match_points(), REST-Validierung an
+ * ~20 Stellen). Eigenständiges, paralleles Datenmodell — siehe Journal für die Recherche dazu.
+ * Datenquelle: f1api.dev (gratis, kein Key, live geprüft) — anders als SportScore.com bei Fußball
+ * reicht hier EIN Aufruf für den kompletten Saisonkalender und ein weiterer pro Rennen für dessen
+ * Endergebnis, keine Tag-für-Tag-Backfill-Logik nötig.
+ * ============================================================ */
+
+function ftipp_f1_get_season() { return intval( get_option( 'ftipp_f1_season', gmdate( 'Y' ) ) ); }
+
+/** Podium-Kalender + Ergebnisse abrufen/auffrischen. Löscht nie ein bereits bekanntes Ergebnis. */
+function ftipp_f1_sync( $trigger = 'cron' ) {
+    $season = ftipp_f1_get_season();
+    $resp = wp_remote_get( "https://f1api.dev/api/{$season}", array( 'timeout' => 20 ) );
+    if ( is_wp_error( $resp ) ) {
+        return array( 'ok' => false, 'races_updated' => 0, 'results_fetched' => 0, 'errors' => array( $resp->get_error_message() ) );
+    }
+    $code = (int) wp_remote_retrieve_response_code( $resp );
+    $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+    if ( 200 !== $code || empty( $body['races'] ) || ! is_array( $body['races'] ) ) {
+        return array( 'ok' => false, 'races_updated' => 0, 'results_fetched' => 0, 'errors' => array( 'Kalender: HTTP ' . $code ) );
+    }
+
+    $races = get_option( 'ftipp_f1_races', array() );
+    $updated = 0;
+    foreach ( $body['races'] as $r ) {
+        $id = isset( $r['raceId'] ) ? $r['raceId'] : ( 'r' . $season . '-' . ( isset( $r['round'] ) ? $r['round'] : '0' ) );
+        $existing = isset( $races[ $id ] ) ? $races[ $id ] : array();
+        $races[ $id ] = array(
+            'raceId'  => $id,
+            'raceName'=> isset( $r['raceName'] ) ? $r['raceName'] : $id,
+            'round'   => isset( $r['round'] ) ? intval( $r['round'] ) : 0,
+            'season'  => $season,
+            'date'    => isset( $r['schedule']['race']['date'] ) ? $r['schedule']['race']['date'] : null,
+            'time'    => isset( $r['schedule']['race']['time'] ) ? $r['schedule']['race']['time'] : '00:00:00Z',
+            'circuit' => isset( $r['circuit']['circuitName'] ) ? $r['circuit']['circuitName'] : '',
+            'country' => isset( $r['circuit']['country'] ) ? $r['circuit']['country'] : '',
+            // Ein bereits bekanntes Ergebnis nie überschreiben — nur fehlende nachladen (Schritt unten).
+            'result'  => isset( $existing['result'] ) ? $existing['result'] : null,
+        );
+        $updated++;
+    }
+
+    $errors = array(); $fetched = 0; $now = time();
+    foreach ( $races as $id => $race ) {
+        if ( null !== $race['result'] || empty( $race['date'] ) ) { continue; }
+        $raceTs = strtotime( $race['date'] . 'T' . $race['time'] );
+        if ( ! $raceTs || $raceTs > $now ) { continue; } // Rennen liegt noch in der Zukunft
+
+        $rr = wp_remote_get( "https://f1api.dev/api/{$season}/{$race['round']}/race", array( 'timeout' => 20 ) );
+        if ( is_wp_error( $rr ) ) { $errors[] = "$id: " . $rr->get_error_message(); continue; }
+        $rcode = (int) wp_remote_retrieve_response_code( $rr );
+        $rbody = json_decode( wp_remote_retrieve_body( $rr ), true );
+        $results = isset( $rbody['races']['results'] ) ? $rbody['races']['results'] : null;
+        if ( 200 !== $rcode || ! is_array( $results ) ) { $errors[] = "$id: HTTP $rcode"; continue; }
+
+        $top3 = array();
+        foreach ( $results as $res ) {
+            $pos = intval( isset( $res['position'] ) ? $res['position'] : 0 );
+            if ( $pos < 1 || $pos > 3 ) { continue; }
+            $d = isset( $res['driver'] ) ? $res['driver'] : array();
+            $top3[] = array(
+                'position'   => $pos,
+                'driverId'   => isset( $d['driverId'] ) ? $d['driverId'] : '',
+                'driverName' => trim( ( isset( $d['name'] ) ? $d['name'] : '' ) . ' ' . ( isset( $d['surname'] ) ? $d['surname'] : '' ) ),
+                'teamId'     => isset( $res['team']['teamId'] ) ? $res['team']['teamId'] : '',
+            );
+        }
+        usort( $top3, function ( $a, $b ) { return $a['position'] <=> $b['position']; } );
+        if ( count( $top3 ) >= 3 ) { $races[ $id ]['result'] = $top3; $fetched++; }
+        else { $errors[] = "$id: unvollständiges Ergebnis"; }
+    }
+
+    update_option( 'ftipp_f1_races', $races, false );
+
+    // Aktueller Fahrerkader der Saison — nötig, damit die Tipp-Auswahl (P1/P2/P3) weiß, wer überhaupt
+    // zur Wahl steht, auch bei einem Rennen, das noch nicht gefahren wurde (also noch kein 'result' hat).
+    $driversFetched = 0;
+    $dr = wp_remote_get( "https://f1api.dev/api/{$season}/drivers", array( 'timeout' => 20 ) );
+    if ( ! is_wp_error( $dr ) && 200 === (int) wp_remote_retrieve_response_code( $dr ) ) {
+        $dbody = json_decode( wp_remote_retrieve_body( $dr ), true );
+        if ( ! empty( $dbody['drivers'] ) && is_array( $dbody['drivers'] ) ) {
+            $drivers = array();
+            foreach ( $dbody['drivers'] as $d ) {
+                if ( empty( $d['driverId'] ) ) { continue; }
+                $drivers[] = array(
+                    'driverId' => $d['driverId'],
+                    'name'     => trim( ( isset( $d['name'] ) ? $d['name'] : '' ) . ' ' . ( isset( $d['surname'] ) ? $d['surname'] : '' ) ),
+                    'teamId'   => isset( $d['teamId'] ) ? $d['teamId'] : '',
+                );
+            }
+            usort( $drivers, function ( $a, $b ) { return strcmp( $a['name'], $b['name'] ); } );
+            update_option( 'ftipp_f1_drivers', $drivers, false );
+            $driversFetched = count( $drivers );
+        }
+    } else {
+        $errors[] = 'Fahrerliste: Abruf fehlgeschlagen (alte Liste bleibt erhalten)';
+    }
+
+    update_option( 'ftipp_f1_last_sync', current_time( 'mysql', true ), false );
+
+    ftipp_log_history(
+        'manual' === $trigger ? 'f1_manual_fetch' : 'f1_cron_fetch',
+        "F1: {$updated} Rennen im Kalender, {$fetched} neue Ergebnisse, {$driversFetched} Fahrer" . ( $errors ? ', Fehler bei ' . count( $errors ) : '' ),
+        'F1', wp_json_encode( array( 'errors' => $errors ) ),
+        'manual' === $trigger ? get_current_user_id() : null
+    );
+
+    return array( 'ok' => true, 'races_updated' => $updated, 'results_fetched' => $fetched, 'errors' => $errors );
+}
+add_action( 'ftipp_f1_weekly_fetch', 'ftipp_f1_sync' );
+
+/** Punkteregeln einer Runde für F1 — legt bei erstem Zugriff eine Default-Zeile an wie ftipp_round_cfg(). */
+function ftipp_f1_default_cfg() {
+    return array( 'pExact' => 5, 'pPartial' => 2, 'malusOn' => false, 'malus' => 0, 'deadlineMin' => 60 );
+}
+function ftipp_f1_round_cfg( $round_id ) {
+    global $wpdb;
+    $row = $wpdb->get_row( $wpdb->prepare(
+        "SELECT * FROM {$wpdb->prefix}ftipp_f1_round_config WHERE round_id=%d", $round_id
+    ), ARRAY_A );
+    if ( ! $row ) { return ftipp_f1_default_cfg(); }
+    return array(
+        'pExact' => intval( $row['p_exact'] ), 'pPartial' => intval( $row['p_partial'] ),
+        'malusOn' => (bool) intval( $row['malus_on'] ), 'malus' => intval( $row['malus'] ),
+        'deadlineMin' => intval( $row['deadline_min'] ),
+    );
+}
+
+/** Punkte für einen Podium-Tipp gegen das echte Ergebnis (Top-3-Array wie in ftipp_f1_races). */
+function ftipp_f1_score_tip( $result, $tip, $cfg ) {
+    if ( ! $result || ! $tip ) { return array( 'pts' => 0 ); }
+    $actualByPos = array(); $actualDrivers = array();
+    foreach ( $result as $r ) { $actualByPos[ $r['position'] ] = $r['driverId']; $actualDrivers[ $r['driverId'] ] = true; }
+    $picks = array( 1 => $tip['p1_driver_id'], 2 => $tip['p2_driver_id'], 3 => $tip['p3_driver_id'] );
+    $pts = 0; $exactDrivers = array();
+    foreach ( $picks as $pos => $driverId ) {
+        if ( ! $driverId ) { continue; }
+        if ( isset( $actualByPos[ $pos ] ) && $actualByPos[ $pos ] === $driverId ) { $pts += $cfg['pExact']; $exactDrivers[ $driverId ] = true; }
+    }
+    foreach ( $picks as $pos => $driverId ) {
+        if ( ! $driverId || isset( $exactDrivers[ $driverId ] ) ) { continue; } // schon exakt gewertet
+        if ( isset( $actualDrivers[ $driverId ] ) && $actualByPos[ $pos ] !== $driverId ) { $pts += $cfg['pPartial']; }
+    }
+    return array( 'pts' => $pts );
+}
+
+/** Rangliste einer Runde für F1 — live berechnet, kein Cache (wie ftipp_compute_leaderboard()). */
+function ftipp_f1_compute_leaderboard( $round_id ) {
+    global $wpdb;
+    $cfg = ftipp_f1_round_cfg( $round_id );
+    $members = ftipp_round_members( $round_id );
+    $subRows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT user_id FROM {$wpdb->prefix}ftipp_round_subs WHERE round_id=%d AND comp_id='F1' AND active=1", $round_id
+    ), ARRAY_A );
+    $activeIds = array();
+    foreach ( $subRows as $r ) { $activeIds[ intval( $r['user_id'] ) ] = true; }
+    $members = array_values( array_filter( $members, function ( $m ) use ( $activeIds ) { return isset( $activeIds[ $m['id'] ] ); } ) );
+    if ( ! $members ) { return array(); }
+
+    $races = get_option( 'ftipp_f1_races', array() );
+    $now = time();
+    $rows = array();
+    foreach ( $members as $m ) {
+        $total = 0;
+        foreach ( $races as $race ) {
+            if ( empty( $race['result'] ) ) { continue; }
+            $tip = $wpdb->get_row( $wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}ftipp_f1_tips WHERE user_id=%d AND race_id=%s", $m['id'], $race['raceId']
+            ), ARRAY_A );
+            if ( $tip && $tip['committed'] ) {
+                $total += ftipp_f1_score_tip( $race['result'], $tip, $cfg )['pts'];
+            } elseif ( $cfg['malusOn'] ) {
+                $raceTs = strtotime( $race['date'] . 'T' . $race['time'] );
+                if ( $raceTs && $raceTs < $now ) { $total += $cfg['malus']; }
+            }
+        }
+        $u = get_userdata( $m['id'] );
+        $rows[] = array( 'user_id' => $m['id'], 'name' => $u ? ftipp_public_name( $u ) : ( 'Spieler #' . $m['id'] ), 'total' => $total );
+    }
+    usort( $rows, function ( $a, $b ) { return $b['total'] <=> $a['total']; } );
+    foreach ( $rows as $i => $r ) { $rows[ $i ]['rank'] = $i + 1; }
+    return $rows;
+}
 
 /**
  * Test-Spiele mit Anpfiff in den nächsten Tagen — unabhängig von der API.
@@ -2536,6 +2754,128 @@ add_action( 'rest_api_init', function () {
         },
     ) );
 
+    /* -------- Formel 1 (Podium-Tipp, eigenständig — siehe ftipp_f1_sync()) -------- */
+    register_rest_route( 'ftipp/v1', '/f1/races', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function () {
+            $races = get_option( 'ftipp_f1_races', array() );
+            usort( $races, function ( $a, $b ) { return $a['round'] <=> $b['round']; } );
+            return array( 'races' => array_values( $races ) );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/f1/drivers', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function () { return array( 'drivers' => get_option( 'ftipp_f1_drivers', array() ) ); },
+    ) );
+    register_rest_route( 'ftipp/v1', '/f1/tips', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req->get_param( 'round' ) );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $cfg = ftipp_f1_round_cfg( $rid );
+            $races = get_option( 'ftipp_f1_races', array() );
+            usort( $races, function ( $a, $b ) { return $a['round'] <=> $b['round']; } );
+            $now = time();
+            $out = array();
+            foreach ( $races as $race ) {
+                $raceTs = $race['date'] ? strtotime( $race['date'] . 'T' . $race['time'] ) : 0;
+                $locked = $raceTs && ( $now >= ( $raceTs - $cfg['deadlineMin'] * 60 ) );
+                $mine = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT * FROM {$wpdb->prefix}ftipp_f1_tips WHERE user_id=%d AND race_id=%s", $uid, $race['raceId']
+                ), ARRAY_A );
+                $row = array(
+                    'race' => $race, 'locked' => (bool) $locked,
+                    'mine' => $mine ? array(
+                        'p1' => $mine['p1_driver_id'], 'p2' => $mine['p2_driver_id'], 'p3' => $mine['p3_driver_id'],
+                        'committed' => (bool) $mine['committed'],
+                    ) : null,
+                );
+                if ( $locked ) {
+                    // Erst nach Ablauf der Frist sichtbar, wie bei den Fußball-Tipps/Sonderwertungen.
+                    $others = $wpdb->get_results( $wpdb->prepare(
+                        "SELECT user_id,p1_driver_id,p2_driver_id,p3_driver_id FROM {$wpdb->prefix}ftipp_f1_tips WHERE race_id=%s AND committed=1", $race['raceId']
+                    ), ARRAY_A );
+                    $row['others'] = $others;
+                }
+                $out[] = $row;
+            }
+            return array( 'races' => $out, 'cfg' => $cfg );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/f1/tips', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ), 'race_id' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $raceId = sanitize_text_field( $req['race_id'] );
+            $races = get_option( 'ftipp_f1_races', array() );
+            if ( ! isset( $races[ $raceId ] ) ) { return new WP_Error( 'not_found', 'Rennen nicht gefunden.', array( 'status' => 404 ) ); }
+            $race = $races[ $raceId ];
+            $cfg = ftipp_f1_round_cfg( $rid );
+            $raceTs = $race['date'] ? strtotime( $race['date'] . 'T' . $race['time'] ) : 0;
+            // Sperre serverseitig neu prüfen — dem Client nie vertrauen.
+            if ( $raceTs && time() >= ( $raceTs - $cfg['deadlineMin'] * 60 ) ) {
+                return new WP_Error( 'locked', 'Dieses Rennen ist bereits gesperrt.', array( 'status' => 403 ) );
+            }
+            $p1 = $req->get_param( 'p1_driver_id' ) ? sanitize_text_field( $req['p1_driver_id'] ) : null;
+            $p2 = $req->get_param( 'p2_driver_id' ) ? sanitize_text_field( $req['p2_driver_id'] ) : null;
+            $p3 = $req->get_param( 'p3_driver_id' ) ? sanitize_text_field( $req['p3_driver_id'] ) : null;
+            $wpdb->replace( "{$wpdb->prefix}ftipp_f1_tips", array(
+                'user_id' => $uid, 'race_id' => $raceId,
+                'p1_driver_id' => $p1, 'p2_driver_id' => $p2, 'p3_driver_id' => $p3,
+                'committed' => ! empty( $req['committed'] ) ? 1 : 0,
+                'updated_at' => current_time( 'mysql' ),
+            ) );
+            return array( 'ok' => true );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/f1/leaderboard', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            $rid = intval( $req->get_param( 'round' ) ); $uid = get_current_user_id();
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            return array( 'rows' => ftipp_f1_compute_leaderboard( $rid ) );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/f1/config', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            $rid = intval( $req->get_param( 'round' ) ); $uid = get_current_user_id();
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            return ftipp_f1_round_cfg( $rid );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/f1/config', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_admin( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Nur der Runden-Admin darf die Regeln ändern.', array( 'status' => 403 ) ); }
+            $wpdb->replace( "{$wpdb->prefix}ftipp_f1_round_config", array(
+                'round_id' => $rid,
+                'p_exact' => intval( $req['pExact'] ), 'p_partial' => intval( $req['pPartial'] ),
+                'malus_on' => ! empty( $req['malusOn'] ) ? 1 : 0, 'malus' => intval( $req['malus'] ),
+                'deadline_min' => intval( $req['deadlineMin'] ),
+            ) );
+            return ftipp_f1_round_cfg( $rid );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/f1/subscribe', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        // Eigene Route statt der generischen /rounds/{id}/subs — die validiert comp_id hart gegen
+        // ftipp_comp_ids() (Fußball-Registry) und würde 'F1' mit HTTP 400 ablehnen.
+        'args' => array( 'round_id' => array( 'required' => true ), 'active' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $wpdb->replace( "{$wpdb->prefix}ftipp_round_subs", array(
+                'round_id' => $rid, 'user_id' => $uid, 'comp_id' => 'F1', 'active' => $req['active'] ? 1 : 0,
+            ) );
+            return array( 'ok' => true );
+        },
+    ) );
+
     /* -------- Echte Tabelle (nicht die Tipp-Rangliste!) -------- */
     register_rest_route( 'ftipp/v1', '/table', array(
         'methods' => 'GET', 'permission_callback' => $auth,
@@ -3042,6 +3382,7 @@ add_action( 'admin_menu', function () {
     add_submenu_page( 'ftipp', 'Changelog', 'Changelog', 'manage_options', 'ftipp_changelog', 'ftipp_page_changelog' );
     add_submenu_page( 'ftipp', 'History', 'History', 'manage_options', 'ftipp_history', 'ftipp_page_history' );
     add_submenu_page( 'ftipp', 'Cron-Job', 'Cron-Job', 'manage_options', 'ftipp_cron', 'ftipp_page_cron' );
+    add_submenu_page( 'ftipp', 'Formel 1', 'Formel 1', 'manage_options', 'ftipp_f1', 'ftipp_page_f1' );
 } );
 
 /**
@@ -3226,6 +3567,8 @@ function ftipp_page_history() {
     $actionLabels = array(
         'cron_fetch'    => '⏱️ Automatischer Abruf',
         'manual_fetch'  => '⬇️ Manueller Abruf',
+        'f1_cron_fetch'   => '🏁⏱️ F1: Automatischer Abruf',
+        'f1_manual_fetch' => '🏁⬇️ F1: Manueller Abruf',
         'csv_import'    => '📄 CSV-Import',
         'test_fixtures' => '🎲 Test-Spiele',
         'restore'       => '💾 Sicherung wiederhergestellt',
@@ -3537,6 +3880,71 @@ function ftipp_page_cron() {
                 </table>
                 <?php submit_button( 'Verbinden & einrichten' ); ?>
             </form>
+        <?php endif; ?>
+    </div>
+    <?php
+}
+
+function ftipp_page_f1() {
+    if ( ! current_user_can( 'manage_options' ) ) { return; }
+    $season   = ftipp_f1_get_season();
+    $lastSync = get_option( 'ftipp_f1_last_sync' );
+    $races    = get_option( 'ftipp_f1_races', array() );
+    usort( $races, function ( $a, $b ) { return $a['round'] <=> $b['round']; } );
+    $withResult = count( array_filter( $races, function ( $r ) { return ! empty( $r['result'] ); } ) );
+    ?>
+    <div class="wrap">
+        <h1>🏁 Formel 1</h1>
+        <p>Podium-Tipp (Platz 1-2-3) für Formel-1-Rennen — läuft komplett unabhängig von den
+           Fußball-Wettbewerben oben. Datenquelle: <a href="https://f1api.dev" target="_blank" rel="noopener">f1api.dev</a>
+           (kostenlos, kein Key nötig). Mitspieler aktivieren F1 pro Tipprunde selbst über die Runden-Seite
+           in der App.</p>
+
+        <?php if ( isset( $_GET['ftipp_f1_done'] ) ) : ?>
+            <div class="notice notice-<?php echo ( 'ok' === $_GET['ftipp_f1_done'] ) ? 'success' : 'error'; ?> is-dismissible">
+                <p><?php echo ( 'ok' === $_GET['ftipp_f1_done'] ) ? 'Abruf abgeschlossen.' : 'Abruf fehlgeschlagen.'; ?></p>
+            </div>
+        <?php endif; ?>
+        <?php if ( isset( $_GET['ftipp_f1_saved'] ) ) : ?>
+            <div class="notice notice-success is-dismissible"><p>Saison gespeichert.</p></div>
+        <?php endif; ?>
+
+        <h2>Status</h2>
+        <p><strong>Saison:</strong> <?php echo esc_html( $season ); ?>
+           &nbsp;·&nbsp; <strong>Rennen geladen:</strong> <?php echo count( $races ); ?>
+           &nbsp;·&nbsp; <strong>davon mit Ergebnis:</strong> <?php echo esc_html( $withResult ); ?>
+           &nbsp;·&nbsp; <strong>Letzter Abruf:</strong> <?php echo $lastSync ? esc_html( wp_date( 'd.m.Y H:i', strtotime( $lastSync ) ) ) : '—'; ?></p>
+
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <input type="hidden" name="action" value="ftipp_f1_fetch" />
+            <?php wp_nonce_field( 'ftipp_f1_fetch' ); ?>
+            <?php submit_button( '⬇️ Jetzt abrufen', 'primary', 'submit', false ); ?>
+        </form>
+
+        <h2 style="margin-top:30px">Saison</h2>
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <input type="hidden" name="action" value="ftipp_f1_save_season" />
+            <?php wp_nonce_field( 'ftipp_f1_save_season' ); ?>
+            <input type="number" name="ftipp_f1_season" min="2000" step="1" value="<?php echo esc_attr( $season ); ?>" style="width:110px" />
+            <p class="description">Zum Vorab-Laden der nächsten Saison, sobald deren Kalender bei f1api.dev verfügbar ist.</p>
+            <?php submit_button( 'Speichern' ); ?>
+        </form>
+
+        <?php if ( $races ) : ?>
+        <h2 style="margin-top:30px">Rennkalender</h2>
+        <table class="widefat striped" style="max-width:700px">
+            <thead><tr><th>Runde</th><th>Rennen</th><th>Datum</th><th>Ergebnis</th></tr></thead>
+            <tbody>
+            <?php foreach ( $races as $r ) : ?>
+                <tr>
+                    <td><?php echo intval( $r['round'] ); ?></td>
+                    <td><?php echo esc_html( $r['raceName'] ); ?></td>
+                    <td><?php echo esc_html( $r['date'] ); ?></td>
+                    <td><?php echo ! empty( $r['result'] ) ? '✅' : '—'; ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
         <?php endif; ?>
     </div>
     <?php
@@ -4036,6 +4444,20 @@ add_action( 'admin_post_ftipp_fetch', function () {
     check_admin_referer( 'ftipp_fetch' );
     $res = ftipp_fetch_all( 'manual' );
     wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'ftipp_done' => $res['ok'] ? 'ok' : 'err' ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
+add_action( 'admin_post_ftipp_f1_fetch', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_f1_fetch' );
+    $res = ftipp_f1_sync( 'manual' );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_f1', 'ftipp_f1_done' => $res['ok'] ? 'ok' : 'err' ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
+add_action( 'admin_post_ftipp_f1_save_season', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_f1_save_season' );
+    update_option( 'ftipp_f1_season', max( 2000, intval( $_POST['ftipp_f1_season'] ?? gmdate( 'Y' ) ) ) );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_f1', 'ftipp_f1_saved' => '1' ), admin_url( 'admin.php' ) ) );
     exit;
 } );
 add_action( 'admin_post_ftipp_test_reminder', function () {

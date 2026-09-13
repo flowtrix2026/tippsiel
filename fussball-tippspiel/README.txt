@@ -4,11 +4,11 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.3.0
+Stable tag: 1.4.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Privates Fußball-Tippspiel für deine Familie oder Freundesrunde — echtes WordPress-Login, eigene Tipprunden, automatischer Datenabruf.
+Privates Tippspiel für deine Familie oder Freundesrunde — echtes WordPress-Login, eigene Tipprunden, automatischer Datenabruf. Fußball (19 Wettbewerbe) und jetzt auch Formel 1 (Podium-Tipp).
 
 == Description ==
 
@@ -16,8 +16,9 @@ Tippstube ist ein WordPress-Plugin für private Fußball-Tippspiele unter Famili
 
 = Funktionen für Mitspieler =
 
-* **19 Wettbewerbe**: 1./2./3. Bundesliga, DFB-Pokal, Champions League, Europa League, Nations League, Premier League, LaLiga, Süper Lig, Serie A, Ligue 1, Frauen-Bundesliga, Regionalliga Nordost, Eredivisie, Primeira Liga, Saudi Pro League, Österreichische Bundesliga, Brasilianische Serie A
-* **Punktesystem**: 1 Punkt für die richtige Tendenz, 3 Punkte fürs exakte Ergebnis, optionaler K.o.-Zusatztipp bei Pokalspielen
+* **19 Fußball-Wettbewerbe**: 1./2./3. Bundesliga, DFB-Pokal, Champions League, Europa League, Nations League, Premier League, LaLiga, Süper Lig, Serie A, Ligue 1, Frauen-Bundesliga, Regionalliga Nordost, Eredivisie, Primeira Liga, Saudi Pro League, Österreichische Bundesliga, Brasilianische Serie A
+* **Formel 1 (neu)**: Podium-Tipp — vor jedem Rennen Platz 1, 2 und 3 tippen, eigene Rangliste je Tipprunde, komplett unabhängig von Fußball aktivierbar
+* **Punktesystem**: 1 Punkt für die richtige Tendenz, 3 Punkte fürs exakte Ergebnis, optionaler K.o.-Zusatztipp bei Pokalspielen (Fußball); bei Formel 1 Punkte für exakte Position und für richtigen Fahrer in falscher Position
 * **Zwei Ranglisten-Modi**: Freundschaftlich (geteilter Platz bei Gleichstand) oder Challenge (harter Tie-Break)
 * **Sonderwertungen** je Wettbewerb (Meister, Torschützenkönig etc.), automatische Auflösung per Textvergleich
 * **Pinnwand-Chat** und **Statistik/Achievements** pro Runde
@@ -25,7 +26,7 @@ Tippstube ist ein WordPress-Plugin für private Fußball-Tippspiele unter Famili
 
 = Funktionen für den Plattform-Admin =
 
-Sieben Verwaltungsseiten unter "Tippstube" im WordPress-Adminmenü:
+Acht Verwaltungsseiten unter "Tippstube" im WordPress-Adminmenü:
 
 * **Einstellungen** — API-Football-Key, automatischer Datenabruf, CSV-Import für Wettbewerbe ohne gute kostenlose Quelle
 * **Design** — Akzentfarbe, Logo und Untertitel jeder Tipprunde zentral einsehbar und bearbeitbar
@@ -34,6 +35,7 @@ Sieben Verwaltungsseiten unter "Tippstube" im WordPress-Adminmenü:
 * **Changelog** — die komplette Versionshistorie direkt im Adminbereich
 * **Info** — Kurzanleitung und Glossar
 * **Datensicherung** — alle Tippstube-Daten als Datei sichern (Download oder automatisch per E-Mail) und bei Bedarf wiederherstellen, inklusive automatischer Sicherheitskopie vor jedem Restore
+* **Formel 1** — eigener, von Fußball unabhängiger Datenabruf (f1api.dev, kostenlos, kein Key nötig) für den Podium-Tipp
 
 Updates erscheinen wie bei einem regulären WordPress.org-Plugin direkt im Plugins-Bereich ("Update verfügbar").
 
@@ -53,6 +55,12 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.4.0 =
+Formel 1 ist die erste im Sportarten-Hub wirklich fertig gebaute Sportart: Podium-Tipp (Platz 1, 2, 3
+vor jedem Rennen), eigene Rangliste je Tipprunde, komplett eigenständiger Datenabruf über f1api.dev
+(kostenlos, kein Key). Läuft technisch komplett unabhängig von Fußball — eigene Datenbank-Tabellen,
+eigene Admin-Seite, eigener Cron-Job, kein Eingriff in die bestehende Fußball-Logik.
 
 = 1.3.0 =
 Neue Sportarten-Hub-Startseite: vor dem eigentlichen Tippspiel wählt man jetzt erst per Kachel die

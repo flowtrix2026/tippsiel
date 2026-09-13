@@ -2018,6 +2018,61 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.3.0 einspielen und den Hub auf der
   echten WordPress-Seite (nicht nur lokal) durchklicken.
 
+## v1.4.0 — Formel 1 Podium-Tipp (erste wirklich fertig gebaute Sportart aus dem Hub)
+- **Anfrage:** Nach dem Sportarten-Hub (v1.3.0) die Entscheidung, welche Sportart als erste wirklich
+  fertig gebaut wird: Formel 1, mit "Podium-Tipp" (Platz 1-2-3) als gewähltem Tipp-Modus (per
+  Rückfrage bestätigt, Empfehlung angenommen). Als Datenquelle zunächst OpenF1 (openf1.org) recherchiert
+  und live geprüft (kostenlos, kein Key, aber nur Telemetrie-/Detaildaten, kein bequemer
+  Saison-auf-einmal-Endpunkt) — der Nutzer brachte dann **f1api.dev** ins Spiel ("die ist einfacher als
+  OpenF1 und besser geeignet für Rennen · Kalender · Ergebnisse · Fahrer · Teams"), was sich live bestätigt
+  hat: ein Aufruf liefert die komplette Saison, ein zweiter das komplette Rennergebnis inkl. Fahrername.
+- **Wichtiger Architektur-Fund (drei Explore-Agenten + ein Plan-Agent vor der Umsetzung):** Formel 1 darf
+  NICHT als weiterer `comp_id` in `ftipp_leagues()`/`ftipp_comp_ids()` eingetragen werden — die komplette
+  Fußball-Maschinerie (Fixture-Form mit `home`/`away`/`hg`/`ag`, `ftipp_match_points()`, REST-Validierung
+  an ~20 Stellen) setzt zwingend ein Zwei-Team-Ergebnis voraus. Zusätzlich live verifiziert: die
+  bestehende generische Subscription-Route (`POST /rounds/{id}/subs`) und Regel-Route
+  (`/rounds/{id}/config`) validieren `comp_id` beide hart gegen `ftipp_comp_ids()` — `'F1'` würde dort mit
+  HTTP 400 abgelehnt. Formel 1 bekam deshalb ein komplett eigenständiges, paralleles Datenmodell;
+  wiederverwendet werden nur die generischen Bausteine (Tipprunden, `ftipp_round_subs` mit `comp_id='F1'`
+  als reiner Aktivierungs-Flag, Backup-/History-System, Admin-Seiten-/REST-/Cron-Konventionen).
+- **Umgesetzt (Backend):** Zwei neue Tabellen `ftipp_f1_tips` (PK user_id+race_id, drei Fahrer-Spalten
+  p1/p2/p3 statt hg/ag) und `ftipp_f1_round_config` (Punkteregeln pro Runde: `p_exact`=5, `p_partial`=2,
+  Malus optional) — `FTIPP_DB_VERSION` dafür von 13 auf 14 angehoben. Neue Funktionen
+  `ftipp_f1_sync()` (Kalender+Ergebnisse+Fahrerkader von f1api.dev, überschreibt nie ein bereits bekanntes
+  Ergebnis, einzelne Fehlschläge pro Rennen werden beim nächsten Lauf automatisch erneut versucht — keine
+  Backfill/Retry-Mechanik wie bei SportScore.com nötig, da pro Saison nur ~25 Aufrufe insgesamt anfallen),
+  `ftipp_f1_score_tip()` (Punkte: Fahrer+Position exakt = `p_exact`, Fahrer im Podium aber falscher Slot =
+  `p_partial`, ein bereits exakt gewerteter Fahrer zählt nicht nochmal), `ftipp_f1_compute_leaderboard()`
+  (live berechnet wie beim Fußball, kein Cache). Eigener Cron-Hook `ftipp_f1_weekly_fetch`, eigener
+  `admin_post_ftipp_f1_fetch`-Handler, neue Admin-Seite "Formel 1" (Status, Saison-Override, manueller
+  Abruf-Button, Rennkalender-Tabelle) — alles komplett parallel zu den bestehenden Fußball-Hooks, keine
+  bestehende Funktion verändert. Sechs neue REST-Routen unter `ftipp/v1/f1/*` (races, tips GET/POST,
+  leaderboard, config GET/POST, subscribe, drivers) nach denselben `$auth`/`ftipp_is_round_member`/
+  `ftipp_is_round_admin`-Konventionen wie die bestehenden Routen. Eigene Subscribe-Route nötig (nicht die
+  bestehende `/rounds/{id}/subs` wiederverwendet), siehe Architektur-Fund oben.
+- **Umgesetzt (Frontend):** Neuer `#f1-shell`-Bereich in `tippspiel.html`, komplett unabhängig vom
+  bestehenden `#app-shell` (nur per CSS ein-/ausgeblendet, keine Änderung an `initConnected()` oder der
+  Fußball-Boot-Logik). `enterSport('f1')` und die "gewählte Sportart merken"-IIFE erweitert
+  (`hideAllShells()`-Helfer eingeführt, damit künftige weitere Sportarten dieselbe Umschaltung nutzen
+  können). Eigene Tippen-/Auswertung-Tabs mit `renderF1Tippen()`/`renderF1Auswertung()`, gleiche
+  `el()`/`mkSelect()`/`api_get()`/`api_post()`-Konventionen wie die bestehenden Fußball-Render-Funktionen.
+  Formel-1-Kachel im Hub von "Bald verfügbar" auf "Aktiv" umgestellt.
+- Lokal getestet: `ftipp_f1_score_tip()` isoliert mit 6 Testfällen (exakt, vertauscht, teilweise, kein
+  Treffer, leer, gleicher Fahrer mehrfach getippt) — alle korrekt. `ftipp_f1_sync()` live gegen die echte
+  f1api.dev-API: 24/24 Rennen der Saison 2025 korrekt geladen, alle 24 Ergebnisse korrekt (u.a. Australien
+  2025 mit echtem Ergebnis Norris/Verstappen/Russell geprüft), Fahrerkader korrekt geladen.
+  `ftipp_f1_compute_leaderboard()` mit simulierten Abo-Daten geprüft: Abo-Filterung funktioniert (nur
+  Mitglieder mit aktivem F1-Abo erscheinen). Frontend komplett end-to-end im Browser durchgeklickt (per
+  lokalem Test-Aufbau mit simuliertem `window.FTIPP_BOOT` + simuliertem `fetch`, um den echten,
+  unveränderten App-Code gegen realistische Server-Antworten zu prüfen, ohne einen vollen WordPress-Server
+  aufzusetzen): Hub → Formel 1 → Rennauswahl → Tipp abgeben → gesperrtes Rennen zeigt vorausgefüllten
+  Tipp + Mitspieler-Tipps + Ergebnis korrekt an → Auswertung zeigt Rangliste korrekt → "Sportart
+  wechseln" führt zurück zum Hub. Fußball-App im selben Testlauf gegengeprüft: läuft unverändert weiter,
+  keine Regression. Keine Änderung an bestehenden Fußball-Tabellen/-Daten.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.4.0 einspielen (prüft echten
+  `dbDelta`-Tabellenaufbau), auf Tippstube → Formel 1 einmal "Jetzt abrufen" klicken, danach im Frontend
+  eine Runde für F1 aktivieren und einen echten Tipp abgeben.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
