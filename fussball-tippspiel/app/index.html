@@ -1784,10 +1784,12 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
   <div class="tabs">
     <div class="tab active" data-mode="tetippen" onclick="switchTennisMode('tetippen')">📝 Tippen</div>
     <div class="tab" data-mode="teauswertung" onclick="switchTennisMode('teauswertung')">🏆 Auswertung</div>
+    <div class="tab" data-mode="tesonder" onclick="switchTennisMode('tesonder')">⭐ Sonderwertungen</div>
     <div class="tab" data-mode="teeinstellungen" onclick="switchTennisMode('teeinstellungen')">⚙️ Einstellungen</div>
   </div>
   <section id="temode-tetippen"></section>
   <section id="temode-teauswertung" style="display:none"></section>
+  <section id="temode-tesonder" style="display:none"></section>
   <section id="temode-teeinstellungen" style="display:none"></section>
 </div>
 </div><!-- #tennis-shell -->
@@ -2088,14 +2090,16 @@ async function renderF1Einstellungen(){
 let tennisCfg = null;
 let tennisTournament = '';      // Tippen: '' = alle Turniere
 let tennisAusTournament = '';   // Auswertung: immer genau ein Turnier (wie beim Fußball)
+let tennisCupTournament = '';   // Sonderwertung: das gerade gewählte Turnier
 
 function switchTennisMode(mode){
   document.querySelectorAll('#tennis-shell .tab').forEach(t=>t.classList.toggle('active', t.dataset.mode===mode));
-  ['tetippen','teauswertung','teeinstellungen'].forEach(m=>{
+  ['tetippen','teauswertung','tesonder','teeinstellungen'].forEach(m=>{
     document.getElementById('temode-'+m).style.display = (m===mode) ? '' : 'none';
   });
   if(mode==='tetippen') renderTennisTippen();
   else if(mode==='teauswertung') renderTennisAuswertung();
+  else if(mode==='tesonder') renderTennisSonder();
   else renderTennisEinstellungen();
 }
 
@@ -2232,6 +2236,112 @@ async function renderTennisAuswertung(){
     const rowsHtml = data.rows.map(r=>`<tr><td class="num">${r.rank}</td><td>${esc(r.name)}</td><td class="num">${r.hits}</td><td class="num">${r.total}</td></tr>`).join('');
     box.appendChild(el(`<div class="card"><table><thead><tr><th class="num">#</th><th>Spieler</th><th class="num">Treffer</th><th class="num">Punkte</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
   }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; }
+}
+
+/* Sonderwertung "Turniersieger" — gleicher Aufbau wie die Fußball-Sonderwertungen und die
+   F1-Meisterschaft: Titel, Punkte-Pill, Frist, eingetragener Sieger, darunter der eigene Tipp,
+   Mitspieler-Tipps erst nach Fristende. Der Runden-Admin trägt den Sieger am Ende selbst ein —
+   hier per Auswahlliste aus den Spielern des Turniers statt per Freitext. */
+async function renderTennisSonder(){
+  const box = document.getElementById('temode-tesonder');
+  if(!tennisGuard(box)) return;
+  box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
+
+  let subs, data;
+  try{
+    subs = await api_get(`rounds/${currentRoundId}/subs`);
+    if(subs.subs && subs.subs.TENNIS){
+      data = await api_get(`tennis/cup?round=${currentRoundId}&tournament=${encodeURIComponent(tennisCupTournament)}`);
+      const ts = data.tournaments||[];
+      if(ts.length && !ts.find(t=>t.key===tennisCupTournament)){
+        tennisCupTournament = ts[0].key;
+        data = await api_get(`tennis/cup?round=${currentRoundId}&tournament=${encodeURIComponent(tennisCupTournament)}`);
+      }
+    }
+  }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
+
+  box.innerHTML = '';
+  box.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderTennisSonder(); }));
+
+  if(!subs.subs || !subs.subs.TENNIS){
+    box.appendChild(el('<div class="card"><div class="hint">Tennis-Tippen ist für diese Runde noch nicht aktiviert — das geht im Tab „📝 Tippen".</div></div>'));
+    return;
+  }
+  const turniere = (data && data.tournaments) || [];
+  if(!turniere.length){
+    box.appendChild(el('<div class="card"><div class="hint">Noch keine Turniere geladen — der Admin muss unter Tippstube → Tennis einmal „Jetzt abrufen" klicken.</div></div>'));
+    return;
+  }
+  box.appendChild(mkSelect('Turnier', turniere.map(t=>({
+    v:t.key, label:`${t.tour.toUpperCase()} ${t.name} (${t.decided}/${t.total})`})),
+    tennisCupTournament, v=>{ tennisCupTournament=v; renderTennisSonder(); }));
+
+  const isAdmin = !!(roundById(currentRoundId)||{}).is_admin;
+  const players = data.players||[];
+  const nameOf = id => { const p=players.find(x=>String(x.id)===String(id)); return p ? p.name : (id||'–'); };
+  const info = data.info||{};
+  const opts = [{v:'',label:'– wählen –'}].concat(players.map(p=>({v:p.id, label:p.ranking?`${p.name} (#${p.ranking})`:p.name})));
+
+  const card = el('<div class="card"></div>');
+  card.appendChild(el(`<div class="row" style="margin-bottom:8px"><b>⭐ Turniersieger — ${esc(info.name||'')}</b>`
+    + (isAdmin ? '' : `<span class="pill gold">${data.points} Punkte</span>`
+        + (data.deadline?`<span class="meta">Frist ${esc(fmtDate(data.deadline))}</span>`:''))
+    + (data.winner?`<span class="pill gold">Sieger: ${esc(nameOf(data.winner))}</span>`:'')
+    + `</div>`));
+  card.appendChild(el('<div class="meta">Wer gewinnt dieses Turnier? Getippt wird vor dem ersten Match.</div>'));
+
+  if(isAdmin){
+    const adm = el('<div class="row" style="margin-top:8px"></div>');
+    const pw = el('<div class="flexcol" style="align-items:center"></div>');
+    pw.appendChild(el('<label>Punkte</label>'));
+    const pi = el(`<input type="number" class="score" value="${data.points}" style="width:70px">`);
+    pi.onchange = async ()=>{ try{ await api_post('tennis/cup/config', {round_id:currentRoundId, tournament:tennisCupTournament, points: parseInt(pi.value)||0}); renderTennisSonder(); }catch(e){ alert('Fehler: '+e.message); } };
+    pw.appendChild(pi); adm.appendChild(pw);
+    const dw = el('<div class="flexcol" style="align-items:center"></div>');
+    dw.appendChild(el('<label>Tipp-Frist</label>'));
+    const di = el(`<input type="datetime-local" value="${esc(data.deadline||'')}">`);
+    di.onchange = async ()=>{ try{ await api_post('tennis/cup/config', {round_id:currentRoundId, tournament:tennisCupTournament, deadline: di.value}); renderTennisSonder(); }catch(e){ alert('Fehler: '+e.message); } };
+    dw.appendChild(di); adm.appendChild(dw);
+    const ww = el('<div class="flexcol" style="align-items:center"></div>');
+    ww.appendChild(el('<label>Sieger eintragen</label>'));
+    ww.appendChild(mkSelect('', opts, data.winner||'', async v=>{
+      try{ await api_post('tennis/cup/config', {round_id:currentRoundId, tournament:tennisCupTournament, winner: v||''}); renderTennisSonder(); }
+      catch(e){ alert('Fehler: '+e.message); }
+    }));
+    adm.appendChild(ww);
+    card.appendChild(adm);
+    card.appendChild(el(`<div class="meta" style="margin-top:4px">Als Runden-Admin legst du Punkte und Frist fest und trägst nach dem Finale den Sieger ein.${data.deadlineCustom?'':' Ohne eigene Frist gilt der Beginn des ersten Turnier-Matches.'}</div>`));
+  }
+
+  const mine = data.mine || {player_id:null, committed:false};
+  let pick = mine.player_id || '';
+  const tipRow = el('<div style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px"></div>');
+  tipRow.appendChild(mkSelect('Mein Tipp', opts, pick, v=>{ pick = v||''; }, data.locked));
+  const statusRow = el('<div class="row" style="margin-top:8px"></div>');
+  if(data.locked){
+    statusRow.appendChild(el('<span class="pill warn">Frist vorbei</span>'));
+  } else {
+    if(mine.committed){ statusRow.appendChild(el('<span class="pill good">✅ abgegeben — bis zur Frist noch änderbar</span>')); }
+    const btn = el('<button class="mini right">✅ Tipp abgeben</button>');
+    btn.onclick = async ()=>{
+      if(!pick){ alert('Bitte erst einen Spieler wählen.'); return; }
+      try{ await api_post('tennis/cup/tip', {round_id:currentRoundId, tournament:tennisCupTournament, player_id:pick, committed:true}); renderTennisSonder(); }
+      catch(e){ alert('Fehler: '+e.message); }
+    };
+    statusRow.appendChild(btn);
+  }
+  tipRow.appendChild(statusRow);
+  card.appendChild(tipRow);
+  if(!data.locked){
+    card.appendChild(el('<div class="meta" style="margin-top:6px">🔒 Die Tipps der Mitspieler siehst du erst, sobald die Frist abgelaufen ist.</div>'));
+  }
+  box.appendChild(card);
+
+  if(data.locked && data.rows && data.rows.length){
+    const rowsHtml = data.rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc(nameOf(r.player_id))}</td><td class="num">${r.pts}</td></tr>`).join('');
+    box.appendChild(el(`<div class="card"><div class="row" style="margin-bottom:8px"><b>👀 Tipps der Mitspieler</b></div>`
+      + `<table><thead><tr><th>Spieler</th><th>Getippter Sieger</th><th class="num">Punkte</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
+  }
 }
 
 /* Zahlenfeld für eine Tennis-Regel — speichert sofort, schickt nur das eine geänderte Feld. */

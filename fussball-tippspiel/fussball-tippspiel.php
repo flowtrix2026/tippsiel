@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball (19 Wettbewerbe) und Formel 1 (Podium-Tipp), echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version:           1.8.0
+ * Version:           1.9.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,8 +12,8 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.8.0' );
-define( 'FTIPP_DB_VERSION', '17' );
+define( 'FTIPP_VERSION', '1.9.0' );
+define( 'FTIPP_DB_VERSION', '18' );
 
 /**
  * Tennis (livetennisapi.com): Der Gratis-Tarif erlaubt 100 Anfragen pro Tag. Wir deckeln bewusst bei 90,
@@ -260,6 +260,25 @@ function ftipp_install() {
         PRIMARY KEY  (user_id,match_id)
     ) $charset_collate;" );
 
+    dbDelta( "CREATE TABLE {$p}ftipp_tennis_cup (
+        round_id BIGINT UNSIGNED NOT NULL,
+        tournament_key VARCHAR(64) NOT NULL,
+        points INT NOT NULL DEFAULT 10,
+        deadline DATETIME NULL,
+        winner_player VARCHAR(64) NULL,
+        PRIMARY KEY  (round_id,tournament_key)
+    ) $charset_collate;" );
+
+    dbDelta( "CREATE TABLE {$p}ftipp_tennis_cup_tips (
+        round_id BIGINT UNSIGNED NOT NULL,
+        tournament_key VARCHAR(64) NOT NULL,
+        user_id BIGINT UNSIGNED NOT NULL,
+        player_id VARCHAR(64) NULL,
+        committed TINYINT NOT NULL DEFAULT 0,
+        updated_at DATETIME NULL,
+        PRIMARY KEY  (round_id,tournament_key,user_id)
+    ) $charset_collate;" );
+
     dbDelta( "CREATE TABLE {$p}ftipp_tennis_round_config (
         round_id BIGINT UNSIGNED NOT NULL,
         p_win INT NOT NULL DEFAULT 2,
@@ -302,7 +321,7 @@ function ftipp_backup_table_names() {
         'ftipp_rounds', 'ftipp_round_members', 'ftipp_round_config', 'ftipp_subs', 'ftipp_round_subs',
         'ftipp_tips', 'ftipp_special', 'ftipp_special_tips', 'ftipp_chat', 'ftipp_notified', 'ftipp_history',
         'ftipp_f1_tips', 'ftipp_f1_round_config',
-        'ftipp_tennis_tips', 'ftipp_tennis_round_config',
+        'ftipp_tennis_tips', 'ftipp_tennis_round_config', 'ftipp_tennis_cup', 'ftipp_tennis_cup_tips',
     );
 }
 
@@ -1619,6 +1638,80 @@ function ftipp_tennis_score_tip( $match, $tip, $cfg ) {
     return ( intval( $tip['pick'] ) === intval( $match['winner'] ) ) ? $cfg['pWin'] : 0;
 }
 
+/* ---- Sonderwertung "Turniersieger" ----------------------------------------
+ * Aufgebaut wie die Fußball-Sonderwertungen: je Tipprunde und Turnier eine Wette mit eigenen Punkten
+ * und eigener Frist, und der Runden-Admin trägt am Ende den Sieger ein. Unterschied nur beim Eingeben:
+ * statt Freitext (der bei Fußball per Textvergleich aufgelöst wird) wird hier aus den Spielern des
+ * Turniers ausgewählt — die kennen wir ja aus den geladenen Matches, also kann es keine Tippfehler
+ * oder abweichenden Schreibweisen geben. */
+
+function ftipp_tennis_cup_defaults() {
+    // Ein Turniersieg über zwei Wochen ist deutlich schwerer zu treffen als ein einzelnes Match (2).
+    return array( 'points' => 10, 'deadline' => null, 'winner' => null );
+}
+
+/** Einstellungen + eingetragener Sieger einer Turnier-Wette in einer Runde. */
+function ftipp_tennis_cup_row( $round_id, $key ) {
+    global $wpdb;
+    $row = $wpdb->get_row( $wpdb->prepare(
+        "SELECT * FROM {$wpdb->prefix}ftipp_tennis_cup WHERE round_id=%d AND tournament_key=%s", $round_id, $key
+    ), ARRAY_A );
+    if ( ! $row ) { return ftipp_tennis_cup_defaults(); }
+    return array(
+        'points'   => intval( $row['points'] ),
+        'deadline' => $row['deadline'],
+        'winner'   => $row['winner_player'],
+    );
+}
+
+/**
+ * Tipp-Schluss der Turnier-Wette: die vom Runden-Admin gesetzte Frist, sonst der Beginn des ersten
+ * Matches dieses Turniers (abzüglich des normalen Vorlaufs) — man tippt den Sieger also vor Turnierstart.
+ */
+function ftipp_tennis_cup_lock_ts( $key, $cupRow, $cfg ) {
+    if ( ! empty( $cupRow['deadline'] ) ) { return strtotime( $cupRow['deadline'] ); }
+    $matches = get_option( 'ftipp_tennis_matches', array() );
+    $first = null;
+    foreach ( $matches as $m ) {
+        if ( ftipp_tennis_tournament_key( $m ) !== $key || empty( $m['scheduled_time'] ) ) { continue; }
+        $ts = strtotime( $m['scheduled_time'] );
+        if ( $ts && ( null === $first || $ts < $first ) ) { $first = $ts; }
+    }
+    return $first ? ( $first - $cfg['deadlineMin'] * 60 ) : 0;
+}
+
+/** Alle Spieler, die in diesem Turnier vorkommen — die Auswahlliste für Tipp und Sieger-Eintrag. */
+function ftipp_tennis_cup_players( $key ) {
+    $matches = get_option( 'ftipp_tennis_matches', array() );
+    $out = array();
+    foreach ( $matches as $m ) {
+        if ( ftipp_tennis_tournament_key( $m ) !== $key ) { continue; }
+        foreach ( array( 'p1', 'p2' ) as $side ) {
+            $p = $m['players'][ $side ];
+            if ( empty( $p['id'] ) ) { continue; }
+            $id = (string) $p['id'];
+            if ( ! isset( $out[ $id ] ) ) {
+                $out[ $id ] = array( 'id' => $id, 'name' => $p['name'], 'ranking' => $p['ranking'] );
+            }
+        }
+    }
+    usort( $out, function ( $a, $b ) { return strcmp( $a['name'], $b['name'] ); } );
+    return array_values( $out );
+}
+
+/** Punkte eines Mitspielers aus der Turnier-Wette (0, solange kein Sieger eingetragen ist). */
+function ftipp_tennis_cup_points_for( $round_id, $key, $user_id ) {
+    global $wpdb;
+    $cup = ftipp_tennis_cup_row( $round_id, $key );
+    if ( empty( $cup['winner'] ) ) { return 0; }
+    $tip = $wpdb->get_row( $wpdb->prepare(
+        "SELECT player_id,committed FROM {$wpdb->prefix}ftipp_tennis_cup_tips
+         WHERE round_id=%d AND tournament_key=%s AND user_id=%d", $round_id, $key, $user_id
+    ), ARRAY_A );
+    if ( ! $tip || empty( $tip['committed'] ) ) { return 0; }
+    return ( (string) $tip['player_id'] === (string) $cup['winner'] ) ? intval( $cup['points'] ) : 0;
+}
+
 /**
  * Rangliste einer Runde für Tennis.
  * Anders als bei F1 wird hier pro Mitglied nur EINE Datenbank-Abfrage gemacht und danach im Speicher
@@ -1664,11 +1757,22 @@ function ftipp_tennis_compute_leaderboard( $round_id, $tournament = '' ) {
                 if ( $lockTs && $lockTs < $now ) { $total += $cfg['malus']; }
             }
         }
+        // Sonderwertung "Turniersieger" zählt in dieselbe Rangliste — bei einer Gesamtansicht über
+        // alle Turniere entsprechend die aller Turniere.
+        $cupPts = 0;
+        if ( '' !== $tournament ) {
+            $cupPts = ftipp_tennis_cup_points_for( $round_id, $tournament, $m['id'] );
+        } else {
+            foreach ( ftipp_tennis_tournaments() as $t ) {
+                $cupPts += ftipp_tennis_cup_points_for( $round_id, $t['key'], $m['id'] );
+            }
+        }
+        $total += $cupPts;
         $u = get_userdata( $m['id'] );
         $rows[] = array(
             'user_id' => $m['id'],
             'name'    => $u ? ftipp_public_name( $u ) : ( 'Spieler #' . $m['id'] ),
-            'total'   => $total, 'hits' => $hits,
+            'total'   => $total, 'hits' => $hits, 'cup' => $cupPts,
         );
     }
     usort( $rows, function ( $a, $b ) { return $b['total'] <=> $a['total']; } );
@@ -3548,6 +3652,113 @@ add_action( 'rest_api_init', function () {
                 'tournaments' => ftipp_tennis_tournaments(),
                 'tournament' => $t,
             );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/tennis/cup', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req->get_param( 'round' ) );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $key = sanitize_text_field( (string) $req->get_param( 'tournament' ) );
+            $tournaments = ftipp_tennis_tournaments();
+            if ( '' === $key ) { return array( 'tournaments' => $tournaments, 'tournament' => '' ); }
+            $cfg    = ftipp_tennis_round_cfg( $rid );
+            $cup    = ftipp_tennis_cup_row( $rid, $key );
+            $lockTs = ftipp_tennis_cup_lock_ts( $key, $cup, $cfg );
+            $locked = $lockTs && ( time() >= $lockTs );
+            $mine   = $wpdb->get_row( $wpdb->prepare(
+                "SELECT player_id,committed FROM {$wpdb->prefix}ftipp_tennis_cup_tips
+                 WHERE round_id=%d AND tournament_key=%s AND user_id=%d", $rid, $key, $uid
+            ), ARRAY_A );
+            $info = null;
+            foreach ( $tournaments as $t ) { if ( $t['key'] === $key ) { $info = $t; break; } }
+            $out = array(
+                'tournaments' => $tournaments, 'tournament' => $key, 'info' => $info,
+                'players' => ftipp_tennis_cup_players( $key ),
+                'points'  => $cup['points'], 'winner' => $cup['winner'],
+                'locked'  => (bool) $locked,
+                'deadline' => $lockTs ? gmdate( 'Y-m-d\TH:i', $lockTs + ( get_option( 'gmt_offset', 0 ) * HOUR_IN_SECONDS ) ) : null,
+                'deadlineCustom' => ! empty( $cup['deadline'] ),
+                'mine' => $mine ? array( 'player_id' => $mine['player_id'], 'committed' => (bool) $mine['committed'] ) : null,
+                'rows' => array(),
+            );
+            // Tipps der Mitspieler erst nach Fristende — wie überall sonst auch.
+            if ( ! $locked ) { return $out; }
+            $subRows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT user_id FROM {$wpdb->prefix}ftipp_round_subs WHERE round_id=%d AND comp_id='TENNIS' AND active=1", $rid
+            ), ARRAY_A );
+            $activeIds = array();
+            foreach ( $subRows as $r ) { $activeIds[ intval( $r['user_id'] ) ] = true; }
+            foreach ( ftipp_round_members( $rid ) as $mem ) {
+                if ( ! isset( $activeIds[ $mem['id'] ] ) ) { continue; }
+                $t = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT player_id,committed FROM {$wpdb->prefix}ftipp_tennis_cup_tips
+                     WHERE round_id=%d AND tournament_key=%s AND user_id=%d", $rid, $key, $mem['id']
+                ), ARRAY_A );
+                $u = get_userdata( $mem['id'] );
+                $out['rows'][] = array(
+                    'user_id' => $mem['id'],
+                    'name' => $u ? ftipp_public_name( $u ) : ( 'Spieler #' . $mem['id'] ),
+                    'player_id' => ( $t && $t['committed'] ) ? $t['player_id'] : null,
+                    'pts' => ftipp_tennis_cup_points_for( $rid, $key, $mem['id'] ),
+                );
+            }
+            usort( $out['rows'], function ( $a, $b ) { return $b['pts'] <=> $a['pts']; } );
+            return $out;
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/tennis/cup/tip', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ), 'tournament' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $key = sanitize_text_field( $req['tournament'] );
+            $cfg = ftipp_tennis_round_cfg( $rid );
+            $cup = ftipp_tennis_cup_row( $rid, $key );
+            $lockTs = ftipp_tennis_cup_lock_ts( $key, $cup, $cfg );
+            // Sperre serverseitig neu prüfen — dem Client nie vertrauen.
+            if ( $lockTs && time() >= $lockTs ) {
+                return new WP_Error( 'locked', 'Die Tipp-Frist ist bereits abgelaufen.', array( 'status' => 403 ) );
+            }
+            $player = sanitize_text_field( (string) $req->get_param( 'player_id' ) );
+            $wpdb->replace( "{$wpdb->prefix}ftipp_tennis_cup_tips", array(
+                'round_id' => $rid, 'tournament_key' => $key, 'user_id' => $uid,
+                'player_id' => ( '' === $player ) ? null : $player,
+                'committed' => ! empty( $req['committed'] ) ? 1 : 0,
+                'updated_at' => current_time( 'mysql' ),
+            ) );
+            return array( 'ok' => true );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/tennis/cup/config', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ), 'tournament' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_admin( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Nur der Runden-Admin darf das ändern.', array( 'status' => 403 ) ); }
+            $key = sanitize_text_field( $req['tournament'] );
+            $cur = ftipp_tennis_cup_row( $rid, $key );
+            $points = $cur['points'];
+            if ( null !== $req->get_param( 'points' ) && '' !== $req->get_param( 'points' ) ) {
+                $points = intval( $req->get_param( 'points' ) );
+            }
+            $deadline = $cur['deadline'];
+            if ( null !== $req->get_param( 'deadline' ) ) {
+                $raw = trim( (string) $req->get_param( 'deadline' ) );
+                // Gleiches Format wie bei den Fußball-Sonderwertungen (datetime-local, lokale Zeit).
+                $deadline = ( '' === $raw ) ? null : str_replace( 'T', ' ', substr( $raw, 0, 16 ) ) . ':00';
+            }
+            $winner = $cur['winner'];
+            if ( null !== $req->get_param( 'winner' ) ) {
+                $w = sanitize_text_field( (string) $req->get_param( 'winner' ) );
+                $winner = ( '' === $w ) ? null : $w;
+            }
+            $wpdb->replace( "{$wpdb->prefix}ftipp_tennis_cup", array(
+                'round_id' => $rid, 'tournament_key' => $key,
+                'points' => $points, 'deadline' => $deadline, 'winner_player' => $winner,
+            ) );
+            return ftipp_tennis_cup_row( $rid, $key );
         },
     ) );
     register_rest_route( 'ftipp/v1', '/tennis/tournaments', array(

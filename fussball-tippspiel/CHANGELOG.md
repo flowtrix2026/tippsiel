@@ -2310,6 +2310,40 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Update einspielen, "Jetzt abrufen" klicken (räumt dabei
   eventuell schon geladene Doppel aus) und die Turnier-Auswahl in beiden Tabs prüfen.
 
+## v1.9.0 — Tennis-Sonderwertung "Turniersieger"
+
+- **Anfrage:** "sollte man den Cup Gewinner nicht auch **eintragen** können mit Punkten". Das Wort
+  "eintragen" gab die Bauweise vor: genau wie bei den Fußball-Sonderwertungen trägt der **Runden-Admin**
+  den Sieger am Ende selbst ein — keine Automatik-Erkennung des Finales. Das ist auch die verlässlichere
+  Variante: die API markiert Endspiele nicht eindeutig (in den geprüften Daten kamen nur Codes wie R32,
+  R16 und Q vor, kein sicheres Final-Kennzeichen), eine automatische Auflösung hätte also raten müssen.
+- **Umgesetzt:** Tennis bekommt einen vierten Tab **"⭐ Sonderwertungen"** — gleich benannt und gleich
+  aufgebaut wie bei Fußball und Formel 1. Je Tipprunde und Turnier gibt es eine Wette "Turniersieger":
+  - **Mitspieler** tippen aus einer Auswahlliste der Spieler dieses Turniers (statt Freitext wie bei
+    Fußball — die Namen kennen wir aus den geladenen Matches, also keine Tippfehler und kein
+    Textvergleich nötig).
+  - **Runden-Admin** legt Punkte (Standard 10) und Frist fest und trägt nach dem Finale den Sieger ein,
+    ebenfalls per Auswahlliste.
+  - Frist ohne eigene Angabe: Beginn des ersten Turnier-Matches minus normalem Vorlauf — man tippt den
+    Sieger also vor Turnierstart.
+  - Die Punkte fließen in die Turnier-Rangliste ein (bei der Gesamtansicht die aller Turniere).
+- **Datenbank:** zwei neue Tabellen `ftipp_tennis_cup` (Runde+Turnier: Punkte, Frist, eingetragener
+  Sieger) und `ftipp_tennis_cup_tips` (Runde+Turnier+Nutzer). Bewusst **pro Runde**, wie die
+  Fußball-Sonderwertungen — jede Tipprunde führt ihre eigene Wette. `FTIPP_DB_VERSION` 17 → 18.
+  Drei neue Routen: `GET /tennis/cup`, `POST /tennis/cup/tip`, `POST /tennis/cup/config`.
+- Lokal getestet: `php -l` fehlerfrei, Script-Blöcke geprüft. Isolierter Logik-Test mit 13 Fällen, wobei
+  die Funktionen direkt aus der ausgelieferten Plugin-Datei ausgeschnitten und ausgeführt werden:
+  Punkte gibt es erst, wenn der Admin den Sieger eingetragen hat (vorher 0, auch bei richtigem Tipp);
+  richtig getippt = volle Punkte; falsch, nicht abgegeben oder gar nicht getippt = 0; eine andere
+  Tipprunde kennt den Sieger nicht (getrennte Wertung); Frist = frühestes Turnier-Match minus 60 Minuten,
+  eine eigene Admin-Frist sticht das; die Spielerliste enthält nur Spieler des gewählten Turniers.
+  Browser-Test: vier Tabs, Punkte auf 25 geändert, eigener Tipp abgegeben ("✅ abgegeben"), Sieger
+  eingetragen — jede Aktion schickt einzeln nur ihr eigenes Feld. Im gesperrten Zustand zeigt die Karte
+  den eingetragenen Sieger und die Mitspieler-Tabelle die korrekten Punkte (Floh 10 für den richtigen
+  Tipp, geli 0). Als normales Mitglied: keine Bearbeitungsfelder, nur Punkte-Pill, Frist und Sieger.
+- *Noch nicht auf der echten Seite getestet:* Update einspielen (legt die zwei neuen Tabellen an), im
+  Sonderwertungen-Tab Punkte setzen, tippen und nach einem Finale den Sieger eintragen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
