@@ -2217,6 +2217,60 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.6.0 einspielen (legt per `dbDelta` die
   zwei neuen Spalten an) und den Bonus mit einem echten, bereits gefahrenen Rennen gegenprüfen.
 
+## v1.7.0 — Tennis: Sieger-Tipp (dritte Sportart)
+
+- **Anfrage:** "jetzt Tennis" — die im Hub geplante nächste Sportart, nach dem bereits abgestimmten
+  Tipp-Modus "nur Sieger tippen" und mit der Vorgabe, dass man **seinen API-Key selbst eintragen** kann.
+- **Datenquelle livetennisapi.com** (eigener kostenloser Key nötig, vom Nutzer bereitgestellt). Vor dem
+  Bau live gegengeprüft, dabei zwei Dinge **besser als geplant** vorgefunden: die API kann
+  **serverseitig filtern** (`tour`, `is_doubles=false`, `is_qualifying=false`) — das war im Plan noch als
+  Filterung im PHP vorgesehen und hätte massiv Budget verbrannt, denn von 100 Einträgen der ungefilterten
+  Liste sind nur ~9 ATP/WTA-Hauptfeld-Einzel (der Rest Challenger/ITF/Quali/Doppel). Bestätigt wurde
+  außerdem: die Liste **abgeschlossener** Matches ist kostenpflichtig (HTTP 403 `upgrade_required`), der
+  **Einzelabruf per ID liefert den Sieger aber gratis** — also dasselbe Muster wie bei SportScore.com
+  (Fußball) und beim Nachladen der Rennergebnisse (F1): IDs aus der Gratis-Liste merken und einzeln
+  nachprüfen, sobald ihre Zeit vorbei ist.
+- **Umgesetzt (Backend):** Zwei neue Tabellen `ftipp_tennis_tips` (PK user_id+match_id, eine `pick`-Spalte
+  1/2 statt Toren) und `ftipp_tennis_round_config` (`p_win`, Malus, Frist). `FTIPP_DB_VERSION` 16 → 17.
+  Neu: `ftipp_tennis_sync()` (Listen je Tour paginiert holen, danach fällige Ergebnisse einzeln nachtragen),
+  `ftipp_tennis_score_tip()`, `ftipp_tennis_compute_leaderboard()`, eigener 4-Stunden-Cron
+  `ftipp_tennis_periodic_fetch`, Admin-Seite "Tennis" mit **eigenem API-Key-Feld**, sechs REST-Routen
+  unter `ftipp/v1/tennis/*`. Wie bei F1 eine eigene Subscribe-Route, weil die generische
+  `/rounds/{id}/subs` `comp_id` hart gegen die Fußball-Registry prüft und `'TENNIS'` ablehnen würde.
+- **Tagesbudget als zentraler Schutz:** Der Gratis-Tarif erlaubt 100 Anfragen/Tag, wir deckeln bei 90.
+  Jede einzelne Anfrage erhöht den Zähler und speichert ihn **sofort** — ein Absturz mitten im Lauf kann
+  ihn nie unterschätzen. Ist das Budget aufgebraucht, verschiebt sich die Arbeit auf den nächsten Lauf,
+  statt das Kontingent zu sprengen. Rangliste bewusst mit **einer** Abfrage je Mitglied statt einer je
+  Mitglied×Match (bei Tennis kommen pro Saison Tausende Matches zusammen).
+- **Im Live-Test gefundener und behobener Fehler:** Der erste echte Lauf verbrauchte einen Aufruf für ein
+  **abgesagtes** Match — und hätte das alle 4 Stunden endlos wiederholt, weil dessen Sieger nie kommt.
+  Genauso bei Abbrüchen, Walkovers oder Datenlücken. Jetzt werden abgesagte Matches übersprungen und
+  jedes Match nach `FTIPP_TENNIS_MAX_RECHECKS` (6 Versuche ≈ 24 Stunden, genug für Regenunterbrechungen)
+  aufgegeben. Der Zähler überlebt auch die Listen-Abrufe, sonst würde er ständig zurückgesetzt.
+- **Umgesetzt (Frontend):** Neue Hub-Kachel 🎾 Tennis (aktiv), eigener `#tennis-shell` mit den gewohnten
+  Tabs "📝 Tippen / 🏆 Auswertung / ⚙️ Einstellungen". Die Sportart-Umschaltung läuft jetzt über eine
+  Tabelle (`SPORT_SHELLS`) statt über if-Ketten — jede weitere Sportart ist damit eine Zeile.
+  Tippen ist bewusst anders als bei F1 aufgebaut: bei Tennis laufen viele Matches gleichzeitig, deshalb
+  **eine Karte je Match mit zwei anklickbaren Spielern** (inkl. Weltranglistenplatz) statt Dropdown —
+  ein Klick genügt. Gesperrte Matches zeigen 🔒, den Sieger, das Satzergebnis und die Tipps der
+  Mitspieler. Einstellungen wie bei F1: Admin bearbeitet, Mitspieler sehen die Werte als Pills.
+- Lokal getestet: `php -l` fehlerfrei, alle Script-Blöcke geprüft. **Live gegen die echte API:** 32
+  WTA-Hauptfeld-Matches in 3 Aufrufen geladen (ATP hatte Mitte September regulär keine Hauptfeld-Matches),
+  Budget zählte korrekt 3 → 6 über zwei Läufe, bei künstlich auf das Limit gesetztem Budget wurden
+  **null** Anfragen gestellt, und abgesagte bzw. ausgereizte Matches werden nachweislich übersprungen.
+  Punkte-Logik geprüft (richtig 2 / falsch 0 / nicht abgegeben 0 / noch kein Sieger 0). Browser-Test:
+  Hub-Kachel da, Aktivierung per Knopf, Klick auf einen Spieler speichert sofort
+  (`{match_id, pick, committed:true}`), gesperrtes Match zeigt Sieger + Satzergebnis + Mitspieler-Tipps,
+  Auswertung mit Treffern und Punkten, Einstellungen speichern einzeln, Mitspieler ohne Admin-Rechte
+  bekommen keine Felder. **Regression gegengeprüft:** Fußball und Formel 1 laufen unverändert, alle
+  Bereiche blenden sich sauber gegenseitig aus.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.7.0 einspielen (legt die zwei neuen
+  Tabellen an), unter Tippstube → Tennis den eigenen API-Key eintragen, "Jetzt abrufen" klicken und im
+  Frontend eine Runde für Tennis aktivieren.
+- *Bewusst zurückgestellt:* Satz-/Score-Tipp, Doppel/Qualifikation/Challenger/ITF, Live-Anzeige,
+  Außenseiter-Bonus und eine Turniersieger-Sonderwertung (die wäre der nächste sinnvolle Schritt —
+  dann bekäme Tennis wie Formel 1 einen "⭐ Sonderwertungen"-Tab).
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

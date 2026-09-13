@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball (19 Wettbewerbe) und Formel 1 (Podium-Tipp), echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version:           1.6.0
+ * Version:           1.7.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,8 +12,23 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.6.0' );
-define( 'FTIPP_DB_VERSION', '16' );
+define( 'FTIPP_VERSION', '1.7.0' );
+define( 'FTIPP_DB_VERSION', '17' );
+
+/**
+ * Tennis (livetennisapi.com): Der Gratis-Tarif erlaubt 100 Anfragen pro Tag. Wir deckeln bewusst bei 90,
+ * damit ein manueller Admin-Klick nie das Kontingent sprengt. Gezählt wird jede einzelne Anfrage.
+ */
+define( 'FTIPP_TENNIS_DAILY_BUDGET', 90 );
+define( 'FTIPP_TENNIS_PAGE_SIZE', 100 );
+/** Ältere Matches fliegen aus dem Zwischenspeicher, damit die Option nicht unbegrenzt wächst. */
+define( 'FTIPP_TENNIS_RETENTION_DAYS', 120 );
+/**
+ * Nach so vielen erfolglosen Nachchecks wird ein Match aufgegeben. Bei einem 4-Stunden-Takt sind das
+ * 24 Stunden — genug für Regenunterbrechungen, aber begrenzt genug, dass ein abgebrochenes oder
+ * nie gewertetes Match nicht dauerhaft Tagesbudget frisst.
+ */
+define( 'FTIPP_TENNIS_MAX_RECHECKS', 6 );
 
 /**
  * Automatische Update-Prüfung gegen GitHub-Releases (statt WordPress.org-Verzeichnis) —
@@ -231,6 +246,24 @@ function ftipp_install() {
         PRIMARY KEY  (round_id)
     ) $charset_collate;" );
 
+    dbDelta( "CREATE TABLE {$p}ftipp_tennis_tips (
+        user_id BIGINT UNSIGNED NOT NULL,
+        match_id VARCHAR(64) NOT NULL,
+        pick TINYINT NULL,
+        committed TINYINT NOT NULL DEFAULT 0,
+        updated_at DATETIME NULL,
+        PRIMARY KEY  (user_id,match_id)
+    ) $charset_collate;" );
+
+    dbDelta( "CREATE TABLE {$p}ftipp_tennis_round_config (
+        round_id BIGINT UNSIGNED NOT NULL,
+        p_win INT NOT NULL DEFAULT 2,
+        malus_on TINYINT NOT NULL DEFAULT 0,
+        malus INT NOT NULL DEFAULT 0,
+        deadline_min INT NOT NULL DEFAULT 60,
+        PRIMARY KEY  (round_id)
+    ) $charset_collate;" );
+
     update_option( 'ftipp_db_version', FTIPP_DB_VERSION );
     ftipp_migrate_round_subs();
     ftipp_reset_nl_group_specials();
@@ -264,6 +297,7 @@ function ftipp_backup_table_names() {
         'ftipp_rounds', 'ftipp_round_members', 'ftipp_round_config', 'ftipp_subs', 'ftipp_round_subs',
         'ftipp_tips', 'ftipp_special', 'ftipp_special_tips', 'ftipp_chat', 'ftipp_notified', 'ftipp_history',
         'ftipp_f1_tips', 'ftipp_f1_round_config',
+        'ftipp_tennis_tips', 'ftipp_tennis_round_config',
     );
 }
 
@@ -445,6 +479,15 @@ add_filter( 'cron_schedules', function ( $s ) {
     $s['ftipp_backup_custom'] = array( 'interval' => $seconds, 'display' => 'Tippstube: Datensicherung' );
     return $s;
 } );
+/**
+ * Tennis läuft alle 4 Stunden statt wöchentlich (Fußball/F1) — Matches enden täglich und die
+ * Ergebnisse müssen einzeln nachgeholt werden. Fest verdrahtet, weil die Tagesbudget-Rechnung
+ * (FTIPP_TENNIS_DAILY_BUDGET) auf genau diesen Takt ausgelegt ist.
+ */
+add_filter( 'cron_schedules', function ( $s ) {
+    $s['ftipp_tennis_4h'] = array( 'interval' => 4 * HOUR_IN_SECONDS, 'display' => 'Alle 4 Stunden (Tippstube Tennis)' );
+    return $s;
+} );
 register_activation_hook( __FILE__, function () {
     ftipp_install();
     if ( ! wp_next_scheduled( 'ftipp_weekly_fetch' ) ) {
@@ -459,6 +502,9 @@ register_activation_hook( __FILE__, function () {
     if ( ! wp_next_scheduled( 'ftipp_f1_weekly_fetch' ) ) {
         wp_schedule_event( time() + 90, 'weekly', 'ftipp_f1_weekly_fetch' );
     }
+    if ( ! wp_next_scheduled( 'ftipp_tennis_periodic_fetch' ) ) {
+        wp_schedule_event( time() + 150, 'ftipp_tennis_4h', 'ftipp_tennis_periodic_fetch' );
+    }
     // Automatische Datensicherung ist bewusst opt-in (Standard: aus) — wird erst geplant, wenn der Admin
     // sie auf der Datensicherung-Seite aktiviert, siehe admin_post_ftipp_save_backup_settings.
 } );
@@ -469,6 +515,7 @@ add_action( 'plugins_loaded', function () {
     if ( ! wp_next_scheduled( 'ftipp_reminder_check' ) ) { wp_schedule_event( time() + 120, 'ftipp_15min', 'ftipp_reminder_check' ); }
     if ( ! wp_next_scheduled( 'ftipp_newsletter_check' ) ) { wp_schedule_event( time() + 180, 'hourly', 'ftipp_newsletter_check' ); }
     if ( ! wp_next_scheduled( 'ftipp_f1_weekly_fetch' ) ) { wp_schedule_event( time() + 90, 'weekly', 'ftipp_f1_weekly_fetch' ); }
+    if ( ! wp_next_scheduled( 'ftipp_tennis_periodic_fetch' ) ) { wp_schedule_event( time() + 150, 'ftipp_tennis_4h', 'ftipp_tennis_periodic_fetch' ); }
     if ( get_option( 'ftipp_backup_enabled' ) && ! wp_next_scheduled( 'ftipp_backup_scheduled' ) ) {
         wp_schedule_event( time() + 240, 'ftipp_backup_custom', 'ftipp_backup_scheduled' );
     }
@@ -479,6 +526,7 @@ register_deactivation_hook( __FILE__, function () {
     wp_clear_scheduled_hook( 'ftipp_newsletter_check' );
     wp_clear_scheduled_hook( 'ftipp_backup_scheduled' );
     wp_clear_scheduled_hook( 'ftipp_f1_weekly_fetch' );
+    wp_clear_scheduled_hook( 'ftipp_tennis_periodic_fetch' );
 } );
 
 /* ============================================================
@@ -1275,6 +1323,288 @@ function ftipp_f1_compute_leaderboard( $round_id ) {
         }
         $u = get_userdata( $m['id'] );
         $rows[] = array( 'user_id' => $m['id'], 'name' => $u ? ftipp_public_name( $u ) : ( 'Spieler #' . $m['id'] ), 'total' => $total );
+    }
+    usort( $rows, function ( $a, $b ) { return $b['total'] <=> $a['total']; } );
+    foreach ( $rows as $i => $r ) { $rows[ $i ]['rank'] = $i + 1; }
+    return $rows;
+}
+
+/* ============================================================
+ * TENNIS — Sieger-Tipp (wer gewinnt das Match?)
+ * Komplett eigenständiges, paralleles System neben Fußball und Formel 1: eigene Tabellen, eigene
+ * Optionen, eigener Cron, eigene REST-Routen. Bewusst NICHT über ftipp_leagues()/ftipp_comp_ids(),
+ * weil die Fußball-Maschinerie ein Zwei-Team-Ergebnis mit Toren voraussetzt (siehe Journal v1.4.0).
+ *
+ * Datenquelle: livetennisapi.com. Der Gratis-Tarif kann die Liste kommender Matches abrufen, aber
+ * NICHT die Liste abgeschlossener Matches (kostenpflichtig, live als HTTP 403 bestätigt). Der
+ * Einzelabruf eines Matches per ID liefert aber auch nach Spielende den Sieger — deshalb merken wir
+ * uns die IDs aus der Gratis-Liste und prüfen sie einzeln nach, sobald ihre Zeit vorbei ist. Genau
+ * dasselbe Muster wie bei SportScore.com (Fußball) und beim Nachladen der Rennergebnisse (F1).
+ * ============================================================ */
+
+function ftipp_tennis_api_key() { return trim( (string) get_option( 'ftipp_tennis_api_key', '' ) ); }
+
+/** Heutiges Anfrage-Budget. Bei Datumswechsel (UTC) beginnt automatisch ein neuer Tag. */
+function ftipp_tennis_budget() {
+    $b = get_option( 'ftipp_tennis_api_budget', array() );
+    $today = gmdate( 'Y-m-d' );
+    if ( ! is_array( $b ) || ! isset( $b['date'] ) || $b['date'] !== $today ) {
+        $b = array( 'date' => $today, 'used' => 0 );
+    }
+    return $b;
+}
+
+/**
+ * Eine einzelne Anfrage an livetennisapi.com. Der Zähler wird SOFORT hochgesetzt und gespeichert —
+ * noch vor dem Auswerten der Antwort. Ein Timeout oder Absturz mitten im Lauf kann das Budget
+ * dadurch nie unterschätzen (lieber eine Anfrage zu viel gezählt als das Kontingent gesprengt).
+ */
+function ftipp_tennis_get( $path, $args = array() ) {
+    $key = ftipp_tennis_api_key();
+    if ( '' === $key ) { return array( 'ok' => false, 'error' => 'Kein API-Key hinterlegt' ); }
+
+    $b = ftipp_tennis_budget();
+    if ( $b['used'] >= FTIPP_TENNIS_DAILY_BUDGET ) {
+        return array( 'ok' => false, 'error' => 'Tagesbudget erschöpft', 'budget' => true );
+    }
+    $b['used']++;
+    update_option( 'ftipp_tennis_api_budget', $b, false );
+
+    $url = 'https://api.livetennisapi.com/api/public/v1' . $path;
+    if ( $args ) { $url = add_query_arg( $args, $url ); }
+    $resp = wp_remote_get( $url, array( 'timeout' => 20, 'headers' => array( 'X-API-Key' => $key ) ) );
+    if ( is_wp_error( $resp ) ) { return array( 'ok' => false, 'error' => $resp->get_error_message() ); }
+    $code = (int) wp_remote_retrieve_response_code( $resp );
+    if ( 200 !== $code ) { return array( 'ok' => false, 'error' => 'HTTP ' . $code ); }
+    $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+    if ( ! is_array( $body ) ) { return array( 'ok' => false, 'error' => 'Unerwartete Antwort' ); }
+    return array( 'ok' => true, 'body' => $body );
+}
+
+/** Einen API-Match-Datensatz auf die Felder eindampfen, die die Tippstube wirklich braucht. */
+function ftipp_tennis_shape( $m ) {
+    $p = isset( $m['players'] ) ? $m['players'] : array();
+    $side = function ( $s ) {
+        return array(
+            'id'      => isset( $s['id'] ) ? $s['id'] : null,
+            'name'    => isset( $s['name'] ) ? $s['name'] : '?',
+            'country' => isset( $s['country'] ) ? $s['country'] : '',
+            'ranking' => isset( $s['ranking'] ) ? $s['ranking'] : null,
+        );
+    };
+    $winner = isset( $m['winner'] ) ? intval( $m['winner'] ) : 0;
+    return array(
+        'id'             => (string) $m['id'],
+        'tour'           => isset( $m['tour'] ) ? $m['tour'] : '',
+        'tournament'     => isset( $m['tournament'] ) ? $m['tournament'] : '',
+        'round'          => isset( $m['round'] ) ? $m['round'] : '',
+        'surface'        => isset( $m['surface'] ) ? $m['surface'] : '',
+        'scheduled_time' => isset( $m['scheduled_time'] ) ? $m['scheduled_time'] : null,
+        'status'         => isset( $m['status'] ) ? $m['status'] : 'upcoming',
+        'event_status'   => isset( $m['event_status'] ) ? $m['event_status'] : null,
+        'players'        => array(
+            'p1' => $side( isset( $p['p1'] ) ? $p['p1'] : array() ),
+            'p2' => $side( isset( $p['p2'] ) ? $p['p2'] : array() ),
+        ),
+        'sets'           => isset( $m['score']['sets'] ) ? $m['score']['sets'] : null,
+        'winner'         => ( 1 === $winner || 2 === $winner ) ? $winner : null,
+    );
+}
+
+/**
+ * Matches abrufen und Ergebnisse nachtragen.
+ * Gefiltert wird serverseitig auf ATP/WTA-Hauptfeld-Einzel — ohne diesen Filter bestünde die Liste
+ * zu über 90% aus Challenger/ITF/Quali/Doppel und würde das Tagesbudget für Nachchecks verbrauchen.
+ */
+function ftipp_tennis_sync( $trigger = 'cron' ) {
+    $out = array(
+        'ok' => false, 'matches_merged' => 0, 'results_fetched' => 0,
+        'budget_used' => 0, 'budget_remaining' => 0, 'errors' => array(),
+    );
+    if ( '' === ftipp_tennis_api_key() ) {
+        $out['errors'][] = 'Kein API-Key hinterlegt (Tippstube → Tennis).';
+        return $out;
+    }
+
+    $matches = get_option( 'ftipp_tennis_matches', array() );
+    if ( ! is_array( $matches ) ) { $matches = array(); }
+    $merged = 0; $fetched = 0; $errors = array();
+
+    // 1) Kommende Matches je Tour holen (paginiert, bis die API "has_more" verneint).
+    foreach ( array( 'atp', 'wta' ) as $tour ) {
+        $offset = 0;
+        do {
+            $b = ftipp_tennis_budget();
+            if ( $b['used'] >= FTIPP_TENNIS_DAILY_BUDGET ) {
+                $errors[] = 'Tagesbudget erschöpft — Rest folgt beim nächsten Lauf.';
+                break 2;
+            }
+            $r = ftipp_tennis_get( '/matches', array(
+                'status' => 'upcoming', 'tour' => $tour,
+                'is_doubles' => 'false', 'is_qualifying' => 'false',
+                'limit' => FTIPP_TENNIS_PAGE_SIZE, 'offset' => $offset,
+            ) );
+            if ( ! $r['ok'] ) { $errors[] = strtoupper( $tour ) . ': ' . $r['error']; break; }
+            $rows = isset( $r['body']['data'] ) ? $r['body']['data'] : array();
+            foreach ( $rows as $m ) {
+                if ( empty( $m['id'] ) ) { continue; }
+                $id = (string) $m['id'];
+                $new = ftipp_tennis_shape( $m );
+                // Ein bereits bekannter Sieger wird nie überschrieben — die Gratis-Liste kennt nur
+                // kommende Matches und würde ein fertiges Ergebnis sonst wieder auf "offen" zurücksetzen.
+                if ( isset( $matches[ $id ]['winner'] ) && null !== $matches[ $id ]['winner'] ) {
+                    $new['winner'] = $matches[ $id ]['winner'];
+                    $new['status'] = 'completed';
+                    $new['sets']   = $matches[ $id ]['sets'];
+                }
+                // Zähler für erfolglose Nachchecks mitnehmen, sonst würde er bei jedem Listen-Abruf
+                // zurückgesetzt und ein nie entschiedenes Match für immer weiter abgefragt.
+                $new['checks'] = isset( $matches[ $id ]['checks'] ) ? intval( $matches[ $id ]['checks'] ) : 0;
+                $matches[ $id ] = $new;
+                $merged++;
+            }
+            $hasMore = ! empty( $r['body']['meta']['has_more'] );
+            $offset += FTIPP_TENNIS_PAGE_SIZE;
+        } while ( $hasMore );
+    }
+
+    // 2) Ergebnisse nachholen: nur Matches, deren Zeit vorbei ist und deren Sieger noch fehlt.
+    //    Älteste zuerst — die sind am wahrscheinlichsten wirklich schon entschieden.
+    //    Abgesagte Matches und solche, die auch nach mehreren Versuchen keinen Sieger liefern
+    //    (Walkover, Abbruch, Datenlücke), werden ausgelassen — sonst würde jeder Lauf für immer
+    //    Anfragen an dasselbe nie entschiedene Match verschwenden.
+    $pending = array();
+    $now = time();
+    foreach ( $matches as $id => $m ) {
+        if ( null !== $m['winner'] || empty( $m['scheduled_time'] ) ) { continue; }
+        if ( 'Cancelled' === ( isset( $m['event_status'] ) ? $m['event_status'] : null ) ) { continue; }
+        if ( isset( $m['checks'] ) && $m['checks'] >= FTIPP_TENNIS_MAX_RECHECKS ) { continue; }
+        $ts = strtotime( $m['scheduled_time'] );
+        if ( $ts && $ts < $now ) { $pending[ $id ] = $ts; }
+    }
+    asort( $pending );
+    foreach ( array_keys( $pending ) as $id ) {
+        $b = ftipp_tennis_budget();
+        if ( $b['used'] >= FTIPP_TENNIS_DAILY_BUDGET ) {
+            $errors[] = 'Tagesbudget erschöpft — restliche Ergebnisse folgen beim nächsten Lauf.';
+            break;
+        }
+        $r = ftipp_tennis_get( '/matches/' . rawurlencode( $id ) );
+        if ( ! $r['ok'] ) { $errors[] = "Match $id: " . $r['error']; continue; }
+        $body = isset( $r['body']['data'] ) ? $r['body']['data'] : $r['body'];
+        if ( empty( $body['id'] ) ) { $errors[] = "Match $id: unerwartete Antwort"; continue; }
+        $shaped = ftipp_tennis_shape( $body );
+        $shaped['checks'] = ( isset( $matches[ $id ]['checks'] ) ? intval( $matches[ $id ]['checks'] ) : 0 ) + 1;
+        $matches[ $id ] = $shaped;
+        if ( null !== $shaped['winner'] ) { $fetched++; }
+    }
+
+    // 3) Alte Einträge aufräumen, damit die Option nicht unbegrenzt wächst.
+    $cutoff = $now - FTIPP_TENNIS_RETENTION_DAYS * DAY_IN_SECONDS;
+    foreach ( $matches as $id => $m ) {
+        if ( empty( $m['scheduled_time'] ) ) { continue; }
+        $ts = strtotime( $m['scheduled_time'] );
+        if ( $ts && $ts < $cutoff ) { unset( $matches[ $id ] ); }
+    }
+
+    update_option( 'ftipp_tennis_matches', $matches, false );
+    update_option( 'ftipp_tennis_last_sync', current_time( 'mysql', true ), false );
+
+    $b = ftipp_tennis_budget();
+    $out['ok'] = empty( $errors ) || $merged > 0 || $fetched > 0;
+    $out['matches_merged']   = $merged;
+    $out['results_fetched']  = $fetched;
+    $out['budget_used']      = $b['used'];
+    $out['budget_remaining'] = max( 0, FTIPP_TENNIS_DAILY_BUDGET - $b['used'] );
+    $out['errors']           = $errors;
+
+    ftipp_log_history(
+        'manual' === $trigger ? 'tennis_manual_fetch' : 'tennis_cron_fetch',
+        "Tennis: {$merged} Matches aktualisiert, {$fetched} neue Ergebnisse, Budget {$b['used']}/" . FTIPP_TENNIS_DAILY_BUDGET
+            . ( $errors ? ', Fehler bei ' . count( $errors ) : '' ),
+        'TENNIS', wp_json_encode( array( 'errors' => $errors ) ),
+        'manual' === $trigger ? get_current_user_id() : null
+    );
+    return $out;
+}
+add_action( 'ftipp_tennis_periodic_fetch', 'ftipp_tennis_sync' );
+
+function ftipp_tennis_default_cfg() {
+    // 2 Punkte: ein Sieger-Tipp hat nur zwei mögliche Ausgänge (kein Unentschieden im Tennis) und ist
+    // damit leichter als ein exaktes Fußball-Ergebnis (3), aber schwerer als eine Tendenz (1).
+    return array( 'pWin' => 2, 'malusOn' => false, 'malus' => 0, 'deadlineMin' => 60 );
+}
+function ftipp_tennis_round_cfg( $round_id ) {
+    global $wpdb;
+    $row = $wpdb->get_row( $wpdb->prepare(
+        "SELECT * FROM {$wpdb->prefix}ftipp_tennis_round_config WHERE round_id=%d", $round_id
+    ), ARRAY_A );
+    if ( ! $row ) { return ftipp_tennis_default_cfg(); }
+    return array(
+        'pWin' => intval( $row['p_win'] ),
+        'malusOn' => (bool) intval( $row['malus_on'] ), 'malus' => intval( $row['malus'] ),
+        'deadlineMin' => intval( $row['deadline_min'] ),
+    );
+}
+/** Zeitpunkt, ab dem für dieses Match nicht mehr getippt werden darf. */
+function ftipp_tennis_lock_ts( $match, $cfg ) {
+    $ts = ! empty( $match['scheduled_time'] ) ? strtotime( $match['scheduled_time'] ) : 0;
+    return $ts ? ( $ts - $cfg['deadlineMin'] * 60 ) : 0;
+}
+/** Punkte für einen Sieger-Tipp. */
+function ftipp_tennis_score_tip( $match, $tip, $cfg ) {
+    if ( empty( $match['winner'] ) || ! $tip || empty( $tip['committed'] ) ) { return 0; }
+    return ( intval( $tip['pick'] ) === intval( $match['winner'] ) ) ? $cfg['pWin'] : 0;
+}
+
+/**
+ * Rangliste einer Runde für Tennis.
+ * Anders als bei F1 wird hier pro Mitglied nur EINE Datenbank-Abfrage gemacht und danach im Speicher
+ * verglichen — bei Tennis kommen pro Saison Tausende Matches zusammen, eine Abfrage je Match und
+ * Mitglied wäre eine Anfragen-Lawine.
+ */
+function ftipp_tennis_compute_leaderboard( $round_id ) {
+    global $wpdb;
+    $cfg = ftipp_tennis_round_cfg( $round_id );
+    $members = ftipp_round_members( $round_id );
+    $subRows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT user_id FROM {$wpdb->prefix}ftipp_round_subs WHERE round_id=%d AND comp_id='TENNIS' AND active=1", $round_id
+    ), ARRAY_A );
+    $activeIds = array();
+    foreach ( $subRows as $r ) { $activeIds[ intval( $r['user_id'] ) ] = true; }
+    $members = array_values( array_filter( $members, function ( $m ) use ( $activeIds ) { return isset( $activeIds[ $m['id'] ] ); } ) );
+    if ( ! $members ) { return array(); }
+
+    $matches = get_option( 'ftipp_tennis_matches', array() );
+    $now = time();
+    $rows = array();
+    foreach ( $members as $m ) {
+        $tipRows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT match_id,pick,committed FROM {$wpdb->prefix}ftipp_tennis_tips WHERE user_id=%d", $m['id']
+        ), ARRAY_A );
+        $byMatch = array();
+        foreach ( $tipRows as $t ) { $byMatch[ $t['match_id'] ] = $t; }
+
+        $total = 0; $hits = 0; $played = 0;
+        foreach ( $matches as $id => $match ) {
+            if ( null === $match['winner'] ) { continue; }
+            $played++;
+            $tip = isset( $byMatch[ $id ] ) ? $byMatch[ $id ] : null;
+            if ( $tip && $tip['committed'] ) {
+                $pts = ftipp_tennis_score_tip( $match, $tip, $cfg );
+                $total += $pts;
+                if ( $pts > 0 ) { $hits++; }
+            } elseif ( $cfg['malusOn'] ) {
+                $lockTs = ftipp_tennis_lock_ts( $match, $cfg );
+                if ( $lockTs && $lockTs < $now ) { $total += $cfg['malus']; }
+            }
+        }
+        $u = get_userdata( $m['id'] );
+        $rows[] = array(
+            'user_id' => $m['id'],
+            'name'    => $u ? ftipp_public_name( $u ) : ( 'Spieler #' . $m['id'] ),
+            'total'   => $total, 'hits' => $hits,
+        );
     }
     usort( $rows, function ( $a, $b ) { return $b['total'] <=> $a['total']; } );
     foreach ( $rows as $i => $r ) { $rows[ $i ]['rank'] = $i + 1; }
@@ -3051,6 +3381,145 @@ add_action( 'rest_api_init', function () {
             return array( 'ok' => true );
         },
     ) );
+    /* ---------------- Tennis ---------------- */
+    register_rest_route( 'ftipp/v1', '/tennis/matches', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req->get_param( 'round' ) );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $cfg = ftipp_tennis_round_cfg( $rid );
+            $matches = get_option( 'ftipp_tennis_matches', array() );
+            if ( ! is_array( $matches ) ) { $matches = array(); }
+            $now = time();
+
+            // Anzeigefenster: alle noch offenen Matches plus die zuletzt entschiedenen. Ohne diese
+            // Kappung würde die Liste über eine Saison hinweg auf Tausende Einträge anwachsen.
+            $open = array(); $recent = array();
+            foreach ( $matches as $id => $m ) {
+                $ts = $m['scheduled_time'] ? strtotime( $m['scheduled_time'] ) : 0;
+                if ( null === $m['winner'] ) { $open[ $id ] = $ts; }
+                elseif ( $ts && $ts > ( $now - 7 * DAY_IN_SECONDS ) ) { $recent[ $id ] = $ts; }
+            }
+            asort( $open ); asort( $recent );
+            $recent = array_slice( $recent, -50, 50, true );
+            $ids = array_merge( array_keys( $open ), array_keys( $recent ) );
+
+            $mine = array();
+            $tipRows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT match_id,pick,committed FROM {$wpdb->prefix}ftipp_tennis_tips WHERE user_id=%d", $uid
+            ), ARRAY_A );
+            foreach ( $tipRows as $t ) { $mine[ $t['match_id'] ] = $t; }
+
+            $out = array();
+            foreach ( $ids as $id ) {
+                $m = $matches[ $id ];
+                $lockTs = ftipp_tennis_lock_ts( $m, $cfg );
+                $locked = $lockTs && ( $now >= $lockTs );
+                $row = array(
+                    'match'  => $m,
+                    'locked' => (bool) $locked,
+                    'mine'   => isset( $mine[ $id ] ) ? array(
+                        'pick' => intval( $mine[ $id ]['pick'] ), 'committed' => (bool) $mine[ $id ]['committed'],
+                    ) : null,
+                );
+                if ( $locked ) {
+                    // Tipps der Mitspieler erst nach Fristende — wie bei Fußball und Formel 1.
+                    $others = $wpdb->get_results( $wpdb->prepare(
+                        "SELECT user_id,pick FROM {$wpdb->prefix}ftipp_tennis_tips WHERE match_id=%s AND committed=1", $id
+                    ), ARRAY_A );
+                    $named = array();
+                    foreach ( $others as $o ) {
+                        $u = get_userdata( $o['user_id'] );
+                        $named[] = array(
+                            'name' => $u ? ftipp_public_name( $u ) : ( 'Spieler #' . $o['user_id'] ),
+                            'pick' => intval( $o['pick'] ),
+                        );
+                    }
+                    $row['others'] = $named;
+                }
+                $out[] = $row;
+            }
+            return array( 'matches' => $out, 'cfg' => $cfg );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/tennis/tips', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ), 'match_id' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $matchId = sanitize_text_field( $req['match_id'] );
+            $matches = get_option( 'ftipp_tennis_matches', array() );
+            if ( ! isset( $matches[ $matchId ] ) ) { return new WP_Error( 'not_found', 'Match nicht gefunden.', array( 'status' => 404 ) ); }
+            $cfg = ftipp_tennis_round_cfg( $rid );
+            $lockTs = ftipp_tennis_lock_ts( $matches[ $matchId ], $cfg );
+            // Sperre serverseitig neu prüfen — dem Client nie vertrauen.
+            if ( $lockTs && time() >= $lockTs ) {
+                return new WP_Error( 'locked', 'Die Tipp-Frist ist bereits abgelaufen.', array( 'status' => 403 ) );
+            }
+            $pick = intval( $req->get_param( 'pick' ) );
+            if ( 1 !== $pick && 2 !== $pick ) { return new WP_Error( 'bad_pick', 'Ungültiger Tipp.', array( 'status' => 400 ) ); }
+            $wpdb->replace( "{$wpdb->prefix}ftipp_tennis_tips", array(
+                'user_id' => $uid, 'match_id' => $matchId, 'pick' => $pick,
+                'committed' => ! empty( $req['committed'] ) ? 1 : 0,
+                'updated_at' => current_time( 'mysql' ),
+            ) );
+            return array( 'ok' => true );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/tennis/leaderboard', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            $rid = intval( $req->get_param( 'round' ) ); $uid = get_current_user_id();
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            return array( 'rows' => ftipp_tennis_compute_leaderboard( $rid ) );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/tennis/config', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            $rid = intval( $req->get_param( 'round' ) ); $uid = get_current_user_id();
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            return ftipp_tennis_round_cfg( $rid );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/tennis/config', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_admin( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Nur der Runden-Admin darf die Regeln ändern.', array( 'status' => 403 ) ); }
+            // Nur übergebene Felder ändern — die Oberfläche speichert jedes Feld einzeln.
+            $cur = ftipp_tennis_round_cfg( $rid );
+            $num = function ( $key, $fallback ) use ( $req ) {
+                $v = $req->get_param( $key );
+                return ( null === $v || '' === $v ) ? $fallback : intval( $v );
+            };
+            $wpdb->replace( "{$wpdb->prefix}ftipp_tennis_round_config", array(
+                'round_id' => $rid,
+                'p_win' => $num( 'pWin', $cur['pWin'] ),
+                'malus_on' => ( null !== $req->get_param( 'malusOn' ) )
+                    ? ( $req->get_param( 'malusOn' ) ? 1 : 0 ) : ( $cur['malusOn'] ? 1 : 0 ),
+                'malus' => $num( 'malus', $cur['malus'] ),
+                'deadline_min' => $num( 'deadlineMin', $cur['deadlineMin'] ),
+            ) );
+            return ftipp_tennis_round_cfg( $rid );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/tennis/subscribe', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        // Eigene Route statt der generischen /rounds/{id}/subs — die validiert comp_id hart gegen
+        // ftipp_comp_ids() (Fußball-Registry) und würde 'TENNIS' mit HTTP 400 ablehnen.
+        'args' => array( 'round_id' => array( 'required' => true ), 'active' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $wpdb->replace( "{$wpdb->prefix}ftipp_round_subs", array(
+                'round_id' => $rid, 'user_id' => $uid, 'comp_id' => 'TENNIS', 'active' => $req['active'] ? 1 : 0,
+            ) );
+            return array( 'ok' => true );
+        },
+    ) );
 
     /* -------- Echte Tabelle (nicht die Tipp-Rangliste!) -------- */
     register_rest_route( 'ftipp/v1', '/table', array(
@@ -3559,6 +4028,7 @@ add_action( 'admin_menu', function () {
     add_submenu_page( 'ftipp', 'History', 'History', 'manage_options', 'ftipp_history', 'ftipp_page_history' );
     add_submenu_page( 'ftipp', 'Cron-Job', 'Cron-Job', 'manage_options', 'ftipp_cron', 'ftipp_page_cron' );
     add_submenu_page( 'ftipp', 'Formel 1', 'Formel 1', 'manage_options', 'ftipp_f1', 'ftipp_page_f1' );
+    add_submenu_page( 'ftipp', 'Tennis', 'Tennis', 'manage_options', 'ftipp_tennis', 'ftipp_page_tennis' );
 } );
 
 /**
@@ -3745,6 +4215,8 @@ function ftipp_page_history() {
         'manual_fetch'  => '⬇️ Manueller Abruf',
         'f1_cron_fetch'   => '🏁⏱️ F1: Automatischer Abruf',
         'f1_manual_fetch' => '🏁⬇️ F1: Manueller Abruf',
+        'tennis_cron_fetch' => '🎾⏱️ Tennis: Automatischer Abruf',
+        'tennis_manual_fetch' => '🎾⬇️ Tennis: Manueller Abruf',
         'csv_import'    => '📄 CSV-Import',
         'test_fixtures' => '🎲 Test-Spiele',
         'restore'       => '💾 Sicherung wiederhergestellt',
@@ -4056,6 +4528,101 @@ function ftipp_page_cron() {
                 </table>
                 <?php submit_button( 'Verbinden & einrichten' ); ?>
             </form>
+        <?php endif; ?>
+    </div>
+    <?php
+}
+
+function ftipp_page_tennis() {
+    if ( ! current_user_can( 'manage_options' ) ) { return; }
+    $key      = ftipp_tennis_api_key();
+    $lastSync = get_option( 'ftipp_tennis_last_sync' );
+    $matches  = get_option( 'ftipp_tennis_matches', array() );
+    if ( ! is_array( $matches ) ) { $matches = array(); }
+    $budget   = ftipp_tennis_budget();
+
+    $open = 0; $done = 0; $atp = 0; $wta = 0;
+    foreach ( $matches as $m ) {
+        if ( null === $m['winner'] ) { $open++; } else { $done++; }
+        if ( 'atp' === $m['tour'] ) { $atp++; } elseif ( 'wta' === $m['tour'] ) { $wta++; }
+    }
+    uasort( $matches, function ( $a, $b ) { return strcmp( (string) $a['scheduled_time'], (string) $b['scheduled_time'] ); } );
+    ?>
+    <div class="wrap">
+        <h1>🎾 Tennis</h1>
+        <p>Sieger-Tipp: Wer gewinnt das Match? Läuft komplett unabhängig von Fußball und Formel 1.
+           Datenquelle: <a href="https://livetennisapi.com" target="_blank" rel="noopener">livetennisapi.com</a> —
+           dafür ist ein eigener, kostenloser API-Key nötig (siehe unten).
+           <strong>Umfang:</strong> ATP &amp; WTA, Einzel, Hauptfeld — kein Doppel, keine Qualifikation,
+           kein Challenger/ITF (der Gratis-Tarif erlaubt nur begrenzt viele Anfragen pro Tag).</p>
+
+        <?php if ( isset( $_GET['ftipp_tennis_done'] ) ) : ?>
+            <div class="notice notice-<?php echo ( 'ok' === $_GET['ftipp_tennis_done'] ) ? 'success' : 'error'; ?> is-dismissible">
+                <p><?php echo ( 'ok' === $_GET['ftipp_tennis_done'] ) ? 'Abruf abgeschlossen.' : 'Abruf fehlgeschlagen — Details unter Tippstube → History.'; ?></p>
+            </div>
+        <?php endif; ?>
+        <?php if ( isset( $_GET['ftipp_tennis_saved'] ) ) : ?>
+            <div class="notice notice-success is-dismissible"><p>API-Key gespeichert.</p></div>
+        <?php endif; ?>
+        <?php if ( '' === $key ) : ?>
+            <div class="notice notice-warning"><p><strong>Noch kein API-Key hinterlegt.</strong>
+                Ohne Key kann Tennis keine Daten laden. Kostenlos registrieren auf
+                <a href="https://livetennisapi.com" target="_blank" rel="noopener">livetennisapi.com</a>,
+                dann den Key unten eintragen.</p></div>
+        <?php endif; ?>
+
+        <h2>API-Key</h2>
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <input type="hidden" name="action" value="ftipp_tennis_save_key" />
+            <?php wp_nonce_field( 'ftipp_tennis_save_key' ); ?>
+            <input type="text" name="ftipp_tennis_api_key" value="<?php echo esc_attr( $key ); ?>"
+                   placeholder="dein Key von livetennisapi.com" style="width:420px" autocomplete="off" />
+            <p class="description">Wird nur serverseitig verwendet und nie an den Browser der Mitspieler ausgeliefert.</p>
+            <?php submit_button( 'Speichern' ); ?>
+        </form>
+
+        <h2 style="margin-top:30px">Status</h2>
+        <p><strong>Matches geladen:</strong> <?php echo count( $matches ); ?>
+           &nbsp;·&nbsp; <strong>offen:</strong> <?php echo esc_html( $open ); ?>
+           &nbsp;·&nbsp; <strong>entschieden:</strong> <?php echo esc_html( $done ); ?>
+           &nbsp;·&nbsp; ATP <?php echo esc_html( $atp ); ?> / WTA <?php echo esc_html( $wta ); ?>
+           <br><strong>Heutiges API-Budget:</strong> <?php echo esc_html( $budget['used'] ); ?> von <?php echo FTIPP_TENNIS_DAILY_BUDGET; ?> genutzt
+           &nbsp;·&nbsp; <strong>Letzter Abruf:</strong> <?php echo $lastSync ? esc_html( wp_date( 'd.m.Y H:i', strtotime( $lastSync ) ) ) : '—'; ?></p>
+        <p class="description">Der automatische Abruf läuft alle 4 Stunden. Ist das Tagesbudget aufgebraucht,
+           werden fehlende Ergebnisse einfach beim nächsten Lauf nachgeholt — es geht nichts verloren.</p>
+
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <input type="hidden" name="action" value="ftipp_tennis_fetch" />
+            <?php wp_nonce_field( 'ftipp_tennis_fetch' ); ?>
+            <?php submit_button( '⬇️ Jetzt abrufen', 'primary', 'submit', false, $key ? array() : array( 'disabled' => 'disabled' ) ); ?>
+        </form>
+
+        <?php if ( $matches ) : ?>
+        <h2 style="margin-top:30px">Matches</h2>
+        <table class="widefat striped" style="max-width:900px">
+            <thead><tr><th>Zeit</th><th>Tour</th><th>Turnier / Runde</th><th>Begegnung</th><th>Ergebnis</th></tr></thead>
+            <tbody>
+            <?php foreach ( array_slice( $matches, 0, 150, true ) as $m ) : ?>
+                <tr>
+                    <td><?php echo $m['scheduled_time'] ? esc_html( wp_date( 'd.m. H:i', strtotime( $m['scheduled_time'] ) ) ) : '—'; ?></td>
+                    <td><?php echo esc_html( strtoupper( $m['tour'] ) ); ?></td>
+                    <td><?php echo esc_html( $m['tournament'] ); ?><br><span class="description"><?php echo esc_html( $m['round'] ); ?></span></td>
+                    <td><?php echo esc_html( $m['players']['p1']['name'] . ' — ' . $m['players']['p2']['name'] ); ?></td>
+                    <td><?php
+                        if ( null === $m['winner'] ) { echo '—'; }
+                        else {
+                            $w = ( 1 === $m['winner'] ) ? $m['players']['p1']['name'] : $m['players']['p2']['name'];
+                            echo '✅ ' . esc_html( $w );
+                            if ( is_array( $m['sets'] ) ) { echo ' <span class="description">(' . esc_html( implode( ':', $m['sets'] ) ) . ')</span>'; }
+                        }
+                    ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php if ( count( $matches ) > 150 ) : ?>
+            <p class="description">Zeigt die ersten 150 von <?php echo count( $matches ); ?> Matches.</p>
+        <?php endif; ?>
         <?php endif; ?>
     </div>
     <?php
@@ -4634,6 +5201,20 @@ add_action( 'admin_post_ftipp_f1_save_season', function () {
     check_admin_referer( 'ftipp_f1_save_season' );
     update_option( 'ftipp_f1_season', max( 2000, intval( $_POST['ftipp_f1_season'] ?? gmdate( 'Y' ) ) ) );
     wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_f1', 'ftipp_f1_saved' => '1' ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
+add_action( 'admin_post_ftipp_tennis_fetch', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_tennis_fetch' );
+    $res = ftipp_tennis_sync( 'manual' );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_tennis', 'ftipp_tennis_done' => $res['ok'] ? 'ok' : 'err' ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
+add_action( 'admin_post_ftipp_tennis_save_key', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_tennis_save_key' );
+    update_option( 'ftipp_tennis_api_key', sanitize_text_field( wp_unslash( $_POST['ftipp_tennis_api_key'] ?? '' ) ) );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_tennis', 'ftipp_tennis_saved' => '1' ), admin_url( 'admin.php' ) ) );
     exit;
 } );
 add_action( 'admin_post_ftipp_test_reminder', function () {

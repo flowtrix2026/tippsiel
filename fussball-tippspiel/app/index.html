@@ -181,6 +181,12 @@
       <div class="hub-tile-meta">Podium-Tipp: Platz 1, 2, 3 vor jedem Rennen — pro Tipprunde aktivierbar.</div>
       <div class="hub-tile-foot"><span class="hub-pill is-live">Aktiv</span><span style="color:var(--accent-hi)">→</span></div>
     </div>
+    <div class="hub-tile is-active" onclick="enterSport('tennis')">
+      <div class="hub-tile-icon">🎾</div>
+      <p class="hub-tile-name">Tennis</p>
+      <div class="hub-tile-meta">Sieger-Tipp: Wer gewinnt das Match? ATP &amp; WTA Einzel — pro Tipprunde aktivierbar.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-live">Aktiv</span><span style="color:var(--accent-hi)">→</span></div>
+    </div>
     <div class="hub-tile" onclick="enterSport('ussport')">
       <div class="hub-tile-icon">🏈</div>
       <p class="hub-tile-name">US-Sport</p>
@@ -1759,21 +1765,49 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
 </div>
 </div><!-- #f1-shell -->
 
+<div id="tennis-shell" style="display:none">
+<header>
+  <h1>
+    <svg width="30" height="33" viewBox="0 0 240 260" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="flex:none">
+      <path d="M20 30 Q20 20 30 20 L210 20 Q220 20 220 30 L220 130 Q220 190 170 220 L120 250 L70 220 Q20 190 20 130 Z" fill="#173a22" stroke="#d9a441" stroke-width="6"/>
+      <circle cx="120" cy="112" r="46" fill="#e3a83f"/>
+      <path d="M84 82 Q120 112 84 142" fill="none" stroke="#1c4127" stroke-width="6"/>
+      <path d="M156 82 Q120 112 156 142" fill="none" stroke="#1c4127" stroke-width="6"/>
+    </svg>
+    Tippstube — Tennis
+  </h1>
+  <div class="sub">Sieger-Tipp: Wer gewinnt das Match?
+    <br><button class="hub-switch" onclick="showSportHub()">🎾 Sportart wechseln</button>
+  </div>
+</header>
+<div class="wrap">
+  <div class="tabs">
+    <div class="tab active" data-mode="tetippen" onclick="switchTennisMode('tetippen')">📝 Tippen</div>
+    <div class="tab" data-mode="teauswertung" onclick="switchTennisMode('teauswertung')">🏆 Auswertung</div>
+    <div class="tab" data-mode="teeinstellungen" onclick="switchTennisMode('teeinstellungen')">⚙️ Einstellungen</div>
+  </div>
+  <section id="temode-tetippen"></section>
+  <section id="temode-teauswertung" style="display:none"></section>
+  <section id="temode-teeinstellungen" style="display:none"></section>
+</div>
+</div><!-- #tennis-shell -->
+
 <script>
 /* ---------------- Sportarten-Hub ---------------- */
 // Nur Fußball und Formel 1 sind echt angebunden — alle anderen Kacheln sind bewusst nur eine Vorschau
 // (siehe Journal). Wer eine Sportart einmal gewählt hat, landet beim nächsten Besuch direkt wieder dort.
+const SPORT_SHELLS = {football:'app-shell', f1:'f1-shell', tennis:'tennis-shell'};
 function hideAllShells(){
   document.getElementById('sport-hub').style.display='none';
-  document.getElementById('app-shell').style.display='none';
-  document.getElementById('f1-shell').style.display='none';
+  Object.values(SPORT_SHELLS).forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display='none'; });
 }
 function enterSport(sport){
-  if(sport!=='football' && sport!=='f1'){ alert('Kommt bald! Diese Sportart ist noch nicht angebunden.'); return; }
+  if(!SPORT_SHELLS[sport]){ alert('Kommt bald! Diese Sportart ist noch nicht angebunden.'); return; }
   try{ localStorage.setItem('ftipp_sport',sport); }catch(e){}
   hideAllShells();
-  if(sport==='football'){ document.getElementById('app-shell').style.display=''; }
-  else { document.getElementById('f1-shell').style.display=''; switchF1Mode('f1tippen'); }
+  document.getElementById(SPORT_SHELLS[sport]).style.display='';
+  if(sport==='f1') switchF1Mode('f1tippen');
+  else if(sport==='tennis') switchTennisMode('tetippen');
 }
 function showSportHub(){
   try{ localStorage.removeItem('ftipp_sport'); }catch(e){}
@@ -1782,8 +1816,7 @@ function showSportHub(){
 }
 (function(){
   let chosen=null; try{ chosen=localStorage.getItem('ftipp_sport'); }catch(e){}
-  if(chosen==='football'){ hideAllShells(); document.getElementById('app-shell').style.display=''; }
-  else if(chosen==='f1'){ hideAllShells(); document.getElementById('f1-shell').style.display=''; }
+  if(chosen && SPORT_SHELLS[chosen]){ hideAllShells(); document.getElementById(SPORT_SHELLS[chosen]).style.display=''; }
 })();
 </script>
 
@@ -2048,6 +2081,181 @@ async function renderF1Einstellungen(){
   card.appendChild(row2);
   box.appendChild(card);
 }
+/* ---------------- Tennis ----------------
+   Eigenständig wie Formel 1, aber die Tippen-Ansicht ist bewusst anders aufgebaut: bei Tennis laufen
+   viele Matches gleichzeitig, deshalb eine Karte je Match mit zwei anklickbaren Spielern statt
+   "erst ein Match aus einer Liste wählen". Ein Klick = Tipp abgegeben. */
+let tennisCfg = null;
+
+function switchTennisMode(mode){
+  document.querySelectorAll('#tennis-shell .tab').forEach(t=>t.classList.toggle('active', t.dataset.mode===mode));
+  ['tetippen','teauswertung','teeinstellungen'].forEach(m=>{
+    document.getElementById('temode-'+m).style.display = (m===mode) ? '' : 'none';
+  });
+  if(mode==='tetippen') renderTennisTippen();
+  else if(mode==='teauswertung') renderTennisAuswertung();
+  else renderTennisEinstellungen();
+}
+
+function tennisGuard(box){
+  if(!CONNECTED){ box.innerHTML = '<div class="card"><div class="hint">Tennis steht nur im echten WordPress-Betrieb zur Verfügung.</div></div>'; return false; }
+  if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde. Das geht in der ⚽ Fußball-Ansicht unter „Runden".</div></div>'; return false; }
+  return true;
+}
+
+async function renderTennisTippen(){
+  const box = document.getElementById('temode-tetippen');
+  if(!tennisGuard(box)) return;
+  box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
+
+  let subs, data;
+  try{
+    subs = await api_get(`rounds/${currentRoundId}/subs`);
+    if(subs.subs && subs.subs.TENNIS){ data = await api_get(`tennis/matches?round=${currentRoundId}`); }
+  }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
+
+  box.innerHTML = '';
+  box.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderTennisTippen(); }));
+
+  if(!subs.subs || !subs.subs.TENNIS){
+    const card = el('<div class="card"><div class="hint">Tennis-Tippen ist für diese Runde noch nicht aktiviert.</div></div>');
+    const btn = el('<button style="margin-top:10px">🎾 Tennis-Tippen für diese Runde aktivieren</button>');
+    btn.onclick = async ()=>{ try{ await api_post('tennis/subscribe', {round_id: currentRoundId, active:true}); renderTennisTippen(); }catch(e){ alert('Fehler: '+e.message); } };
+    card.appendChild(btn); box.appendChild(card);
+    return;
+  }
+
+  const matches = (data && data.matches) || [];
+  tennisCfg = (data && data.cfg) || null;
+  if(!matches.length){
+    box.appendChild(el('<div class="card"><div class="hint">Noch keine Matches geladen — der Admin muss unter Tippstube → Tennis einen API-Key hinterlegen und einmal „Jetzt abrufen" klicken.</div></div>'));
+    return;
+  }
+
+  const open = matches.filter(m=>!m.locked);
+  const done = matches.filter(m=>m.locked);
+  box.appendChild(el(`<div class="card"><div class="meta">${open.length} offene Matches zum Tippen · ${done.length} bereits gesperrt. ${tennisCfg?`<b>${tennisCfg.pWin} Punkte</b> für den richtigen Sieger.`:''}</div></div>`));
+
+  const card = (row)=>{
+    const m = row.match;
+    const c = el('<div class="card"></div>');
+    const when = m.scheduled_time ? fmtDate(m.scheduled_time) : '';
+    c.appendChild(el(`<div class="row" style="margin-bottom:8px">`
+      + `<b>${esc(m.tournament||'—')}</b>`
+      + `<span class="pill gold">${esc((m.tour||'').toUpperCase())}</span>`
+      + (m.surface?`<span class="meta">${esc(m.surface)}</span>`:'')
+      + (when?`<span class="meta">${esc(when)}</span>`:'')
+      + (row.locked?`<span class="pill warn">🔒 gesperrt</span>`:'')
+      + `</div>`));
+    if(m.round) c.appendChild(el(`<div class="meta" style="margin-bottom:8px">${esc(m.round)}</div>`));
+
+    const pickRow = el('<div class="row"></div>');
+    [1,2].forEach(side=>{
+      const p = m.players['p'+side];
+      const isMine = row.mine && row.mine.committed && row.mine.pick===side;
+      const isWinner = m.winner===side;
+      const label = `${esc(p.name)}${p.ranking?` <span class="meta">#${p.ranking}</span>`:''}`;
+      const btn = el(`<button class="${isMine?'':'sec '}mini" style="min-width:150px${isWinner?';outline:2px solid var(--accent-hi)':''}">`
+        + `${isWinner?'✅ ':''}${isMine?'✔️ ':''}${label}</button>`);
+      if(row.locked){ btn.disabled = true; }
+      else btn.onclick = async ()=>{
+        try{ await api_post('tennis/tips', {round_id: currentRoundId, match_id: m.id, pick: side, committed: true}); renderTennisTippen(); }
+        catch(e){ alert('Fehler: '+e.message); }
+      };
+      pickRow.appendChild(btn);
+    });
+    c.appendChild(pickRow);
+
+    if(m.winner && Array.isArray(m.sets)){
+      c.appendChild(el(`<div class="meta" style="margin-top:6px">Ergebnis: ${esc(m.sets.join(':'))} Sätze</div>`));
+    }
+    if(!row.locked){
+      c.appendChild(el('<div class="meta" style="margin-top:6px">🔒 Die Tipps der Mitspieler siehst du erst nach Ablauf der Frist.</div>'));
+    } else if(row.others && row.others.length){
+      const list = row.others.map(o=>`<b>${esc(o.name)}</b> ${esc(m.players['p'+o.pick] ? m.players['p'+o.pick].name : '?')}`).join(' · ');
+      c.appendChild(el(`<div class="meta" style="margin-top:6px">👀 Tipps der Mitspieler: ${list}</div>`));
+    }
+    return c;
+  };
+
+  if(open.length){
+    box.appendChild(el('<div class="phase-h" style="margin-top:14px">Offen</div>'));
+    open.forEach(r=>box.appendChild(card(r)));
+  }
+  if(done.length){
+    box.appendChild(el('<div class="phase-h" style="margin-top:14px">Gesperrt / gespielt</div>'));
+    done.forEach(r=>box.appendChild(card(r)));
+  }
+}
+
+async function renderTennisAuswertung(){
+  const box = document.getElementById('temode-teauswertung');
+  if(!tennisGuard(box)) return;
+  box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
+  try{
+    const data = await api_get(`tennis/leaderboard?round=${currentRoundId}`);
+    box.innerHTML = '';
+    box.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderTennisAuswertung(); }));
+    if(!data.rows.length){ box.appendChild(el('<div class="card"><div class="hint">Noch keine Mitspieler mit aktivem Tennis-Tippen in dieser Runde.</div></div>')); return; }
+    const rowsHtml = data.rows.map(r=>`<tr><td class="num">${r.rank}</td><td>${esc(r.name)}</td><td class="num">${r.hits}</td><td class="num">${r.total}</td></tr>`).join('');
+    box.appendChild(el(`<div class="card"><table><thead><tr><th class="num">#</th><th>Spieler</th><th class="num">Treffer</th><th class="num">Punkte</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
+  }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; }
+}
+
+/* Zahlenfeld für eine Tennis-Regel — speichert sofort, schickt nur das eine geänderte Feld. */
+function mkTennisCfgNum(label, value, key, onSaved){
+  const w = el('<div class="flexcol" style="align-items:center"></div>');
+  w.appendChild(el(`<label>${label}</label>`));
+  const inp = el(`<input type="number" class="score" value="${value}" style="width:70px">`);
+  inp.onchange = async ()=>{
+    const v = parseInt(inp.value);
+    const payload = {round_id: currentRoundId}; payload[key] = isNaN(v) ? 0 : v;
+    try{ await api_post('tennis/config', payload); if(onSaved) onSaved(); }
+    catch(e){ alert('Fehler: '+e.message); }
+  };
+  w.appendChild(inp); return w;
+}
+
+async function renderTennisEinstellungen(){
+  const box = document.getElementById('temode-teeinstellungen');
+  if(!tennisGuard(box)) return;
+  box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
+  let cfg;
+  try{ cfg = await api_get(`tennis/config?round=${currentRoundId}`); }
+  catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
+
+  box.innerHTML = '';
+  box.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderTennisEinstellungen(); }));
+
+  if(!(roundById(currentRoundId)||{}).is_admin){
+    box.appendChild(el(`<div class="card"><div class="hint">Die Tennis-Regeln legt der Runden-Admin fest.</div>`
+      + `<div class="row" style="margin-top:8px"><span class="pill gold">${cfg.pWin} Punkte für den richtigen Sieger</span>`
+      + `<span class="meta">Tipp-Frist ${cfg.deadlineMin} Min. vor Matchbeginn</span>`
+      + (cfg.malusOn?`<span class="pill warn">Malus ${cfg.malus}</span>`:'') + `</div></div>`));
+    return;
+  }
+
+  const card = el('<div class="card"></div>');
+  card.appendChild(el('<div class="hint">Regeln für Tennis in dieser Tipprunde.</div>'));
+  const row = el('<div class="row" style="margin-top:8px"></div>');
+  row.appendChild(mkTennisCfgNum('Punkte für richtigen Sieger', cfg.pWin, 'pWin'));
+  row.appendChild(mkTennisCfgNum('Tipp-Frist (Min. vor Start)', cfg.deadlineMin, 'deadlineMin'));
+  card.appendChild(row);
+
+  const row2 = el('<div class="row" style="margin-top:8px"></div>');
+  const mw = el('<div class="flexcol" style="align-items:center"></div>');
+  mw.appendChild(el('<label>Malus, wenn nicht getippt</label>'));
+  const chk = el(`<input type="checkbox" ${cfg.malusOn?'checked':''}>`);
+  chk.onchange = async ()=>{
+    try{ await api_post('tennis/config', {round_id: currentRoundId, malusOn: chk.checked?1:0}); renderTennisEinstellungen(); }
+    catch(e){ alert('Fehler: '+e.message); }
+  };
+  mw.appendChild(chk); row2.appendChild(mw);
+  row2.appendChild(mkTennisCfgNum('Malus-Punkte', cfg.malus, 'malus'));
+  card.appendChild(row2);
+  box.appendChild(card);
+}
+
 </script>
 </body>
 </html>
