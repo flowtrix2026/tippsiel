@@ -4,7 +4,7 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.10.0
+Stable tag: 1.11.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -27,18 +27,19 @@ Tippstube ist ein WordPress-Plugin für private Fußball-Tippspiele unter Famili
 
 = Funktionen für den Plattform-Admin =
 
-Zehn Verwaltungsseiten unter "Tippstube" im WordPress-Adminmenü:
+Acht Menüpunkte unter "Tippstube" im WordPress-Adminmenü:
 
 * **Einstellungen** — E-Mail-Benachrichtigungen (Fristen-Erinnerung, Ranking-Newsletter samt Versandtag/-zeit) und Hinweis zur Selbstregistrierung; gilt für alle Sportarten
-* **Fußball** — Datenabruf der Fußball-Wettbewerbe, API-Football-Key, CSV-Import für Wettbewerbe ohne gute kostenlose Quelle
+* **Sportarten** — ein Menüpunkt mit einem Tab je Sportart:
+    * *Fußball* — Datenabruf der Fußball-Wettbewerbe, API-Football-Key, CSV-Import für Wettbewerbe ohne gute kostenlose Quelle
+    * *Formel 1* — eigener, von Fußball unabhängiger Datenabruf (f1api.dev, kostenlos, kein Key nötig)
+    * *Tennis* — eigener Datenabruf über livetennisapi.com mit selbst eingetragenem, kostenlosem API-Key; zeigt das genutzte Tagesbudget und alle geladenen Matches
 * **Design** — Akzentfarbe, Logo und Untertitel jeder Tipprunde zentral einsehbar und bearbeitbar
 * **Cron-Job** — frei einstellbarer Abrufplan, dazu ein optionaler zuverlässiger externer Cron-Dienst (manuell oder automatisch über die cron-job.org-API)
 * **History** — Protokoll aller automatischen und manuellen Datenänderungen
 * **Changelog** — die komplette Versionshistorie direkt im Adminbereich
 * **Info** — Kurzanleitung und Glossar
 * **Datensicherung** — alle Tippstube-Daten als Datei sichern (Download oder automatisch per E-Mail) und bei Bedarf wiederherstellen, inklusive automatischer Sicherheitskopie vor jedem Restore
-* **Formel 1** — eigener, von Fußball unabhängiger Datenabruf (f1api.dev, kostenlos, kein Key nötig) für den Podium-Tipp
-* **Tennis** — eigener Datenabruf über livetennisapi.com mit selbst eingetragenem, kostenlosem API-Key; zeigt das genutzte Tagesbudget und alle geladenen Matches
 
 Updates erscheinen wie bei einem regulären WordPress.org-Plugin direkt im Plugins-Bereich ("Update verfügbar").
 
@@ -50,7 +51,7 @@ Updates erscheinen wie bei einem regulären WordPress.org-Plugin direkt im Plugi
 
 1. Plugin hochladen und aktivieren (Plugins → Installieren → Plugin hochladen).
 2. Eine neue WordPress-Seite anlegen und den Shortcode `[tippspiel]` in den Inhalt eintragen, dann veröffentlichen.
-3. Unter Tippstube → Fußball die Spieldaten abrufen (und nur falls nötig einen API-Football-Key hinterlegen).
+3. Unter Tippstube → Sportarten → Fußball die Spieldaten abrufen (und nur falls nötig einen API-Football-Key hinterlegen).
 4. Fertig — Nutzer können sich anmelden, eine Tipprunde erstellen oder per Einladungscode beitreten.
 
 Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-Adminmenü.
@@ -58,6 +59,11 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.11.0 =
+Die drei Sportarten stehen jetzt unter einem gemeinsamen Menüpunkt "Sportarten" mit je einem Tab für
+Fußball, Formel 1 und Tennis — vorher waren sie über das Menü verstreut. Alte Lesezeichen auf die
+Formel-1- und Tennis-Seite funktionieren weiterhin.
 
 = 1.10.0 =
 Neuer Adminmenü-Punkt "Einstellungen" für alles, was nicht zu einer einzelnen Sportart gehört:

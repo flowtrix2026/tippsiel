@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball (19 Wettbewerbe) und Formel 1 (Podium-Tipp), echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version:           1.10.0
+ * Version:           1.11.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.10.0' );
+define( 'FTIPP_VERSION', '1.11.0' );
 define( 'FTIPP_DB_VERSION', '18' );
 
 /**
@@ -4311,19 +4311,21 @@ add_action( 'template_redirect', function () {
  * jetzt mit Untermenü (Einstellungen/Design/Cron-Job/History/Changelog/Info).
  * ============================================================ */
 add_action( 'admin_menu', function () {
-    add_menu_page( 'Tippstube', 'Tippstube', 'manage_options', 'ftipp', 'ftipp_settings_page', ftipp_menu_icon_href(), 30 );
+    add_menu_page( 'Tippstube', 'Tippstube', 'manage_options', 'ftipp', 'ftipp_page_sports', ftipp_menu_icon_href(), 30 );
     // Gleicher Slug wie der Parent ersetzt WordPress' automatisch erzeugten Default-Untermenüpunkt
     // (sonst gäbe es "Tippstube" doppelt ganz oben in der Liste).
     add_submenu_page( 'ftipp', 'Info', 'Info', 'manage_options', 'ftipp_info', 'ftipp_page_info' );
     add_submenu_page( 'ftipp', 'Einstellungen', 'Einstellungen', 'manage_options', 'ftipp_settings', 'ftipp_page_settings' );
-    add_submenu_page( 'ftipp', 'Fußball', 'Fußball', 'manage_options', 'ftipp', 'ftipp_settings_page' );
+    add_submenu_page( 'ftipp', 'Sportarten', 'Sportarten', 'manage_options', 'ftipp', 'ftipp_page_sports' );
     add_submenu_page( 'ftipp', 'Design', 'Design', 'manage_options', 'ftipp_design', 'ftipp_page_design' );
     add_submenu_page( 'ftipp', 'Datensicherung', 'Datensicherung', 'manage_options', 'ftipp_backup', 'ftipp_page_backup' );
     add_submenu_page( 'ftipp', 'Changelog', 'Changelog', 'manage_options', 'ftipp_changelog', 'ftipp_page_changelog' );
     add_submenu_page( 'ftipp', 'History', 'History', 'manage_options', 'ftipp_history', 'ftipp_page_history' );
     add_submenu_page( 'ftipp', 'Cron-Job', 'Cron-Job', 'manage_options', 'ftipp_cron', 'ftipp_page_cron' );
-    add_submenu_page( 'ftipp', 'Formel 1', 'Formel 1', 'manage_options', 'ftipp_f1', 'ftipp_page_f1' );
-    add_submenu_page( 'ftipp', 'Tennis', 'Tennis', 'manage_options', 'ftipp_tennis', 'ftipp_page_tennis' );
+    // Formel 1 und Tennis stecken jetzt als Tabs in "Sportarten". Die alten Adressen bleiben trotzdem
+    // erreichbar (nicht im Menü sichtbar), damit gespeicherte Lesezeichen weiter funktionieren.
+    add_submenu_page( null, 'Formel 1', 'Formel 1', 'manage_options', 'ftipp_f1', 'ftipp_page_f1' );
+    add_submenu_page( null, 'Tennis', 'Tennis', 'manage_options', 'ftipp_tennis', 'ftipp_page_tennis' );
 } );
 
 /**
@@ -5491,28 +5493,28 @@ add_action( 'admin_post_ftipp_f1_fetch', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_f1_fetch' );
     $res = ftipp_f1_sync( 'manual' );
-    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_f1', 'ftipp_f1_done' => $res['ok'] ? 'ok' : 'err' ), admin_url( 'admin.php' ) ) );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'tab' => 'f1', 'ftipp_f1_done' => $res['ok'] ? 'ok' : 'err' ), admin_url( 'admin.php' ) ) );
     exit;
 } );
 add_action( 'admin_post_ftipp_f1_save_season', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_f1_save_season' );
     update_option( 'ftipp_f1_season', max( 2000, intval( $_POST['ftipp_f1_season'] ?? gmdate( 'Y' ) ) ) );
-    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_f1', 'ftipp_f1_saved' => '1' ), admin_url( 'admin.php' ) ) );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'tab' => 'f1', 'ftipp_f1_saved' => '1' ), admin_url( 'admin.php' ) ) );
     exit;
 } );
 add_action( 'admin_post_ftipp_tennis_fetch', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_tennis_fetch' );
     $res = ftipp_tennis_sync( 'manual' );
-    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_tennis', 'ftipp_tennis_done' => $res['ok'] ? 'ok' : 'err' ), admin_url( 'admin.php' ) ) );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'tab' => 'tennis', 'ftipp_tennis_done' => $res['ok'] ? 'ok' : 'err' ), admin_url( 'admin.php' ) ) );
     exit;
 } );
 add_action( 'admin_post_ftipp_tennis_save_key', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_tennis_save_key' );
     update_option( 'ftipp_tennis_api_key', sanitize_text_field( wp_unslash( $_POST['ftipp_tennis_api_key'] ?? '' ) ) );
-    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_tennis', 'ftipp_tennis_saved' => '1' ), admin_url( 'admin.php' ) ) );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'tab' => 'tennis', 'ftipp_tennis_saved' => '1' ), admin_url( 'admin.php' ) ) );
     exit;
 } );
 add_action( 'admin_post_ftipp_test_reminder', function () {
@@ -5696,6 +5698,33 @@ function ftipp_settings_page() {
     <?php
 }
 /**
+ * Sammelseite "Sportarten" — ein Menüpunkt mit einem Tab je Sportart, statt drei verstreuter Einträge.
+ * Die drei Seitenfunktionen bleiben unverändert; hier wird nur die Tab-Leiste davorgesetzt und die
+ * passende aufgerufen. So bleibt jede Sportart weiterhin für sich, genau wie im Frontend-Hub.
+ */
+function ftipp_page_sports() {
+    if ( ! current_user_can( 'manage_options' ) ) { return; }
+    $tabs = array(
+        'fussball' => array( 'label' => '⚽ Fußball',   'cb' => 'ftipp_settings_page' ),
+        'f1'       => array( 'label' => '🏁 Formel 1',  'cb' => 'ftipp_page_f1' ),
+        'tennis'   => array( 'label' => '🎾 Tennis',    'cb' => 'ftipp_page_tennis' ),
+    );
+    $cur = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'fussball';
+    if ( ! isset( $tabs[ $cur ] ) ) { $cur = 'fussball'; }
+    echo '<div class="wrap" style="padding-bottom:0"><nav class="nav-tab-wrapper">';
+    foreach ( $tabs as $slug => $t ) {
+        printf(
+            '<a href="%s" class="nav-tab%s">%s</a>',
+            esc_url( admin_url( 'admin.php?page=ftipp&tab=' . $slug ) ),
+            ( $slug === $cur ) ? ' nav-tab-active' : '',
+            esc_html( $t['label'] )
+        );
+    }
+    echo '</nav></div>';
+    call_user_func( $tabs[ $cur ]['cb'] );
+}
+
+/**
  * Allgemeine Einstellungen — alles, was NICHT zu einer einzelnen Sportart gehört (E-Mail-Versand,
  * Registrierung). Stand früher mit auf der Fußball-Seite, was seit Formel 1 und Tennis nicht mehr
  * passte: diese Schalter gelten für alle Sportarten gleichermaßen.
@@ -5706,9 +5735,9 @@ function ftipp_page_settings() {
     <div class="wrap">
         <h1>⚙️ Einstellungen</h1>
         <p>Gilt für alle Sportarten. Die Spieldaten der einzelnen Sportarten stellst du unter
-           <a href="<?php echo esc_url( admin_url( 'admin.php?page=ftipp' ) ); ?>">Fußball</a>,
-           <a href="<?php echo esc_url( admin_url( 'admin.php?page=ftipp_f1' ) ); ?>">Formel 1</a> und
-           <a href="<?php echo esc_url( admin_url( 'admin.php?page=ftipp_tennis' ) ); ?>">Tennis</a> ein.</p>
+           <a href="<?php echo esc_url( admin_url( 'admin.php?page=ftipp&tab=fussball' ) ); ?>">Sportarten → Fußball</a>,
+           <a href="<?php echo esc_url( admin_url( 'admin.php?page=ftipp&tab=f1' ) ); ?>">Formel 1</a> und
+           <a href="<?php echo esc_url( admin_url( 'admin.php?page=ftipp&tab=tennis' ) ); ?>">Tennis</a> ein.</p>
 
         <h2>✉️ Benachrichtigungen</h2>
         <p>Läuft serverseitig über <code>wp_mail()</code> — falls du ein SMTP-Plugin (z.B. "WP Mail SMTP") installiert hast,

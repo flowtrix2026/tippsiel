@@ -2387,6 +2387,32 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Update einspielen, auf beiden Seiten je einmal speichern
   und gegenprüfen, dass die jeweils andere Seite ihre Werte behält.
 
+## v1.11.0 — Ein Menüpunkt "Sportarten" statt drei verstreuter Einträge
+
+- **Anfrage:** "mach mal ein Menüpunkt Sportarten". Im Adminmenü standen Fußball an dritter Stelle,
+  Formel 1 und Tennis dagegen ganz unten — drei Sportarten, aber optisch kein Zusammenhang.
+- **Umgesetzt:** Neue Sammelseite **Sportarten** mit einer Tab-Leiste (⚽ Fußball · 🏁 Formel 1 ·
+  🎾 Tennis) im WordPress-Standardstil. Die drei bestehenden Seitenfunktionen bleiben unverändert — die
+  neue Seite setzt nur die Tab-Leiste davor und ruft die passende auf. Jede Sportart bleibt damit
+  weiterhin für sich, genauso wie im Frontend-Hub. Die Einzeleinträge "Fußball", "Formel 1" und
+  "Tennis" sind aus dem Menü verschwunden; das Menü zeigt jetzt: Info · Einstellungen · Sportarten ·
+  Design · Datensicherung · Changelog · History · Cron-Job.
+- **Alte Adressen bleiben gültig:** `page=ftipp_f1` und `page=ftipp_tennis` sind weiter erreichbar, nur
+  nicht mehr im Menü sichtbar (`add_submenu_page( null, … )`) — gespeicherte Lesezeichen laufen also
+  nicht ins Leere. Der Fußball-Tab liegt ohnehin auf dem alten Slug `page=ftipp`, weshalb sämtliche
+  bestehenden Fußball-Rücksprünge (Abruf, Test-Spiele, CSV-Import) unverändert funktionieren. Die
+  Rücksprünge der Formel-1- und Tennis-Aktionen zeigen jetzt auf den jeweiligen Tab, damit man nach
+  "Jetzt abrufen" nicht aus der Tab-Ansicht fällt.
+- Lokal getestet: `php -l` fehlerfrei. Die Tab-Weiche mit der echten, aus der Plugin-Datei
+  ausgeschnittenen Funktion durchgespielt (die drei Sport-Seiten dabei durch Marker ersetzt, um zu
+  sehen, welche wirklich aufgerufen wird): ohne `tab` kommt Fußball, `tab=fussball/f1/tennis` jeweils
+  die richtige Seite, ein unbekannter Wert fällt sauber auf Fußball zurück, und ein
+  `tab=<script>alert(1)</script>` ebenfalls — ohne dass etwas davon in der Ausgabe landet
+  (`sanitize_key` plus Abgleich gegen die erlaubten Tabs). Jeweils genau eine Seite gerendert und genau
+  ein Tab aktiv markiert. Keine Schema- oder Frontend-Änderung.
+- *Noch nicht auf der echten Seite getestet:* Update einspielen und durch die drei Tabs klicken,
+  inklusive "Jetzt abrufen" bei Formel 1 und Tennis (muss auf demselben Tab landen).
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
