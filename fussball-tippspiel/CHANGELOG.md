@@ -2413,6 +2413,47 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Update einspielen und durch die drei Tabs klicken,
   inklusive "Jetzt abrufen" bei Formel 1 und Tennis (muss auf demselben Tab landen).
 
+## v1.12.0 — Eishockey (NHL) als vierte Sportart
+
+- **Anfrage:** Aus der Anbieterliste von sportsdata-ai.com ("da sind viele Schnittstellen") die
+  kostenlosen Quellen nutzen; per Rückfrage fiel die Wahl auf **Eishockey (NHL)**, weil die Saison am
+  29.09.2026 startet und die Runde damit von Tag eins an mittippen kann.
+- **Quellenprüfung vorab (live per curl):** NHL (`api-web.nhle.com`) und MLB (`statsapi.mlb.com`) sind
+  frei und ohne Key nutzbar. **NBA fällt aus** — die CDN-Endpunkte antworten mit HTTP 403, auch mit
+  normaler Browser-Kennung; da steckt ein Bot-Schutz dahinter, der bewusst nicht umgangen wurde.
+  Wichtig für den Bau: die NHL-API antwortet zunächst mit **307** und braucht Weiterleitungs-Folge —
+  `wp_remote_get()` macht das von sich aus.
+- **Umgesetzt (Backend):** Vier neue Tabellen (`ftipp_nhl_tips`, `ftipp_nhl_round_config`,
+  `ftipp_nhl_special`, `ftipp_nhl_special_tips`), `FTIPP_DB_VERSION` 18 → 19. `ftipp_nhl_sync()` lädt
+  beim ersten Mal die **komplette Saison am Stück** — gemessen 1344 Spiele in 29 Abrufen und 9,7
+  Sekunden, weil ein Aufruf nur ~0,06 s dauert und gleich eine ganze Woche liefert. Eine Backfill-
+  Mechanik wie bei SportScore.com ist dadurch unnötig. Danach frischt jeder Lauf nur noch die laufende
+  Woche und die Vorwoche auf (2 Abrufe, alle 4 Stunden). Vorbereitungsspiele werden übersprungen,
+  Hauptrunde und Playoffs geladen. Punkte wie beim Fußball: Tendenz 1, exakt 3, beides einstellbar.
+- **Fehler beim Bau gefunden und behoben:** Bricht der Erstabruf mittendrin ab (Zeitlimit, Netzfehler),
+  wurde die Saison trotzdem als "geladen" vermerkt — die folgenden Läufe hätten dann für immer nur zwei
+  Wochen aufgefrischt und den Rest nie nachgeholt. Jetzt wird der Vermerk nur bei vollständigem
+  Durchlauf gesetzt, sonst steht ein entsprechender Hinweis in der History und der nächste Lauf holt nach.
+- **Umgesetzt (Frontend):** Hub-Kachel Eishockey aktiv, eigener `#nhl-shell` mit den gewohnten vier Tabs.
+  Tippen ist nach **Kalendertagen** gegliedert statt nach Spieltagen (im Eishockey wird fast täglich
+  gespielt) — Auswahl über ein Datums-Dropdown, das zeigt, wie viele Spiele an dem Tag anstehen und wie
+  viele schon gelaufen sind; Standard ist der nächste Tag mit offenen Spielen. Je Spiel zwei Torfelder
+  wie beim Fußball. Dazu die Sonderwertung **Stanley-Cup-Sieger** nach demselben Muster wie bei Tennis:
+  Mitspieler tippen ein Team, der Runden-Admin legt Punkte und Frist fest und trägt den Sieger ein.
+- Lokal getestet: `php -l` fehlerfrei, Script-Blöcke geprüft. **Live gegen die echte API:** komplette
+  Saison 2026-09-29 bis 2027-04-11 geladen (1344 Spiele, alle Hauptrunde, 472 KB im Zwischenspeicher =
+  ~360 Byte je Spiel), zweiter Lauf nur 2 Abrufe ohne Datenverlust. Punktelogik mit 6 Fällen geprüft
+  (exakt 3, richtiger Sieger 1, falscher Sieger 0, nicht abgegeben 0, Spiel nicht beendet 0, leerer
+  Tipp 0). Browser-Test: Kachel aktiv, vier Tabs, Tipp abgeben speichert korrekt
+  (`{game_id, hg, ag, committed:true}`), ein gespielter Tag zeigt "🔒 gesperrt", das Ergebnis inklusive
+  "(nach Verlängerung)" und die Mitspieler-Tipps, die Eingabefelder sind dann gesperrt; Auswertung mit
+  Treffern/exakt/Punkten; Sonderwertung speichert Punkte, eigenen Tipp und Sieger jeweils einzeln;
+  Mitspieler ohne Admin-Rechte bekommen keine Bearbeitungsfelder. **Regression gegengeprüft:** Fußball,
+  Formel 1 und Tennis laufen unverändert, jede Sportart blendet die anderen sauber aus.
+- *Noch nicht auf der echten Seite getestet:* Update einspielen (legt vier Tabellen an), unter
+  Sportarten → Eishockey einmal "Jetzt abrufen" (dauert ~10 Sekunden) und im Frontend eine Runde
+  aktivieren.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

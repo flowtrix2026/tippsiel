@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       Tippstube
- * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball (19 Wettbewerbe) und Formel 1 (Podium-Tipp), echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version:           1.11.0
+ * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis und Eishockey, echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
+ * Version:           1.12.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,8 +12,8 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.11.0' );
-define( 'FTIPP_DB_VERSION', '18' );
+define( 'FTIPP_VERSION', '1.12.0' );
+define( 'FTIPP_DB_VERSION', '19' );
 
 /**
  * Tennis (livetennisapi.com): Der Gratis-Tarif erlaubt 100 Anfragen pro Tag. Wir deckeln bewusst bei 90,
@@ -260,6 +260,43 @@ function ftipp_install() {
         PRIMARY KEY  (user_id,match_id)
     ) $charset_collate;" );
 
+    dbDelta( "CREATE TABLE {$p}ftipp_nhl_tips (
+        user_id BIGINT UNSIGNED NOT NULL,
+        game_id VARCHAR(32) NOT NULL,
+        hg INT NULL,
+        ag INT NULL,
+        committed TINYINT NOT NULL DEFAULT 0,
+        updated_at DATETIME NULL,
+        PRIMARY KEY  (user_id,game_id)
+    ) $charset_collate;" );
+
+    dbDelta( "CREATE TABLE {$p}ftipp_nhl_round_config (
+        round_id BIGINT UNSIGNED NOT NULL,
+        p_tend INT NOT NULL DEFAULT 1,
+        p_exact INT NOT NULL DEFAULT 3,
+        malus_on TINYINT NOT NULL DEFAULT 0,
+        malus INT NOT NULL DEFAULT 0,
+        deadline_min INT NOT NULL DEFAULT 60,
+        PRIMARY KEY  (round_id)
+    ) $charset_collate;" );
+
+    dbDelta( "CREATE TABLE {$p}ftipp_nhl_special (
+        round_id BIGINT UNSIGNED NOT NULL,
+        points INT NOT NULL DEFAULT 15,
+        deadline DATETIME NULL,
+        winner_team VARCHAR(8) NULL,
+        PRIMARY KEY  (round_id)
+    ) $charset_collate;" );
+
+    dbDelta( "CREATE TABLE {$p}ftipp_nhl_special_tips (
+        round_id BIGINT UNSIGNED NOT NULL,
+        user_id BIGINT UNSIGNED NOT NULL,
+        team VARCHAR(8) NULL,
+        committed TINYINT NOT NULL DEFAULT 0,
+        updated_at DATETIME NULL,
+        PRIMARY KEY  (round_id,user_id)
+    ) $charset_collate;" );
+
     dbDelta( "CREATE TABLE {$p}ftipp_tennis_cup (
         round_id BIGINT UNSIGNED NOT NULL,
         tournament_key VARCHAR(64) NOT NULL,
@@ -322,6 +359,7 @@ function ftipp_backup_table_names() {
         'ftipp_tips', 'ftipp_special', 'ftipp_special_tips', 'ftipp_chat', 'ftipp_notified', 'ftipp_history',
         'ftipp_f1_tips', 'ftipp_f1_round_config',
         'ftipp_tennis_tips', 'ftipp_tennis_round_config', 'ftipp_tennis_cup', 'ftipp_tennis_cup_tips',
+        'ftipp_nhl_tips', 'ftipp_nhl_round_config', 'ftipp_nhl_special', 'ftipp_nhl_special_tips',
     );
 }
 
@@ -510,6 +548,7 @@ add_filter( 'cron_schedules', function ( $s ) {
  */
 add_filter( 'cron_schedules', function ( $s ) {
     $s['ftipp_tennis_4h'] = array( 'interval' => 4 * HOUR_IN_SECONDS, 'display' => 'Alle 4 Stunden (Tippstube Tennis)' );
+    $s['ftipp_nhl_4h']    = array( 'interval' => 4 * HOUR_IN_SECONDS, 'display' => 'Alle 4 Stunden (Tippstube Eishockey)' );
     return $s;
 } );
 register_activation_hook( __FILE__, function () {
@@ -529,6 +568,9 @@ register_activation_hook( __FILE__, function () {
     if ( ! wp_next_scheduled( 'ftipp_tennis_periodic_fetch' ) ) {
         wp_schedule_event( time() + 150, 'ftipp_tennis_4h', 'ftipp_tennis_periodic_fetch' );
     }
+    if ( ! wp_next_scheduled( 'ftipp_nhl_periodic_fetch' ) ) {
+        wp_schedule_event( time() + 210, 'ftipp_nhl_4h', 'ftipp_nhl_periodic_fetch' );
+    }
     // Automatische Datensicherung ist bewusst opt-in (Standard: aus) — wird erst geplant, wenn der Admin
     // sie auf der Datensicherung-Seite aktiviert, siehe admin_post_ftipp_save_backup_settings.
 } );
@@ -540,6 +582,7 @@ add_action( 'plugins_loaded', function () {
     if ( ! wp_next_scheduled( 'ftipp_newsletter_check' ) ) { wp_schedule_event( time() + 180, 'hourly', 'ftipp_newsletter_check' ); }
     if ( ! wp_next_scheduled( 'ftipp_f1_weekly_fetch' ) ) { wp_schedule_event( time() + 90, 'weekly', 'ftipp_f1_weekly_fetch' ); }
     if ( ! wp_next_scheduled( 'ftipp_tennis_periodic_fetch' ) ) { wp_schedule_event( time() + 150, 'ftipp_tennis_4h', 'ftipp_tennis_periodic_fetch' ); }
+    if ( ! wp_next_scheduled( 'ftipp_nhl_periodic_fetch' ) ) { wp_schedule_event( time() + 210, 'ftipp_nhl_4h', 'ftipp_nhl_periodic_fetch' ); }
     if ( get_option( 'ftipp_backup_enabled' ) && ! wp_next_scheduled( 'ftipp_backup_scheduled' ) ) {
         wp_schedule_event( time() + 240, 'ftipp_backup_custom', 'ftipp_backup_scheduled' );
     }
@@ -551,6 +594,7 @@ register_deactivation_hook( __FILE__, function () {
     wp_clear_scheduled_hook( 'ftipp_backup_scheduled' );
     wp_clear_scheduled_hook( 'ftipp_f1_weekly_fetch' );
     wp_clear_scheduled_hook( 'ftipp_tennis_periodic_fetch' );
+    wp_clear_scheduled_hook( 'ftipp_nhl_periodic_fetch' );
 } );
 
 /* ============================================================
@@ -1351,6 +1395,288 @@ function ftipp_f1_compute_leaderboard( $round_id ) {
     usort( $rows, function ( $a, $b ) { return $b['total'] <=> $a['total']; } );
     foreach ( $rows as $i => $r ) { $rows[ $i ]['rank'] = $i + 1; }
     return $rows;
+}
+
+/* ============================================================
+ * EISHOCKEY (NHL) — Ergebnis-Tipp
+ * Eigenständiges System wie Formel 1 und Tennis: eigene Tabellen, eigener Cron, eigene REST-Routen.
+ * Strukturell ist Eishockey zwar wie Fußball (zwei Teams, Tore), läuft aber bewusst trotzdem getrennt —
+ * die Fußball-Maschinerie hängt an ftipp_leagues()/ftipp_comp_ids() und deren Saison-/Spieltag-Logik.
+ *
+ * Datenquelle: api-web.nhle.com (kostenlos, kein Key). Ein Aufruf liefert eine ganze Woche; eine
+ * komplette Saison sind rund 37 Aufrufe à ~0,06 s, deshalb ist keine Backfill-Mechanik nötig wie bei
+ * SportScore.com — die Saison wird einmal am Stück geladen und danach nur noch die laufende Woche
+ * plus die Vorwoche aufgefrischt (2 Aufrufe je Lauf).
+ * ============================================================ */
+
+/** Ein Aufruf an die NHL-API. Weiterleitungen folgt wp_remote_get() von sich aus (die API antwortet mit 307). */
+function ftipp_nhl_fetch( $path ) {
+    $resp = wp_remote_get( 'https://api-web.nhle.com' . $path, array( 'timeout' => 20 ) );
+    if ( is_wp_error( $resp ) ) { return array( 'ok' => false, 'error' => $resp->get_error_message() ); }
+    $code = (int) wp_remote_retrieve_response_code( $resp );
+    if ( 200 !== $code ) { return array( 'ok' => false, 'error' => 'HTTP ' . $code ); }
+    $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+    if ( ! is_array( $body ) ) { return array( 'ok' => false, 'error' => 'Unerwartete Antwort' ); }
+    return array( 'ok' => true, 'body' => $body );
+}
+
+/** Einen API-Spieldatensatz auf das eindampfen, was die Tippstube braucht. */
+function ftipp_nhl_shape( $g ) {
+    $side = function ( $t ) {
+        $name = '';
+        if ( isset( $t['commonName']['default'] ) ) { $name = $t['commonName']['default']; }
+        elseif ( isset( $t['placeName']['default'] ) ) { $name = $t['placeName']['default']; }
+        return array(
+            'abbrev' => isset( $t['abbrev'] ) ? $t['abbrev'] : '',
+            'name'   => trim( ( isset( $t['placeName']['default'] ) ? $t['placeName']['default'] . ' ' : '' ) . $name ),
+            'score'  => isset( $t['score'] ) ? intval( $t['score'] ) : null,
+        );
+    };
+    $state = isset( $g['gameState'] ) ? $g['gameState'] : 'FUT';
+    return array(
+        'id'     => (string) $g['id'],
+        'start'  => isset( $g['startTimeUTC'] ) ? $g['startTimeUTC'] : null,
+        'date'   => isset( $g['startTimeUTC'] ) ? substr( $g['startTimeUTC'], 0, 10 ) : null,
+        'state'  => $state,
+        'type'   => isset( $g['gameType'] ) ? intval( $g['gameType'] ) : 0,
+        'home'   => $side( isset( $g['homeTeam'] ) ? $g['homeTeam'] : array() ),
+        'away'   => $side( isset( $g['awayTeam'] ) ? $g['awayTeam'] : array() ),
+        // Im Eishockey gibt es kein Unentschieden — ein Gleichstand nach 60 Minuten wird in der
+        // Verlängerung oder im Penaltyschießen entschieden. Für die Anzeige merken wir uns das.
+        'ot'     => isset( $g['periodDescriptor']['periodType'] )
+                    && in_array( $g['periodDescriptor']['periodType'], array( 'OT', 'SO' ), true ),
+        'final'  => in_array( $state, array( 'OFF', 'FINAL' ), true ),
+    );
+}
+
+/** Spielplan und Ergebnisse abrufen. */
+function ftipp_nhl_sync( $trigger = 'cron' ) {
+    $out = array( 'ok' => false, 'games_merged' => 0, 'results_new' => 0, 'calls' => 0, 'errors' => array() );
+
+    $now = ftipp_nhl_fetch( '/v1/schedule/now' );
+    $out['calls']++;
+    if ( ! $now['ok'] ) { $out['errors'][] = $now['error']; return $out; }
+    $meta = $now['body'];
+
+    $seasonStart = isset( $meta['regularSeasonStartDate'] ) ? $meta['regularSeasonStartDate'] : null;
+    $seasonEnd   = isset( $meta['playoffEndDate'] ) ? $meta['playoffEndDate']
+                   : ( isset( $meta['regularSeasonEndDate'] ) ? $meta['regularSeasonEndDate'] : null );
+    $seasonKey   = (string) $seasonStart . '/' . (string) $seasonEnd;
+
+    $games  = get_option( 'ftipp_nhl_games', array() );
+    if ( ! is_array( $games ) ) { $games = array(); }
+    $stored = (string) get_option( 'ftipp_nhl_season', '' );
+    $full   = ( $seasonKey !== $stored ) || ! $games;
+
+    $merged = 0; $resultsNew = 0;
+    $take = function ( $body ) use ( &$games, &$merged, &$resultsNew ) {
+        $week = isset( $body['gameWeek'] ) ? $body['gameWeek'] : array();
+        foreach ( $week as $day ) {
+            foreach ( ( isset( $day['games'] ) ? $day['games'] : array() ) as $g ) {
+                if ( empty( $g['id'] ) ) { continue; }
+                $type = isset( $g['gameType'] ) ? intval( $g['gameType'] ) : 0;
+                // 1 = Vorbereitung (uninteressant), 2 = Hauptrunde, 3 = Playoffs
+                if ( 2 !== $type && 3 !== $type ) { continue; }
+                $s  = ftipp_nhl_shape( $g );
+                $id = $s['id'];
+                $hatteErgebnis = isset( $games[ $id ] ) && ! empty( $games[ $id ]['final'] );
+                $games[ $id ] = $s;
+                if ( $s['final'] && ! $hatteErgebnis ) { $resultsNew++; }
+                $merged++;
+            }
+        }
+    };
+
+    if ( $full && $seasonStart ) {
+        // Neue Saison (oder erster Abruf): einmal die komplette Saison Woche für Woche durchlaufen.
+        $games = array();
+        $d = $seasonStart;
+        $komplett = false;
+        for ( $i = 0; $i < 45 && $d; $i++ ) {
+            $w = ftipp_nhl_fetch( '/v1/schedule/' . $d );
+            $out['calls']++;
+            if ( ! $w['ok'] ) { $out['errors'][] = $d . ': ' . $w['error']; break; }
+            $take( $w['body'] );
+            $next = isset( $w['body']['nextStartDate'] ) ? $w['body']['nextStartDate'] : null;
+            if ( ! $next || $next === $d || ( $seasonEnd && $next > $seasonEnd ) ) { $komplett = true; break; }
+            $d = $next;
+        }
+        // Die Saison erst als geladen vermerken, wenn der Durchlauf wirklich bis zum Ende kam. Sonst
+        // würde ein Abbruch mittendrin (Zeitlimit, Netzfehler) dauerhaft eine halbe Saison festschreiben,
+        // weil die folgenden Läufe nur noch zwei Wochen auffrischen statt den Rest nachzuholen.
+        if ( $komplett ) { update_option( 'ftipp_nhl_season', $seasonKey, false ); }
+        else { $out['errors'][] = 'Saison unvollständig geladen — wird beim nächsten Lauf fortgesetzt.'; }
+    } else {
+        // Laufender Betrieb: aktuelle Woche (schon geladen) plus Vorwoche für nachgetragene Ergebnisse.
+        $take( $meta );
+        $prev = isset( $meta['previousStartDate'] ) ? $meta['previousStartDate'] : null;
+        if ( $prev ) {
+            $p = ftipp_nhl_fetch( '/v1/schedule/' . $prev );
+            $out['calls']++;
+            if ( $p['ok'] ) { $take( $p['body'] ); } else { $out['errors'][] = 'Vorwoche: ' . $p['error']; }
+        }
+    }
+
+    update_option( 'ftipp_nhl_games', $games, false );
+    update_option( 'ftipp_nhl_last_sync', current_time( 'mysql', true ), false );
+
+    $out['ok'] = ( $merged > 0 ) || ! $out['errors'];
+    $out['games_merged'] = $merged;
+    $out['results_new']  = $resultsNew;
+
+    ftipp_log_history(
+        'manual' === $trigger ? 'nhl_manual_fetch' : 'nhl_cron_fetch',
+        "Eishockey: {$merged} Spiele aktualisiert, {$resultsNew} neue Ergebnisse, {$out['calls']} Abrufe"
+            . ( $full ? ' (komplette Saison geladen)' : '' )
+            . ( $out['errors'] ? ', Fehler bei ' . count( $out['errors'] ) : '' ),
+        'NHL', wp_json_encode( array( 'errors' => $out['errors'] ) ),
+        'manual' === $trigger ? get_current_user_id() : null
+    );
+    return $out;
+}
+add_action( 'ftipp_nhl_periodic_fetch', 'ftipp_nhl_sync' );
+
+function ftipp_nhl_default_cfg() {
+    // Wie beim Fußball: Tendenz 1, exaktes Ergebnis 3. Die Tendenz ist im Eishockey allerdings leichter,
+    // weil es kein Unentschieden gibt (nur zwei mögliche Ausgänge statt drei) — bei Bedarf runterstellen.
+    return array( 'pTend' => 1, 'pExact' => 3, 'malusOn' => false, 'malus' => 0, 'deadlineMin' => 60 );
+}
+function ftipp_nhl_round_cfg( $round_id ) {
+    global $wpdb;
+    $row = $wpdb->get_row( $wpdb->prepare(
+        "SELECT * FROM {$wpdb->prefix}ftipp_nhl_round_config WHERE round_id=%d", $round_id
+    ), ARRAY_A );
+    if ( ! $row ) { return ftipp_nhl_default_cfg(); }
+    return array(
+        'pTend' => intval( $row['p_tend'] ), 'pExact' => intval( $row['p_exact'] ),
+        'malusOn' => (bool) intval( $row['malus_on'] ), 'malus' => intval( $row['malus'] ),
+        'deadlineMin' => intval( $row['deadline_min'] ),
+    );
+}
+/** Zeitpunkt, ab dem für dieses Spiel nicht mehr getippt werden darf. */
+function ftipp_nhl_lock_ts( $game, $cfg ) {
+    $ts = ! empty( $game['start'] ) ? strtotime( $game['start'] ) : 0;
+    return $ts ? ( $ts - $cfg['deadlineMin'] * 60 ) : 0;
+}
+/** Punkte für einen Ergebnis-Tipp. */
+function ftipp_nhl_score_tip( $game, $tip, $cfg ) {
+    if ( empty( $game['final'] ) || ! $tip || empty( $tip['committed'] ) ) { return 0; }
+    if ( null === $game['home']['score'] || null === $game['away']['score'] ) { return 0; }
+    if ( null === $tip['hg'] || null === $tip['ag'] ) { return 0; }
+    $hg = intval( $game['home']['score'] ); $ag = intval( $game['away']['score'] );
+    $th = intval( $tip['hg'] ); $ta = intval( $tip['ag'] );
+    if ( $th === $hg && $ta === $ag ) { return $cfg['pExact']; }
+    $sign = function ( $a, $b ) { return ( $a > $b ) ? 1 : ( ( $a < $b ) ? -1 : 0 ); };
+    return ( $sign( $th, $ta ) === $sign( $hg, $ag ) ) ? $cfg['pTend'] : 0;
+}
+
+/** Rangliste einer Runde für Eishockey — eine Abfrage je Mitglied, danach im Speicher verglichen. */
+function ftipp_nhl_compute_leaderboard( $round_id ) {
+    global $wpdb;
+    $cfg = ftipp_nhl_round_cfg( $round_id );
+    $members = ftipp_round_members( $round_id );
+    $subRows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT user_id FROM {$wpdb->prefix}ftipp_round_subs WHERE round_id=%d AND comp_id='NHL' AND active=1", $round_id
+    ), ARRAY_A );
+    $activeIds = array();
+    foreach ( $subRows as $r ) { $activeIds[ intval( $r['user_id'] ) ] = true; }
+    $members = array_values( array_filter( $members, function ( $m ) use ( $activeIds ) { return isset( $activeIds[ $m['id'] ] ); } ) );
+    if ( ! $members ) { return array(); }
+
+    $games = get_option( 'ftipp_nhl_games', array() );
+    $now = time();
+    $rows = array();
+    foreach ( $members as $m ) {
+        $tipRows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT game_id,hg,ag,committed FROM {$wpdb->prefix}ftipp_nhl_tips WHERE user_id=%d", $m['id']
+        ), ARRAY_A );
+        $byGame = array();
+        foreach ( $tipRows as $t ) { $byGame[ $t['game_id'] ] = $t; }
+
+        $total = 0; $exact = 0; $hits = 0;
+        foreach ( $games as $id => $g ) {
+            if ( empty( $g['final'] ) ) { continue; }
+            $tip = isset( $byGame[ $id ] ) ? $byGame[ $id ] : null;
+            if ( $tip && $tip['committed'] ) {
+                $pts = ftipp_nhl_score_tip( $g, $tip, $cfg );
+                $total += $pts;
+                if ( $pts > 0 ) { $hits++; }
+                if ( $pts === $cfg['pExact'] && $cfg['pExact'] > 0 ) { $exact++; }
+            } elseif ( $cfg['malusOn'] ) {
+                $lockTs = ftipp_nhl_lock_ts( $g, $cfg );
+                if ( $lockTs && $lockTs < $now ) { $total += $cfg['malus']; }
+            }
+        }
+        $total += ftipp_nhl_special_points_for( $round_id, $m['id'] );
+        $u = get_userdata( $m['id'] );
+        $rows[] = array(
+            'user_id' => $m['id'],
+            'name'    => $u ? ftipp_public_name( $u ) : ( 'Spieler #' . $m['id'] ),
+            'total'   => $total, 'hits' => $hits, 'exact' => $exact,
+        );
+    }
+    usort( $rows, function ( $a, $b ) { return $b['total'] <=> $a['total']; } );
+    foreach ( $rows as $i => $r ) { $rows[ $i ]['rank'] = $i + 1; }
+    return $rows;
+}
+
+/* ---- Sonderwertung "Stanley-Cup-Sieger" ----
+ * Gleiches Muster wie die Turniersieger-Wette bei Tennis: je Tipprunde eine Wette, der Runden-Admin
+ * legt Punkte und Frist fest und trägt am Saisonende den Sieger ein (Auswahl aus den NHL-Teams). */
+
+function ftipp_nhl_special_defaults() {
+    // Eine Wette über eine ganze Saison ist deutlich mehr wert als ein einzelnes Spiel.
+    return array( 'points' => 15, 'deadline' => null, 'winner' => null );
+}
+function ftipp_nhl_special_row( $round_id ) {
+    global $wpdb;
+    $row = $wpdb->get_row( $wpdb->prepare(
+        "SELECT * FROM {$wpdb->prefix}ftipp_nhl_special WHERE round_id=%d", $round_id
+    ), ARRAY_A );
+    if ( ! $row ) { return ftipp_nhl_special_defaults(); }
+    return array(
+        'points' => intval( $row['points'] ), 'deadline' => $row['deadline'], 'winner' => $row['winner_team'],
+    );
+}
+/** Tipp-Schluss: die Frist des Admins, sonst der Beginn des allerersten Saisonspiels. */
+function ftipp_nhl_special_lock_ts( $row, $cfg ) {
+    if ( ! empty( $row['deadline'] ) ) { return strtotime( $row['deadline'] ); }
+    $games = get_option( 'ftipp_nhl_games', array() );
+    $first = null;
+    foreach ( $games as $g ) {
+        if ( empty( $g['start'] ) ) { continue; }
+        $ts = strtotime( $g['start'] );
+        if ( $ts && ( null === $first || $ts < $first ) ) { $first = $ts; }
+    }
+    return $first ? ( $first - $cfg['deadlineMin'] * 60 ) : 0;
+}
+/** Alle Teams der Saison — die Auswahlliste für Tipp und Sieger-Eintrag. */
+function ftipp_nhl_teams() {
+    $games = get_option( 'ftipp_nhl_games', array() );
+    $out = array();
+    foreach ( $games as $g ) {
+        foreach ( array( 'home', 'away' ) as $side ) {
+            $t = $g[ $side ];
+            if ( empty( $t['abbrev'] ) ) { continue; }
+            if ( ! isset( $out[ $t['abbrev'] ] ) ) {
+                $out[ $t['abbrev'] ] = array( 'abbrev' => $t['abbrev'], 'name' => $t['name'] );
+            }
+        }
+    }
+    usort( $out, function ( $a, $b ) { return strcmp( $a['name'], $b['name'] ); } );
+    return array_values( $out );
+}
+/** Punkte eines Mitspielers aus der Stanley-Cup-Wette. */
+function ftipp_nhl_special_points_for( $round_id, $user_id ) {
+    global $wpdb;
+    $sp = ftipp_nhl_special_row( $round_id );
+    if ( empty( $sp['winner'] ) ) { return 0; }
+    $tip = $wpdb->get_row( $wpdb->prepare(
+        "SELECT team,committed FROM {$wpdb->prefix}ftipp_nhl_special_tips WHERE round_id=%d AND user_id=%d",
+        $round_id, $user_id
+    ), ARRAY_A );
+    if ( ! $tip || empty( $tip['committed'] ) ) { return 0; }
+    return ( (string) $tip['team'] === (string) $sp['winner'] ) ? intval( $sp['points'] ) : 0;
 }
 
 /* ============================================================
@@ -3550,6 +3876,245 @@ add_action( 'rest_api_init', function () {
             return array( 'ok' => true );
         },
     ) );
+    /* ---------------- Eishockey (NHL) ---------------- */
+    register_rest_route( 'ftipp/v1', '/nhl/games', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req->get_param( 'round' ) );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $cfg = ftipp_nhl_round_cfg( $rid );
+            $games = get_option( 'ftipp_nhl_games', array() );
+            if ( ! is_array( $games ) ) { $games = array(); }
+            $now = time();
+
+            // Spieltage = Kalendertage mit Spielen. Ohne diese Aufteilung stünden über 1300 Spiele
+            // einer Saison auf einer Seite.
+            $days = array();
+            foreach ( $games as $g ) {
+                if ( empty( $g['date'] ) ) { continue; }
+                if ( ! isset( $days[ $g['date'] ] ) ) { $days[ $g['date'] ] = array( 'date' => $g['date'], 'total' => 0, 'final' => 0 ); }
+                $days[ $g['date'] ]['total']++;
+                if ( ! empty( $g['final'] ) ) { $days[ $g['date'] ]['final']++; }
+            }
+            ksort( $days );
+            $days = array_values( $days );
+
+            $wanted = sanitize_text_field( (string) $req->get_param( 'date' ) );
+            if ( '' === $wanted ) {
+                // Standard: der nächste Tag, an dem noch etwas offen ist — sonst der letzte gespielte.
+                foreach ( $days as $d ) {
+                    if ( $d['final'] < $d['total'] ) { $wanted = $d['date']; break; }
+                }
+                if ( '' === $wanted && $days ) { $wanted = $days[ count( $days ) - 1 ]['date']; }
+            }
+
+            $mine = array();
+            $tipRows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT game_id,hg,ag,committed FROM {$wpdb->prefix}ftipp_nhl_tips WHERE user_id=%d", $uid
+            ), ARRAY_A );
+            foreach ( $tipRows as $t ) { $mine[ $t['game_id'] ] = $t; }
+
+            $out = array();
+            foreach ( $games as $id => $g ) {
+                if ( $g['date'] !== $wanted ) { continue; }
+                $lockTs = ftipp_nhl_lock_ts( $g, $cfg );
+                $locked = $lockTs && ( $now >= $lockTs );
+                $row = array(
+                    'game' => $g, 'locked' => (bool) $locked,
+                    'mine' => isset( $mine[ $id ] ) ? array(
+                        'hg' => ( null === $mine[ $id ]['hg'] ) ? null : intval( $mine[ $id ]['hg'] ),
+                        'ag' => ( null === $mine[ $id ]['ag'] ) ? null : intval( $mine[ $id ]['ag'] ),
+                        'committed' => (bool) $mine[ $id ]['committed'],
+                    ) : null,
+                );
+                if ( $locked ) {
+                    // Tipps der Mitspieler erst nach Ablauf der Frist — wie bei allen anderen Sportarten.
+                    $others = $wpdb->get_results( $wpdb->prepare(
+                        "SELECT user_id,hg,ag FROM {$wpdb->prefix}ftipp_nhl_tips WHERE game_id=%s AND committed=1", $id
+                    ), ARRAY_A );
+                    $named = array();
+                    foreach ( $others as $o ) {
+                        $u = get_userdata( $o['user_id'] );
+                        $named[] = array(
+                            'name' => $u ? ftipp_public_name( $u ) : ( 'Spieler #' . $o['user_id'] ),
+                            'hg' => intval( $o['hg'] ), 'ag' => intval( $o['ag'] ),
+                        );
+                    }
+                    $row['others'] = $named;
+                }
+                $out[] = $row;
+            }
+            usort( $out, function ( $a, $b ) { return strcmp( (string) $a['game']['start'], (string) $b['game']['start'] ); } );
+            return array( 'games' => $out, 'days' => $days, 'date' => $wanted, 'cfg' => $cfg );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/nhl/tips', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ), 'game_id' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $gid = sanitize_text_field( $req['game_id'] );
+            $games = get_option( 'ftipp_nhl_games', array() );
+            if ( ! isset( $games[ $gid ] ) ) { return new WP_Error( 'not_found', 'Spiel nicht gefunden.', array( 'status' => 404 ) ); }
+            $cfg = ftipp_nhl_round_cfg( $rid );
+            $lockTs = ftipp_nhl_lock_ts( $games[ $gid ], $cfg );
+            // Sperre serverseitig neu prüfen — dem Client nie vertrauen.
+            if ( $lockTs && time() >= $lockTs ) {
+                return new WP_Error( 'locked', 'Die Tipp-Frist ist bereits abgelaufen.', array( 'status' => 403 ) );
+            }
+            $num = function ( $v ) { return ( null === $v || '' === $v ) ? null : max( 0, intval( $v ) ); };
+            $wpdb->replace( "{$wpdb->prefix}ftipp_nhl_tips", array(
+                'user_id' => $uid, 'game_id' => $gid,
+                'hg' => $num( $req->get_param( 'hg' ) ), 'ag' => $num( $req->get_param( 'ag' ) ),
+                'committed' => ! empty( $req['committed'] ) ? 1 : 0,
+                'updated_at' => current_time( 'mysql' ),
+            ) );
+            return array( 'ok' => true );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/nhl/leaderboard', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            $rid = intval( $req->get_param( 'round' ) ); $uid = get_current_user_id();
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            return array( 'rows' => ftipp_nhl_compute_leaderboard( $rid ) );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/nhl/config', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            $rid = intval( $req->get_param( 'round' ) ); $uid = get_current_user_id();
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            return ftipp_nhl_round_cfg( $rid );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/nhl/config', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_admin( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Nur der Runden-Admin darf die Regeln ändern.', array( 'status' => 403 ) ); }
+            $cur = ftipp_nhl_round_cfg( $rid );
+            $num = function ( $key, $fallback ) use ( $req ) {
+                $v = $req->get_param( $key );
+                return ( null === $v || '' === $v ) ? $fallback : intval( $v );
+            };
+            $wpdb->replace( "{$wpdb->prefix}ftipp_nhl_round_config", array(
+                'round_id' => $rid,
+                'p_tend' => $num( 'pTend', $cur['pTend'] ), 'p_exact' => $num( 'pExact', $cur['pExact'] ),
+                'malus_on' => ( null !== $req->get_param( 'malusOn' ) )
+                    ? ( $req->get_param( 'malusOn' ) ? 1 : 0 ) : ( $cur['malusOn'] ? 1 : 0 ),
+                'malus' => $num( 'malus', $cur['malus'] ),
+                'deadline_min' => $num( 'deadlineMin', $cur['deadlineMin'] ),
+            ) );
+            return ftipp_nhl_round_cfg( $rid );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/nhl/subscribe', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        // Eigene Route, weil die generische /rounds/{id}/subs comp_id hart gegen die Fußball-Registry prüft.
+        'args' => array( 'round_id' => array( 'required' => true ), 'active' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $wpdb->replace( "{$wpdb->prefix}ftipp_round_subs", array(
+                'round_id' => $rid, 'user_id' => $uid, 'comp_id' => 'NHL', 'active' => $req['active'] ? 1 : 0,
+            ) );
+            return array( 'ok' => true );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/nhl/special', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req->get_param( 'round' ) );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $cfg = ftipp_nhl_round_cfg( $rid );
+            $sp  = ftipp_nhl_special_row( $rid );
+            $lockTs = ftipp_nhl_special_lock_ts( $sp, $cfg );
+            $locked = $lockTs && ( time() >= $lockTs );
+            $mine = $wpdb->get_row( $wpdb->prepare(
+                "SELECT team,committed FROM {$wpdb->prefix}ftipp_nhl_special_tips WHERE round_id=%d AND user_id=%d", $rid, $uid
+            ), ARRAY_A );
+            $out = array(
+                'teams' => ftipp_nhl_teams(), 'points' => $sp['points'], 'winner' => $sp['winner'],
+                'locked' => (bool) $locked,
+                'deadline' => $lockTs ? gmdate( 'Y-m-d\TH:i', $lockTs + ( get_option( 'gmt_offset', 0 ) * HOUR_IN_SECONDS ) ) : null,
+                'deadlineCustom' => ! empty( $sp['deadline'] ),
+                'mine' => $mine ? array( 'team' => $mine['team'], 'committed' => (bool) $mine['committed'] ) : null,
+                'rows' => array(),
+            );
+            if ( ! $locked ) { return $out; }
+            $subRows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT user_id FROM {$wpdb->prefix}ftipp_round_subs WHERE round_id=%d AND comp_id='NHL' AND active=1", $rid
+            ), ARRAY_A );
+            $activeIds = array();
+            foreach ( $subRows as $r ) { $activeIds[ intval( $r['user_id'] ) ] = true; }
+            foreach ( ftipp_round_members( $rid ) as $mem ) {
+                if ( ! isset( $activeIds[ $mem['id'] ] ) ) { continue; }
+                $t = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT team,committed FROM {$wpdb->prefix}ftipp_nhl_special_tips WHERE round_id=%d AND user_id=%d", $rid, $mem['id']
+                ), ARRAY_A );
+                $u = get_userdata( $mem['id'] );
+                $out['rows'][] = array(
+                    'name' => $u ? ftipp_public_name( $u ) : ( 'Spieler #' . $mem['id'] ),
+                    'team' => ( $t && $t['committed'] ) ? $t['team'] : null,
+                    'pts'  => ftipp_nhl_special_points_for( $rid, $mem['id'] ),
+                );
+            }
+            usort( $out['rows'], function ( $a, $b ) { return $b['pts'] <=> $a['pts']; } );
+            return $out;
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/nhl/special/tip', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $cfg = ftipp_nhl_round_cfg( $rid );
+            $sp  = ftipp_nhl_special_row( $rid );
+            $lockTs = ftipp_nhl_special_lock_ts( $sp, $cfg );
+            if ( $lockTs && time() >= $lockTs ) {
+                return new WP_Error( 'locked', 'Die Tipp-Frist ist bereits abgelaufen.', array( 'status' => 403 ) );
+            }
+            $team = sanitize_text_field( (string) $req->get_param( 'team' ) );
+            $wpdb->replace( "{$wpdb->prefix}ftipp_nhl_special_tips", array(
+                'round_id' => $rid, 'user_id' => $uid,
+                'team' => ( '' === $team ) ? null : $team,
+                'committed' => ! empty( $req['committed'] ) ? 1 : 0,
+                'updated_at' => current_time( 'mysql' ),
+            ) );
+            return array( 'ok' => true );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/nhl/special/config', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_admin( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Nur der Runden-Admin darf das ändern.', array( 'status' => 403 ) ); }
+            $cur = ftipp_nhl_special_row( $rid );
+            $points = $cur['points'];
+            if ( null !== $req->get_param( 'points' ) && '' !== $req->get_param( 'points' ) ) {
+                $points = intval( $req->get_param( 'points' ) );
+            }
+            $deadline = $cur['deadline'];
+            if ( null !== $req->get_param( 'deadline' ) ) {
+                $raw = trim( (string) $req->get_param( 'deadline' ) );
+                $deadline = ( '' === $raw ) ? null : str_replace( 'T', ' ', substr( $raw, 0, 16 ) ) . ':00';
+            }
+            $winner = $cur['winner'];
+            if ( null !== $req->get_param( 'winner' ) ) {
+                $w = sanitize_text_field( (string) $req->get_param( 'winner' ) );
+                $winner = ( '' === $w ) ? null : $w;
+            }
+            $wpdb->replace( "{$wpdb->prefix}ftipp_nhl_special", array(
+                'round_id' => $rid, 'points' => $points, 'deadline' => $deadline, 'winner_team' => $winner,
+            ) );
+            return ftipp_nhl_special_row( $rid );
+        },
+    ) );
     /* ---------------- Tennis ---------------- */
     register_rest_route( 'ftipp/v1', '/tennis/matches', array(
         'methods' => 'GET', 'permission_callback' => $auth,
@@ -4514,6 +5079,8 @@ function ftipp_page_history() {
         'f1_manual_fetch' => '🏁⬇️ F1: Manueller Abruf',
         'tennis_cron_fetch' => '🎾⏱️ Tennis: Automatischer Abruf',
         'tennis_manual_fetch' => '🎾⬇️ Tennis: Manueller Abruf',
+        'nhl_cron_fetch' => '🏒⏱️ Eishockey: Automatischer Abruf',
+        'nhl_manual_fetch' => '🏒⬇️ Eishockey: Manueller Abruf',
         'csv_import'    => '📄 CSV-Import',
         'test_fixtures' => '🎲 Test-Spiele',
         'restore'       => '💾 Sicherung wiederhergestellt',
@@ -4825,6 +5392,77 @@ function ftipp_page_cron() {
                 </table>
                 <?php submit_button( 'Verbinden & einrichten' ); ?>
             </form>
+        <?php endif; ?>
+    </div>
+    <?php
+}
+
+function ftipp_page_nhl() {
+    if ( ! current_user_can( 'manage_options' ) ) { return; }
+    $lastSync = get_option( 'ftipp_nhl_last_sync' );
+    $season   = (string) get_option( 'ftipp_nhl_season', '' );
+    $games    = get_option( 'ftipp_nhl_games', array() );
+    if ( ! is_array( $games ) ) { $games = array(); }
+    $final = 0; $offen = 0; $tage = array();
+    foreach ( $games as $g ) {
+        if ( ! empty( $g['final'] ) ) { $final++; } else { $offen++; }
+        if ( ! empty( $g['date'] ) ) { $tage[ $g['date'] ] = true; }
+    }
+    uasort( $games, function ( $a, $b ) { return strcmp( (string) $a['start'], (string) $b['start'] ); } );
+    ?>
+    <div class="wrap">
+        <h1>🏒 Eishockey</h1>
+        <p>Ergebnis-Tipp für NHL-Spiele — läuft komplett unabhängig von den anderen Sportarten.
+           Datenquelle: <a href="https://api-web.nhle.com" target="_blank" rel="noopener">api-web.nhle.com</a>
+           (kostenlos, kein Key nötig). Mitspieler aktivieren Eishockey pro Tipprunde selbst in der App.
+           Geladen werden Hauptrunde und Playoffs, keine Vorbereitungsspiele.</p>
+
+        <?php if ( isset( $_GET['ftipp_nhl_done'] ) ) : ?>
+            <div class="notice notice-<?php echo ( 'ok' === $_GET['ftipp_nhl_done'] ) ? 'success' : 'error'; ?> is-dismissible">
+                <p><?php echo ( 'ok' === $_GET['ftipp_nhl_done'] ) ? 'Abruf abgeschlossen.' : 'Abruf fehlgeschlagen — Details unter Tippstube → History.'; ?></p>
+            </div>
+        <?php endif; ?>
+
+        <h2>Status</h2>
+        <p><strong>Spiele geladen:</strong> <?php echo count( $games ); ?>
+           &nbsp;·&nbsp; <strong>offen:</strong> <?php echo esc_html( $offen ); ?>
+           &nbsp;·&nbsp; <strong>gespielt:</strong> <?php echo esc_html( $final ); ?>
+           &nbsp;·&nbsp; <strong>Spieltage:</strong> <?php echo count( $tage ); ?>
+           <br><strong>Saison:</strong> <?php echo $season ? esc_html( str_replace( '/', ' bis ', $season ) ) : '—'; ?>
+           &nbsp;·&nbsp; <strong>Letzter Abruf:</strong> <?php echo $lastSync ? esc_html( wp_date( 'd.m.Y H:i', strtotime( $lastSync ) ) ) : '—'; ?></p>
+        <p class="description">Der erste Abruf lädt die komplette Saison (rund 30 Anfragen, etwa 10 Sekunden).
+           Danach frischt der automatische Abruf alle 4 Stunden nur noch die laufende Woche und die Vorwoche
+           auf — das sind zwei Anfragen.</p>
+
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <input type="hidden" name="action" value="ftipp_nhl_fetch" />
+            <?php wp_nonce_field( 'ftipp_nhl_fetch' ); ?>
+            <?php submit_button( '⬇️ Jetzt abrufen', 'primary', 'submit', false ); ?>
+        </form>
+
+        <?php if ( $games ) : ?>
+        <h2 style="margin-top:30px">Spielplan</h2>
+        <table class="widefat striped" style="max-width:760px">
+            <thead><tr><th>Zeit</th><th>Begegnung</th><th>Ergebnis</th></tr></thead>
+            <tbody>
+            <?php foreach ( array_slice( $games, 0, 100, true ) as $g ) : ?>
+                <tr>
+                    <td><?php echo $g['start'] ? esc_html( wp_date( 'd.m. H:i', strtotime( $g['start'] ) ) ) : '—'; ?></td>
+                    <td><?php echo esc_html( $g['away']['name'] . ' @ ' . $g['home']['name'] ); ?></td>
+                    <td><?php
+                        if ( empty( $g['final'] ) ) { echo '—'; }
+                        else {
+                            echo esc_html( $g['away']['score'] . ':' . $g['home']['score'] );
+                            if ( ! empty( $g['ot'] ) ) { echo ' <span class="description">(n.V.)</span>'; }
+                        }
+                    ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php if ( count( $games ) > 100 ) : ?>
+            <p class="description">Zeigt die ersten 100 von <?php echo count( $games ); ?> Spielen.</p>
+        <?php endif; ?>
         <?php endif; ?>
     </div>
     <?php
@@ -5503,6 +6141,13 @@ add_action( 'admin_post_ftipp_f1_save_season', function () {
     wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'tab' => 'f1', 'ftipp_f1_saved' => '1' ), admin_url( 'admin.php' ) ) );
     exit;
 } );
+add_action( 'admin_post_ftipp_nhl_fetch', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_nhl_fetch' );
+    $res = ftipp_nhl_sync( 'manual' );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'tab' => 'nhl', 'ftipp_nhl_done' => $res['ok'] ? 'ok' : 'err' ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
 add_action( 'admin_post_ftipp_tennis_fetch', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_tennis_fetch' );
@@ -5707,6 +6352,7 @@ function ftipp_page_sports() {
     $tabs = array(
         'fussball' => array( 'label' => '⚽ Fußball',   'cb' => 'ftipp_settings_page' ),
         'f1'       => array( 'label' => '🏁 Formel 1',  'cb' => 'ftipp_page_f1' ),
+        'nhl'      => array( 'label' => '🏒 Eishockey', 'cb' => 'ftipp_page_nhl' ),
         'tennis'   => array( 'label' => '🎾 Tennis',    'cb' => 'ftipp_page_tennis' ),
     );
     $cur = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'fussball';

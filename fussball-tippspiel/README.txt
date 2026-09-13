@@ -4,11 +4,11 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.11.0
+Stable tag: 1.12.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Privates Tippspiel für deine Familie oder Freundesrunde — echtes WordPress-Login, eigene Tipprunden, automatischer Datenabruf. Fußball (19 Wettbewerbe), Formel 1 (Podium-Tipp) und Tennis (Sieger-Tipp).
+Privates Tippspiel für deine Familie oder Freundesrunde — echtes WordPress-Login, eigene Tipprunden, automatischer Datenabruf. Fußball (19 Wettbewerbe), Formel 1 (Podium-Tipp), Tennis (Sieger-Tipp) und Eishockey (NHL).
 
 == Description ==
 
@@ -19,6 +19,7 @@ Tippstube ist ein WordPress-Plugin für private Fußball-Tippspiele unter Famili
 * **19 Fußball-Wettbewerbe**: 1./2./3. Bundesliga, DFB-Pokal, Champions League, Europa League, Nations League, Premier League, LaLiga, Süper Lig, Serie A, Ligue 1, Frauen-Bundesliga, Regionalliga Nordost, Eredivisie, Primeira Liga, Saudi Pro League, Österreichische Bundesliga, Brasilianische Serie A
 * **Formel 1 (neu)**: Podium-Tipp — vor jedem Rennen Platz 1, 2 und 3 tippen, eigene Rangliste je Tipprunde, komplett unabhängig von Fußball aktivierbar; dazu eine Sonderwertung "Fahrer-Weltmeisterschaft" (wer wird Meister — Top 3 der Saison tippen, Punkte wie bei einem echten Rennen)
 * **Tennis (neu)**: Sieger-Tipp — wer gewinnt das Match? ATP & WTA Einzel (Hauptfeld), eine Karte je Match, ein Klick genügt; **eigene Rangliste je Turnier**, genau wie jeder Fußball-Wettbewerb seine eigene hat; dazu je Turnier eine Sonderwertung "Turniersieger"
+* **Eishockey (neu)**: NHL — Ergebnis tippen wie beim Fußball, komplette Saison inklusive Playoffs, nach Spieltagen sortiert; dazu die Sonderwertung "Stanley-Cup-Sieger"
 * **Punktesystem**: 1 Punkt für die richtige Tendenz, 3 Punkte fürs exakte Ergebnis, optionaler K.o.-Zusatztipp bei Pokalspielen (Fußball); bei Formel 1 Punkte für exakte Position und für richtigen Fahrer in falscher Position
 * **Zwei Ranglisten-Modi**: Freundschaftlich (geteilter Platz bei Gleichstand) oder Challenge (harter Tie-Break)
 * **Sonderwertungen** je Wettbewerb (Meister, Torschützenkönig etc.), automatische Auflösung per Textvergleich
@@ -33,6 +34,7 @@ Acht Menüpunkte unter "Tippstube" im WordPress-Adminmenü:
 * **Sportarten** — ein Menüpunkt mit einem Tab je Sportart:
     * *Fußball* — Datenabruf der Fußball-Wettbewerbe, API-Football-Key, CSV-Import für Wettbewerbe ohne gute kostenlose Quelle
     * *Formel 1* — eigener, von Fußball unabhängiger Datenabruf (f1api.dev, kostenlos, kein Key nötig)
+    * *Eishockey* — eigener Datenabruf über api-web.nhle.com (kostenlos, kein Key); erster Abruf lädt die ganze Saison, danach nur noch die laufende Woche
     * *Tennis* — eigener Datenabruf über livetennisapi.com mit selbst eingetragenem, kostenlosem API-Key; zeigt das genutzte Tagesbudget und alle geladenen Matches
 * **Design** — Akzentfarbe, Logo und Untertitel jeder Tipprunde zentral einsehbar und bearbeitbar
 * **Cron-Job** — frei einstellbarer Abrufplan, dazu ein optionaler zuverlässiger externer Cron-Dienst (manuell oder automatisch über die cron-job.org-API)
@@ -59,6 +61,12 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.12.0 =
+Eishockey ist die vierte Sportart: NHL-Ergebnisse tippen wie beim Fußball, komplette Saison inklusive
+Playoffs, sortiert nach Spieltagen. Dazu die Sonderwertung "Stanley-Cup-Sieger". Der Datenabruf läuft
+kostenlos und ohne Key über die offizielle NHL-Schnittstelle; der erste Abruf lädt die ganze Saison,
+danach wird nur noch die laufende Woche aufgefrischt.
 
 = 1.11.0 =
 Die drei Sportarten stehen jetzt unter einem gemeinsamen Menüpunkt "Sportarten" mit je einem Tab für
