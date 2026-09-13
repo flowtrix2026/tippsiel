@@ -1,7 +1,7 @@
 # Tippstube
 
 **Das private Fußball-Tippspiel für deine Familie oder Freundesrunde.** Echtes WordPress-Login, eigene
-Tipprunden, automatischer Datenabruf für 14 Wettbewerbe — kostenlos und quelloffen.
+Tipprunden, automatischer Datenabruf für 19 Wettbewerbe — kostenlos und quelloffen.
 
 ![Tippen](screenshots/01-tippen.png)
 
@@ -18,8 +18,9 @@ jeden Wettbewerb ihre eigene Rangliste, die sich automatisch aktualisiert.
 ## Funktionen
 
 **Für Mitspieler:**
-- 14 Wettbewerbe: 1./2./3. Bundesliga, DFB-Pokal, Champions League, Europa League, Nations League,
-  Premier League, LaLiga, Süper Lig, Serie A, Ligue 1, Frauen-Bundesliga, Regionalliga Nordost
+- 19 Wettbewerbe: 1./2./3. Bundesliga, DFB-Pokal, Champions League, Europa League, Nations League,
+  Premier League, LaLiga, Süper Lig, Serie A, Ligue 1, Frauen-Bundesliga, Regionalliga Nordost,
+  Eredivisie, Primeira Liga, Saudi Pro League, Österreichische Bundesliga, Brasilianische Serie A
 - Punktesystem: 1 Punkt für die richtige Tendenz, 3 Punkte fürs exakte Ergebnis, optionaler
   K.o.-Zusatztipp bei Pokalspielen
 - Zwei Ranglisten-Modi: Freundschaftlich (geteilter Platz bei Gleichstand) oder Challenge (harter

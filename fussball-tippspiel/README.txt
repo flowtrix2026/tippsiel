@@ -16,7 +16,7 @@ Tippstube ist ein WordPress-Plugin für private Fußball-Tippspiele unter Famili
 
 = Funktionen für Mitspieler =
 
-* **14 Wettbewerbe**: 1./2./3. Bundesliga, DFB-Pokal, Champions League, Europa League, Nations League, Premier League, LaLiga, Süper Lig, Serie A, Ligue 1, Frauen-Bundesliga, Regionalliga Nordost
+* **19 Wettbewerbe**: 1./2./3. Bundesliga, DFB-Pokal, Champions League, Europa League, Nations League, Premier League, LaLiga, Süper Lig, Serie A, Ligue 1, Frauen-Bundesliga, Regionalliga Nordost, Eredivisie, Primeira Liga, Saudi Pro League, Österreichische Bundesliga, Brasilianische Serie A
 * **Punktesystem**: 1 Punkt für die richtige Tendenz, 3 Punkte fürs exakte Ergebnis, optionaler K.o.-Zusatztipp bei Pokalspielen
 * **Zwei Ranglisten-Modi**: Freundschaftlich (geteilter Platz bei Gleichstand) oder Challenge (harter Tie-Break)
 * **Sonderwertungen** je Wettbewerb (Meister, Torschützenkönig etc.), automatische Auflösung per Textvergleich
@@ -39,7 +39,7 @@ Updates erscheinen wie bei einem regulären WordPress.org-Plugin direkt im Plugi
 
 = Datenquellen =
 
-1./2./3. Liga, DFB-Pokal, Champions League, Europa League, Premier League, LaLiga, Frauen-Bundesliga und Regionalliga Nordost laufen automatisch über [OpenLigaDB](https://www.openligadb.de/) (kostenlos, kein Key nötig). Serie A, Ligue 1 und Süper Lig laufen automatisch über [SportScore.com](https://sportscore.com/developers/) (ebenfalls kostenlos, kein Key nötig, dafür Spieltag für Spieltag statt auf einmal — nach der Aktivierung dauert der komplette Erstabruf einige Cron-Läufe). Nur für die Nations League gibt es (noch) keine zuverlässige kostenlose Automatik-Quelle — hier hilft CSV-Import oder wahlweise [API-Football](https://www.api-football.com/) mit eigenem Key.
+1./2./3. Liga, DFB-Pokal, Champions League, Europa League, Premier League, LaLiga, Frauen-Bundesliga und Regionalliga Nordost laufen automatisch über [OpenLigaDB](https://www.openligadb.de/) (kostenlos, kein Key nötig). Serie A, Ligue 1, Süper Lig, Eredivisie, Primeira Liga, Saudi Pro League, Österreichische Bundesliga und Brasilianische Serie A laufen automatisch über [SportScore.com](https://sportscore.com/developers/) (ebenfalls kostenlos, kein Key nötig, dafür Spieltag für Spieltag statt auf einmal — nach der Aktivierung dauert der komplette Erstabruf einige Cron-Läufe). Nur für die Nations League gibt es (noch) keine zuverlässige kostenlose Automatik-Quelle — hier hilft CSV-Import oder wahlweise [API-Football](https://www.api-football.com/) mit eigenem Key.
 
 == Installation ==
 
@@ -53,6 +53,11 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.2.0 =
+Fünf neue Wettbewerbe automatisch über SportScore.com: Eredivisie, Primeira Liga, Saudi Pro League,
+Österreichische Bundesliga, Brasilianische Serie A (19 Wettbewerbe insgesamt). Dabei einen Bug behoben:
+die Brasilianische Serie A spielt nach Kalenderjahr statt im europäischen Juli-Juni-Rhythmus.
 
 = 1.1.2 =
 Live auf der echten Seite entdeckt: sportscore.com antwortet vereinzelt mit "vorübergehend überlastet"

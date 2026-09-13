@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       Tippstube
- * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Serie A + Ligue 1 + Süper Lig via SportScore.com (gratis, Spieltag für Spieltag), Nations League per CSV-Import oder API-Football.
- * Version:           1.1.2
+ * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Serie A + Ligue 1 + Süper Lig + Eredivisie + Primeira Liga + Saudi Pro League + Österreichische Bundesliga + Brasilianische Serie A via SportScore.com (gratis, Spieltag für Spieltag), Nations League per CSV-Import oder API-Football.
+ * Version:           1.2.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.1.2' );
+define( 'FTIPP_VERSION', '1.2.0' );
 define( 'FTIPP_DB_VERSION', '13' );
 
 /**
@@ -48,6 +48,11 @@ function ftipp_leagues() {
         'RLNO' => array( 'name' => 'Regionalliga Nordost', 'api' => 0, 'kind' => 'league' ),
         'ITA1' => array( 'name' => 'Serie A',          'api' => 135, 'kind' => 'league' ),
         'FRA1' => array( 'name' => 'Ligue 1',          'api' => 61,  'kind' => 'league' ),
+        'NED1' => array( 'name' => 'Eredivisie',         'api' => 0, 'kind' => 'league' ),
+        'POR1' => array( 'name' => 'Primeira Liga',      'api' => 0, 'kind' => 'league' ),
+        'SAU1' => array( 'name' => 'Saudi Pro League',   'api' => 0, 'kind' => 'league' ),
+        'AUT1' => array( 'name' => 'Österreichische Bundesliga', 'api' => 0, 'kind' => 'league' ),
+        'BRA1' => array( 'name' => 'Brasilianische Serie A',     'api' => 0, 'kind' => 'league' ),
     );
 }
 function ftipp_comp_ids() { return array_keys( ftipp_leagues() ); }
@@ -444,7 +449,8 @@ register_deactivation_hook( __FILE__, function () {
 /* ============================================================
  * Spieldaten-Abruf — Hybrid:
  *   1./2./3. Liga + DFB-Pokal + Champions League + Europa League + Premier League + LaLiga -> OpenLigaDB (aktuelle Saison, gratis, ohne Key)
- *   Serie A + Ligue 1 + Süper Lig -> SportScore.com, Tag für Tag (siehe ftipp_sportscore_sync()) — bei
+ *   Serie A + Ligue 1 + Süper Lig + Eredivisie + Primeira Liga + Saudi Pro League + Österreichische
+ *   Bundesliga + Brasilianische Serie A -> SportScore.com, Tag für Tag (siehe ftipp_sportscore_sync()) — bei
  *   OpenLigaDB seit 2013/2014 veraltet bzw. gar nicht vorhanden, ESPN wird von manchen Servern per
  *   PHP-Anfrage geblockt (siehe ftipp_fetch_espn_soccer()).
  *   Nations League -> CSV-Import (siehe ftipp_import_fixtures_csv()) oder API-Football — dafür gibt es
@@ -652,7 +658,8 @@ function ftipp_fetch_espn_soccer( $slug, $season_start_year ) {
 
 /**
  * SportScore.com (sportscore.com/developers) als Tag-für-Tag-Quelle für Wettbewerbe ohne brauchbare
- * OpenLigaDB-/ESPN-Abdeckung (aktuell: Serie A, Ligue 1, Süper Lig). Anders als OpenLigaDB gibt es dort
+ * OpenLigaDB-/ESPN-Abdeckung (aktuell: Serie A, Ligue 1, Süper Lig, Eredivisie, Primeira Liga, Saudi Pro
+ * League — siehe ftipp_sportscore_map()). Anders als OpenLigaDB gibt es dort
  * keinen "ganze Saison auf einmal"-Endpunkt — /api/v1/fixtures/ liefert immer nur EINEN Kalendertag,
  * dafür live geprüft sauber nach Wettbewerb UND Datum gefiltert (die einfacheren /api/widget/-Endpunkte
  * derselben API ignorieren ihre eigenen Filter-Parameter, siehe Journal — deshalb bewusst /api/v1/).
@@ -672,6 +679,16 @@ function ftipp_sportscore_map() {
         'ITA1' => 'italian-serie-a',
         'FRA1' => 'french-ligue-1',
         'TR1'  => 'turkish-super-league',
+        'NED1' => 'netherlands-eredivisie',
+        'POR1' => 'portuguese-primera-liga',
+        'SAU1' => 'saudi-professional-league',
+        'AUT1' => 'austrian-bundesliga',
+        'BRA1' => 'brazilian-serie-a',
+        // Nations League bewusst NICHT hier: SportScore.com liefert dafür keine Liga-A/B/C/D-Gruppierung
+        // in den Rundenbezeichnungen, auf die ftipp_nl_groups() und die Gruppen-Sonderwertungen fest
+        // aufbauen (siehe dort) — die generische "Spieltag N"-Ableitung dieser Funktion würde die
+        // Gruppenwertungen stillschweigend kaputt machen. Bräuchte eine eigene Team-zu-Gruppe-Zuordnung,
+        // ist separat zu klären.
     );
 }
 // Live gemessen (v1.1.0): 3 Ligen x 40 Tage/Lauf = 120 HTTP-Anfragen brauchten ca. 45-51 Sekunden — zu
@@ -708,8 +725,17 @@ function ftipp_sportscore_sync( $cid, $slug, $season_start_year ) {
         : array( 'fixtures' => array(), 'cursor' => null, 'done' => false, 'failed_dates' => array() );
     if ( ! isset( $cache['failed_dates'] ) ) { $cache['failed_dates'] = array(); } // Update von einer älteren Cache-Version
 
-    $from  = $season_start_year . '-07-01';
-    $to    = ( $season_start_year + 1 ) . '-06-30';
+    // Die meisten Ligen laufen im europäischen Rhythmus Juli-Juni über zwei Kalenderjahre. Manche South-
+    // American-Ligen (aktuell: Brasilianische Serie A) spielen dagegen nach Kalenderjahr (ca. April-
+    // Dezember) — mit dem europäischen Fenster würde die erste Saisonhälfte (Jan-Juni) nie abgerufen.
+    $calendarYearComps = array( 'BRA1' );
+    if ( in_array( $cid, $calendarYearComps, true ) ) {
+        $from = $season_start_year . '-01-01';
+        $to   = $season_start_year . '-12-31';
+    } else {
+        $from = $season_start_year . '-07-01';
+        $to   = ( $season_start_year + 1 ) . '-06-30';
+    }
     $today = gmdate( 'Y-m-d' );
 
     // Live beobachtet (v1.1.1): sportscore.com antwortet vereinzelt mit HTTP 503 (vorübergehend
@@ -851,8 +877,8 @@ function ftipp_fetch_all( $trigger = 'cron' ) {
         }
     }
 
-    // 1c) Wettbewerbe ohne brauchbare OpenLigaDB-/ESPN-Quelle, aber mit SportScore.com-Abdeckung (aktuell:
-    //     Serie A, Ligue 1, Süper Lig) — Tag-für-Tag-Abruf mit Cache, siehe ftipp_sportscore_sync().
+    // 1c) Wettbewerbe ohne brauchbare OpenLigaDB-/ESPN-Quelle, aber mit SportScore.com-Abdeckung (siehe
+    //     ftipp_sportscore_map()) — Tag-für-Tag-Abruf mit Cache, siehe ftipp_sportscore_sync().
     foreach ( ftipp_sportscore_map() as $cid => $slug ) {
         if ( isset( $all[ $cid ] ) ) { continue; }
         $r = ftipp_sportscore_sync( $cid, $slug, $de_season );
@@ -1427,6 +1453,36 @@ function ftipp_default_specials( $comp_id ) {
             array( 'key' => 'relegation', 'label' => 'Absteiger',             'type' => 'relegation', 'points' => 10 ),
             array( 'key' => 'topscorer',  'label' => 'Torschützenkönig',      'type' => 'topscorer',  'points' => 10 ),
             array( 'key' => 'topassist',  'label' => 'Bester Passgeber',      'type' => 'topassist',  'points' => 10 ),
+        ),
+        'NED1' => array(
+            array( 'key' => 'champion',   'label' => 'Niederländischer Meister', 'type' => 'champion',   'points' => 10 ),
+            array( 'key' => 'relegation', 'label' => 'Absteiger',                'type' => 'relegation', 'points' => 10 ),
+            array( 'key' => 'topscorer',  'label' => 'Torschützenkönig',         'type' => 'topscorer',  'points' => 10 ),
+            array( 'key' => 'topassist',  'label' => 'Bester Passgeber',         'type' => 'topassist',  'points' => 10 ),
+        ),
+        'POR1' => array(
+            array( 'key' => 'champion',   'label' => 'Portugiesischer Meister', 'type' => 'champion',   'points' => 10 ),
+            array( 'key' => 'relegation', 'label' => 'Absteiger',               'type' => 'relegation', 'points' => 10 ),
+            array( 'key' => 'topscorer',  'label' => 'Torschützenkönig',        'type' => 'topscorer',  'points' => 10 ),
+            array( 'key' => 'topassist',  'label' => 'Bester Passgeber',        'type' => 'topassist',  'points' => 10 ),
+        ),
+        'SAU1' => array(
+            array( 'key' => 'champion',   'label' => 'Saudischer Meister', 'type' => 'champion',   'points' => 10 ),
+            array( 'key' => 'relegation', 'label' => 'Absteiger',          'type' => 'relegation', 'points' => 10 ),
+            array( 'key' => 'topscorer',  'label' => 'Torschützenkönig',   'type' => 'topscorer',  'points' => 10 ),
+            array( 'key' => 'topassist',  'label' => 'Bester Passgeber',   'type' => 'topassist',  'points' => 10 ),
+        ),
+        'AUT1' => array(
+            array( 'key' => 'champion',   'label' => 'Österreichischer Meister', 'type' => 'champion',   'points' => 10 ),
+            array( 'key' => 'relegation', 'label' => 'Absteiger',                'type' => 'relegation', 'points' => 10 ),
+            array( 'key' => 'topscorer',  'label' => 'Torschützenkönig',         'type' => 'topscorer',  'points' => 10 ),
+            array( 'key' => 'topassist',  'label' => 'Bester Passgeber',         'type' => 'topassist',  'points' => 10 ),
+        ),
+        'BRA1' => array(
+            array( 'key' => 'champion',   'label' => 'Brasilianischer Meister', 'type' => 'champion',   'points' => 10 ),
+            array( 'key' => 'relegation', 'label' => 'Absteiger',               'type' => 'relegation', 'points' => 10 ),
+            array( 'key' => 'topscorer',  'label' => 'Torschützenkönig',        'type' => 'topscorer',  'points' => 10 ),
+            array( 'key' => 'topassist',  'label' => 'Bester Passgeber',        'type' => 'topassist',  'points' => 10 ),
         ),
     );
 
@@ -2489,7 +2545,7 @@ add_action( 'rest_api_init', function () {
                 return array( 'supported' => true, 'mode' => 'league', 'season' => $season, 'rows' => ftipp_fetch_bltable( $shortcut, $season ) );
             }
             // Kein OpenLigaDB-Shortcut, aber evtl. eigene Spieldaten vorhanden (SportScore.com und/oder CSV,
-            // aktuell: Serie A, Ligue 1, Süper Lig) — Tabelle selbst berechnen, gleiche Funktion wie bei der
+            // siehe ftipp_sportscore_map()) — Tabelle selbst berechnen, gleiche Funktion wie bei der
             // Nations League.
             $fixtures = ftipp_fixtures_for( $comp );
             if ( ! $fixtures ) { return array( 'supported' => false ); }
@@ -3993,8 +4049,9 @@ function ftipp_settings_page() {
            <strong>OpenLigaDB</strong> — gratis, ohne Key, immer die <strong>aktuelle Saison</strong>. Bei den
            Pokal-/Europapokal-Wettbewerben gibt es dafür bewusst <strong>keinen K.o.-Zusatztipp</strong> (Verlängerung/Elfmeterschießen)
            mehr — OpenLigaDB kennzeichnet das nicht zuverlässig genug, der normale Tendenz/Exakt-Tipp funktioniert
-           aber einwandfrei. <strong>Serie A, Ligue 1</strong> und <strong>Süper Lig</strong> kommen automatisch
-           über <strong>SportScore.com</strong> — ebenfalls gratis, ohne Key, allerdings Spieltag für Spieltag statt
+           aber einwandfrei. <strong>Serie A, Ligue 1, Süper Lig, Eredivisie, Primeira Liga, Saudi Pro
+           League, Österreichische Bundesliga</strong> und <strong>Brasilianische Serie A</strong> kommen
+           automatisch über <strong>SportScore.com</strong> — ebenfalls gratis, ohne Key, allerdings Spieltag für Spieltag statt
            auf einmal: nach der Aktivierung dauert es ein paar Cron-Läufe, bis die komplette Saison einmal
            durchgeladen ist, danach wird nur noch der jeweils aktuelle Spieltag aktualisiert. Nur für die
            <strong>Nations League</strong> gibt es (noch) keine solche Automatik-Quelle — die läuft weiterhin per
@@ -4026,7 +4083,9 @@ function ftipp_settings_page() {
                         vollständigen Ergebnissen: 2023.
                         1./2./3. Liga, DFB-Pokal, Champions League, Europa League, Premier League, LaLiga,
                         Frauen-Bundesliga und Regionalliga Nordost laufen unabhängig davon immer auf der
-                        aktuellen Saison via OpenLigaDB, Serie A/Ligue 1/Süper Lig via SportScore.com.</p></td>
+                        aktuellen Saison via OpenLigaDB, Serie A/Ligue 1/Süper Lig/Eredivisie/Primeira
+                        Liga/Saudi Pro League/Österreichische Bundesliga/Brasilianische Serie A via
+                        SportScore.com.</p></td>
                 </tr>
             </table>
             <?php submit_button( 'Speichern' ); ?>
@@ -4058,8 +4117,8 @@ function ftipp_settings_page() {
         <hr>
         <h2 style="margin-top:30px">📄 Spieldaten per CSV importieren</h2>
         <p>Für Wettbewerbe ohne gute kostenlose Automatik-Quelle (aktuell nur noch: <strong>Nations
-           League</strong> — Serie A, Ligue 1 und Süper Lig laufen jetzt automatisch über SportScore.com,
-           siehe oben) kannst du den
+           League</strong> — alle anderen Wettbewerbe laufen inzwischen automatisch über OpenLigaDB oder
+           SportScore.com, siehe oben) kannst du den
            Spielplan (und später die Ergebnisse) selbst per CSV-Datei hochladen, oder alternativ per
            API-Football, falls du dort einen Bezahltarif mit aktueller Saison hast. Das <strong>ergänzt</strong> nur —
            bereits automatisch geladene Spiele bleiben unangetastet, und ein erneuter Upload derselben Begegnung

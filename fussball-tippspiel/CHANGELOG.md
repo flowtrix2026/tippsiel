@@ -1939,6 +1939,38 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.1.2 einspielen und über mehrere Klicks
   beobachten, ob die zuvor als "fehlgeschlagen" gemeldeten Tage jetzt tatsächlich nachgeladen werden.
 
+## v1.2.0 — Fünf neue Wettbewerbe (Eredivisie, Primeira Liga, Saudi Pro League, Österreichische Bundesliga, Brasilianische Serie A)
+- **Anfrage:** Nach der erfolgreichen SportScore.com-Anbindung für Serie A/Ligue 1/Süper Lig zunächst per
+  Rückfrage geklärt, welche weiteren Ligen dazukommen sollen (Antwort: Nations League zuerst, dazu
+  Eredivisie und Primeira Liga, weitere Links folgen). Anschließend per SportScore.com-Link-Freigabe
+  konkret angefordert: Saudi Pro League (`saudi-professional-league`), dann noch Österreichische
+  Bundesliga (`austrian-bundesliga`) und Brasilianische Serie A (`brazilian-serie-a`).
+- **Nations League bewusst NICHT dazugenommen:** SportScore.com liefert für die Nations League keine
+  Liga-A/B/C/D-Gruppierung in den Rundenbezeichnungen, auf die `ftipp_nl_groups()` und die
+  Gruppen-Sonderwertungen fest aufbauen — die generische "Spieltag N"-Ableitung von
+  `ftipp_sportscore_sync()` hätte die Gruppenwertungen stillschweigend kaputt gemacht. Bräuchte eine
+  eigene Team-zu-Gruppe-Zuordnung, ist separat zu klären (siehe Kommentar in `ftipp_sportscore_map()`).
+  Nations League bleibt vorerst bei CSV-Import/API-Football.
+- **Umgesetzt:** Fünf neue Einträge in `ftipp_leagues()` (`NED1`, `POR1`, `SAU1`, `AUT1`, `BRA1`) mit
+  passenden Sonderwertungen (Meister/Absteiger/Torschützenkönig/Passgeber) in
+  `ftipp_default_specials()`, alle fünf in `ftipp_sportscore_map()` eingetragen — laufen technisch
+  identisch zu Serie A/Ligue 1/Süper Lig über die bereits vorhandene Tag-für-Tag-Backfill-Logik.
+- **Zusätzlicher Bugfix dabei gefunden:** Die Brasilianische Serie A spielt nach **Kalenderjahr** (ca.
+  April-Dezember), nicht im europäischen Juli-Juni-Rhythmus wie alle anderen Ligen. Mit dem bisher fest
+  einprogrammierten europäischen Saisonfenster wäre die erste Saisonhälfte (Jan-Juni) nie abgerufen
+  worden. `ftipp_sportscore_sync()` wählt jetzt je nach Wettbewerb (`$calendarYearComps`-Liste, aktuell
+  nur `BRA1`) zwischen Kalenderjahr- und europäischem Saisonfenster.
+- Lokal getestet: alle fünf neuen Wettbewerbe strukturell geprüft (`ftipp_leagues()`,
+  `ftipp_default_specials()`, `ftipp_sportscore_map()` korrekt verdrahtet), plus Einzel-Syncs gegen die
+  echte Live-API — Eredivisie und Primeira Liga lieferten dabei bereits echte, fertig gespielte Spiele
+  mit korrekter Spieltag-Gruppierung. sportscore.com war während der Tests spürbar überlastet (viele
+  HTTP-503-Antworten) — genau der Fall, für den die Retry-Liste aus v1.1.2 gebaut wurde; sie hat
+  zuverlässig funktioniert. Keine Datenbank-Änderung.
+- 19 Wettbewerbe insgesamt jetzt unterstützt; README.txt/README.md/CONTEXT.md entsprechend aktualisiert.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.2.0 einspielen und über mehrere Klicks
+  beobachten, ob alle fünf neuen Ligen wie erwartet Spieldaten laden — insbesondere die Brasilianische
+  Serie A mit ihrem abweichenden Kalenderjahr-Saisonfenster.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
