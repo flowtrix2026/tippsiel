@@ -2271,6 +2271,45 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
   Außenseiter-Bonus und eine Turniersieger-Sonderwertung (die wäre der nächste sinnvolle Schritt —
   dann bekäme Tennis wie Formel 1 einen "⭐ Sonderwertungen"-Tab).
 
+## v1.8.0 — Tennis: eigene Wertung je Turnier + Doppel-Filter repariert
+
+- **Anfrage:** Nach dem Live-Test von v1.7.0: "sollte man die Auswertung nicht nach Cup machen, gibt ja
+  immer Cups für das ganze Jahr, da müsste dann auch immer der Cup stehen so wie beim Fußball, und jeder
+  Cup müsste hier ja auch drinnen sein." Also: keine einzelne Gesamt-Tennisrangliste, sondern **eine
+  eigene Rangliste je Turnier** — genau das Modell, das Fußball mit seinen Wettbewerben schon hat.
+- **Umgesetzt:** Turnier-Auswahl in beiden Tabs. In der **Auswertung** gibt es bewusst keine
+  Gesamtwertung mehr, sondern immer genau ein Turnier — wie beim Fußball, wo es aus Fairnessgründen
+  keine wettbewerbsübergreifende Rangliste gibt (siehe Kurzfassung oben). Vorausgewählt wird das zuletzt
+  gespielte Turnier, das überhaupt schon entschiedene Matches hat; jedes Turnier zeigt im Dropdown
+  seinen Stand als "(entschieden/gesamt)". Im **Tippen**-Tab gibt es zusätzlich "Alle Turniere", weil
+  man beim Tippen oft quer über alle laufenden Turniere schauen will. Neu:
+  `ftipp_tennis_tournaments()`, `ftipp_tennis_tournament_key()`, Turnier-Parameter für
+  `ftipp_tennis_compute_leaderboard()`, Route `GET /tennis/tournaments`, Turnier-Filter für
+  `/tennis/matches` und `/tennis/leaderboard`. Turnier-Schlüssel ist die `tournament_id` der API — die
+  ist je Ausgabe eindeutig, Guadalajara 2026 und 2027 sind also getrennte Wertungen.
+- **Dabei einen ernsten Fehler aus v1.7.0 gefunden und behoben:** Die API nimmt `is_doubles=false` und
+  `is_qualifying=false` zwar als Parameter entgegen, **wendet sie aber nicht an**. Live nachgewiesen:
+  15 von 32 gelieferten Matches waren Doppel, 38 von 100 Qualifikation — nur `tour` wird tatsächlich
+  serverseitig gefiltert. In v1.7.0 wären also Doppel-Paarungen ("Bucsa / Melichar-Martinez") in der
+  Tippliste gelandet und hätten zusätzlich Tagesbudget für Nachchecks verbraucht. Jetzt filtert
+  `ftipp_tennis_is_relevant()` in PHP nach (`is_doubles`, `is_qualifying`, `draw==singles`,
+  `is_doubles_team` je Spieler), und bereits zwischengespeicherte Doppel werden beim nächsten Lauf
+  entfernt. Der Fehler fiel nur auf, weil beim Gruppieren nach Turnier plötzlich jedes Turnier doppelt
+  auftauchte — einmal Einzel, einmal Doppel, jeweils mit eigener `tournament_id`.
+- **Aufbewahrung auf 365 Tage erhöht** (vorher 120), damit die Turnier-Ranglisten einer kompletten
+  Saison abrufbar bleiben — das war ja der Punkt der Anfrage ("Cups für das ganze Jahr"). Gemessen
+  ~0,6 KB je Match, hochgerechnet also rund 2-3 MB für eine volle ATP+WTA-Saison in einer Option.
+  Bewusster Kompromiss, bei Bedarf über `FTIPP_TENNIS_RETENTION_DAYS` kleiner stellbar.
+- Lokal getestet: `php -l` fehlerfrei, Script-Blöcke geprüft. **Live gegen die echte API:** statt 32
+  gemischten kommen jetzt 19 reine Einzel an, `draw`-Arten ausschließlich `singles`, keine Namen mit
+  " / " mehr; Turniere gruppieren korrekt (Guadalajara 7, Sao Paulo 12) und die vorher doppelten
+  Doppel-Turniere sind verschwunden. Browser-Test mit drei Turnieren: Auswertung wählt automatisch
+  Guadalajara (3 von 7 entschieden), Umschalten auf Wimbledon zeigt dessen eigene Rangliste (Floh 5
+  Treffer/10 Punkte statt 2/4), Sao Paulo ohne Ergebnisse zeigt den passenden Hinweis statt einer leeren
+  Tabelle, und im Tippen-Tab grenzt die Turnierwahl die Match-Liste korrekt ein.
+- *Noch nicht auf der echten Seite getestet:* Update einspielen, "Jetzt abrufen" klicken (räumt dabei
+  eventuell schon geladene Doppel aus) und die Turnier-Auswahl in beiden Tabs prüfen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

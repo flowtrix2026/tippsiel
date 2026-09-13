@@ -2086,6 +2086,8 @@ async function renderF1Einstellungen(){
    viele Matches gleichzeitig, deshalb eine Karte je Match mit zwei anklickbaren Spielern statt
    "erst ein Match aus einer Liste wählen". Ein Klick = Tipp abgegeben. */
 let tennisCfg = null;
+let tennisTournament = '';      // Tippen: '' = alle Turniere
+let tennisAusTournament = '';   // Auswertung: immer genau ein Turnier (wie beim Fußball)
 
 function switchTennisMode(mode){
   document.querySelectorAll('#tennis-shell .tab').forEach(t=>t.classList.toggle('active', t.dataset.mode===mode));
@@ -2111,7 +2113,7 @@ async function renderTennisTippen(){
   let subs, data;
   try{
     subs = await api_get(`rounds/${currentRoundId}/subs`);
-    if(subs.subs && subs.subs.TENNIS){ data = await api_get(`tennis/matches?round=${currentRoundId}`); }
+    if(subs.subs && subs.subs.TENNIS){ data = await api_get(`tennis/matches?round=${currentRoundId}&tournament=${encodeURIComponent(tennisTournament)}`); }
   }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
 
   box.innerHTML = '';
@@ -2126,9 +2128,18 @@ async function renderTennisTippen(){
   }
 
   const matches = (data && data.matches) || [];
+  const turniere = (data && data.tournaments) || [];
   tennisCfg = (data && data.cfg) || null;
-  if(!matches.length){
+  if(!turniere.length){
     box.appendChild(el('<div class="card"><div class="hint">Noch keine Matches geladen — der Admin muss unter Tippstube → Tennis einen API-Key hinterlegen und einmal „Jetzt abrufen" klicken.</div></div>'));
+    return;
+  }
+  // Turnier-Auswahl wie der Wettbewerb-Filter beim Fußball, hier zusätzlich mit "alle".
+  const tOpts = [{v:'',label:'Alle Turniere'}].concat(turniere.map(t=>({
+    v:t.key, label:`${t.tour.toUpperCase()} ${t.name} (${t.decided}/${t.total})`})));
+  box.appendChild(mkSelect('Turnier', tOpts, tennisTournament, v=>{ tennisTournament=v||''; renderTennisTippen(); }));
+  if(!matches.length){
+    box.appendChild(el('<div class="card"><div class="hint">Für dieses Turnier sind gerade keine Matches im Zwischenspeicher.</div></div>'));
     return;
   }
 
@@ -2193,9 +2204,30 @@ async function renderTennisAuswertung(){
   if(!tennisGuard(box)) return;
   box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
   try{
-    const data = await api_get(`tennis/leaderboard?round=${currentRoundId}`);
+    let data = await api_get(`tennis/leaderboard?round=${currentRoundId}&tournament=${encodeURIComponent(tennisAusTournament)}`);
+    const turniere = data.tournaments || [];
+    // Jedes Turnier hat seine eigene Wertung — wie beim Fußball jeder Wettbewerb. Ohne getroffene
+    // Wahl das zuletzt gespielte Turnier zeigen, das überhaupt schon entschiedene Matches hat.
+    if(turniere.length && !turniere.find(t=>t.key===tennisAusTournament)){
+      const mitErgebnis = turniere.find(t=>t.decided>0);
+      tennisAusTournament = (mitErgebnis || turniere[0]).key;
+      data = await api_get(`tennis/leaderboard?round=${currentRoundId}&tournament=${encodeURIComponent(tennisAusTournament)}`);
+    }
     box.innerHTML = '';
     box.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderTennisAuswertung(); }));
+    if(!turniere.length){
+      box.appendChild(el('<div class="card"><div class="hint">Noch keine Turniere geladen — der Admin muss unter Tippstube → Tennis einmal „Jetzt abrufen" klicken.</div></div>'));
+      return;
+    }
+    box.appendChild(mkSelect('Turnier', turniere.map(t=>({
+      v:t.key, label:`${t.tour.toUpperCase()} ${t.name} (${t.decided}/${t.total})`})),
+      tennisAusTournament, v=>{ tennisAusTournament=v; renderTennisAuswertung(); }));
+
+    const akt = turniere.find(t=>t.key===tennisAusTournament);
+    if(akt && !akt.decided){
+      box.appendChild(el(`<div class="card"><div class="hint">Bei <b>${esc(akt.name)}</b> ist noch kein Match entschieden — sobald Ergebnisse da sind, erscheint hier die Rangliste.</div></div>`));
+      return;
+    }
     if(!data.rows.length){ box.appendChild(el('<div class="card"><div class="hint">Noch keine Mitspieler mit aktivem Tennis-Tippen in dieser Runde.</div></div>')); return; }
     const rowsHtml = data.rows.map(r=>`<tr><td class="num">${r.rank}</td><td>${esc(r.name)}</td><td class="num">${r.hits}</td><td class="num">${r.total}</td></tr>`).join('');
     box.appendChild(el(`<div class="card"><table><thead><tr><th class="num">#</th><th>Spieler</th><th class="num">Treffer</th><th class="num">Punkte</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
