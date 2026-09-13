@@ -1749,9 +1749,11 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
   <div class="tabs">
     <div class="tab active" data-mode="f1tippen" onclick="switchF1Mode('f1tippen')">📝 Tippen</div>
     <div class="tab" data-mode="f1auswertung" onclick="switchF1Mode('f1auswertung')">🏆 Auswertung</div>
+    <div class="tab" data-mode="f1sonder" onclick="switchF1Mode('f1sonder')">⭐ Sonderwertungen</div>
   </div>
   <section id="f1mode-f1tippen"></section>
   <section id="f1mode-f1auswertung" style="display:none"></section>
+  <section id="f1mode-f1sonder" style="display:none"></section>
 </div>
 </div><!-- #f1-shell -->
 
@@ -1793,9 +1795,12 @@ let f1CurrentRaceId = null;
 
 function switchF1Mode(mode){
   document.querySelectorAll('#f1-shell .tab').forEach(t=>t.classList.toggle('active', t.dataset.mode===mode));
-  document.getElementById('f1mode-f1tippen').style.display = mode==='f1tippen' ? '' : 'none';
-  document.getElementById('f1mode-f1auswertung').style.display = mode==='f1auswertung' ? '' : 'none';
-  if(mode==='f1tippen') renderF1Tippen(); else renderF1Auswertung();
+  ['f1tippen','f1auswertung','f1sonder'].forEach(m=>{
+    document.getElementById('f1mode-'+m).style.display = (m===mode) ? '' : 'none';
+  });
+  if(mode==='f1tippen') renderF1Tippen();
+  else if(mode==='f1sonder') renderF1Sonder();
+  else renderF1Auswertung();
 }
 
 async function renderF1Tippen(){
@@ -1824,14 +1829,15 @@ async function renderF1Tippen(){
 
   if(!f1Drivers.length){ try{ const d = await api_get('f1/drivers'); f1Drivers = d.drivers||[]; }catch(e){} }
 
-  const races = (tipsData && tipsData.races) || [];
+  // Die Meisterschafts-Sonderwertung hat einen eigenen Tab und gehört nicht in die Rennliste.
+  const races = ((tipsData && tipsData.races) || []).filter(r=>!r.race.is_championship);
   if(!races.length){ box.appendChild(el('<div class="card"><div class="hint">Noch keine Rennen geladen — der Admin muss unter Tippstube → Formel 1 einmal „Jetzt abrufen" klicken.</div></div>')); return; }
 
   if(!f1CurrentRaceId || !races.find(r=>r.race.raceId===f1CurrentRaceId)){
     const next = races.find(r=>!r.locked);
     f1CurrentRaceId = next ? next.race.raceId : races[races.length-1].race.raceId;
   }
-  box.appendChild(mkSelect('Rennen', races.map(r=>({v:r.race.raceId, label:r.race.is_championship ? `🏆 ${r.race.raceName}` : `Runde ${r.race.round}: ${r.race.raceName}`})), f1CurrentRaceId, v=>{ f1CurrentRaceId=v; renderF1Tippen(); }));
+  box.appendChild(mkSelect('Rennen', races.map(r=>({v:r.race.raceId, label:`Runde ${r.race.round}: ${r.race.raceName}`})), f1CurrentRaceId, v=>{ f1CurrentRaceId=v; renderF1Tippen(); }));
 
   const race = races.find(r=>r.race.raceId===f1CurrentRaceId);
   const driverOpts = [{v:'',label:'– wählen –'}].concat(f1Drivers.map(d=>({v:d.driverId,label:d.name})));
@@ -1877,6 +1883,84 @@ async function renderF1Auswertung(){
     const rowsHtml = data.rows.map(r=>`<tr><td class="num">${r.rank}</td><td>${esc(r.name)}</td><td class="num">${r.total}</td></tr>`).join('');
     box.appendChild(el(`<div class="card"><table><thead><tr><th class="num">#</th><th>Spieler</th><th class="num">Punkte</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
   }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; }
+}
+
+/* Sonderwertung "Fahrer-Weltmeisterschaft" — eigener Tab, bewusst im selben Karten-Layout wie die
+   Fußball-Sonderwertungen (Titel + Punkte-Pills + Frist + Ergebnis, darunter der eigene Tipp,
+   Mitspieler-Tipps erst nach Fristende). Nur der Tipp selbst ist F1-spezifisch: drei Fahrer-Auswahlen
+   statt eines Textfelds. */
+async function renderF1Sonder(){
+  const box = document.getElementById('f1mode-f1sonder');
+  if(!CONNECTED){ box.innerHTML = '<div class="card"><div class="hint">Formel 1 steht nur im echten WordPress-Betrieb zur Verfügung.</div></div>'; return; }
+  if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde. Das geht in der ⚽ Fußball-Ansicht unter „Runden".</div></div>'; return; }
+  box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
+
+  let subs, data;
+  try{
+    subs = await api_get(`rounds/${currentRoundId}/subs`);
+    if(subs.subs && subs.subs.F1){ data = await api_get(`f1/championship?round=${currentRoundId}`); }
+  }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
+
+  box.innerHTML = '';
+  box.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderF1Sonder(); }));
+
+  if(!subs.subs || !subs.subs.F1){
+    box.appendChild(el('<div class="card"><div class="hint">Formel-1-Tippen ist für diese Runde noch nicht aktiviert — das geht im Tab „📝 Tippen".</div></div>'));
+    return;
+  }
+  if(!data || !data.race){
+    box.appendChild(el('<div class="card"><div class="hint">Noch keine Sonderwertung geladen — der Admin muss unter Tippstube → Formel 1 einmal „Jetzt abrufen" klicken.</div></div>'));
+    return;
+  }
+
+  if(!f1Drivers.length){ try{ const d = await api_get('f1/drivers'); f1Drivers = d.drivers||[]; }catch(e){} }
+  const nameOf = id => { const d = f1Drivers.find(x=>x.driverId===id); return d ? d.name : (id||'–'); };
+
+  const race = data.race, cfg = data.cfg||{}, locked = data.locked;
+  const mine = data.mine || {p1:null,p2:null,p3:null,committed:false};
+  const picks = {p1:mine.p1, p2:mine.p2, p3:mine.p3};
+  const deadlineIso = race.date ? (race.date+'T'+(race.time||'00:00:00Z')) : '';
+
+  const card = el('<div class="card"></div>');
+  card.appendChild(el(`<div class="row" style="margin-bottom:8px"><b>⭐ ${esc(race.raceName)}</b>`
+    + `<span class="pill gold">${cfg.pExact||0} Punkte je exaktem Platz</span>`
+    + `<span class="pill gold">${cfg.pPartial||0} je richtigem Fahrer</span>`
+    + (deadlineIso ? `<span class="meta">Frist ${esc(fmtDate(deadlineIso))}</span>` : '')
+    + (race.result ? `<span class="pill gold">Ergebnis: ${race.result.map(r=>'P'+r.position+' '+esc(r.driverName)).join(' · ')}</span>` : '')
+    + `</div>`));
+  card.appendChild(el('<div class="meta">Wer wird am Saisonende Meister, Zweiter und Dritter der Fahrerwertung? Getippt wird vor dem ersten Rennen der Saison.</div>'));
+
+  const driverOpts = [{v:'',label:'– wählen –'}].concat(f1Drivers.map(d=>({v:d.driverId,label:d.name})));
+  const tipRow = el('<div style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px"></div>');
+  ['p1','p2','p3'].forEach((slot,i)=>{
+    tipRow.appendChild(mkSelect(`Platz ${i+1}`, driverOpts, picks[slot]||'', v=>{ picks[slot]=v||null; }, locked));
+  });
+  const statusRow = el('<div class="row" style="margin-top:8px"></div>');
+  if(locked){
+    statusRow.appendChild(el('<span class="pill warn">Frist vorbei</span>'));
+  } else {
+    if(mine.committed){ statusRow.appendChild(el('<span class="pill good">✅ abgegeben — bis zur Frist noch änderbar</span>')); }
+    const saveBtn = el('<button class="mini right">✅ Tipp abgeben</button>');
+    saveBtn.onclick = async ()=>{
+      try{
+        await api_post('f1/tips', {round_id: currentRoundId, race_id: race.raceId, p1_driver_id:picks.p1, p2_driver_id:picks.p2, p3_driver_id:picks.p3, committed:true});
+        renderF1Sonder();
+      }catch(e){ alert('Fehler: '+e.message); }
+    };
+    statusRow.appendChild(saveBtn);
+  }
+  tipRow.appendChild(statusRow);
+  card.appendChild(tipRow);
+  if(!locked){
+    card.appendChild(el('<div class="meta" style="margin-top:6px">🔒 Die Tipps der Mitspieler siehst du erst, sobald die Frist abgelaufen ist — vorher bleiben alle Sonderwertungs-Tipps geheim (auch die, die schon abgegeben haben).</div>'));
+  }
+  box.appendChild(card);
+
+  if(locked && data.rows && data.rows.length){
+    const rowsHtml = data.rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc(nameOf(r.p1))}</td><td>${esc(nameOf(r.p2))}</td><td>${esc(nameOf(r.p3))}</td><td class="num">${r.pts}</td></tr>`).join('');
+    box.appendChild(el(`<div class="card"><div class="row" style="margin-bottom:8px"><b>👀 Tipps der Mitspieler</b></div>`
+      + `<table><thead><tr><th>Spieler</th><th>Platz 1</th><th>Platz 2</th><th>Platz 3</th><th class="num">Punkte</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
+  }
 }
 </script>
 </body>

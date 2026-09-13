@@ -2119,6 +2119,39 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
   Formel 1 einmal "Jetzt abrufen" klicken und prüfen, dass der Meisterschafts-Eintrag im Rennkalender
   und im Frontend erscheint.
 
+## v1.4.3 — F1-Sonderwertung bekommt einen eigenen Tab (wie bei Fußball)
+
+- **Anfrage:** Nach dem Live-Test von v1.4.2 die Rückmeldung "wo ist die Sonderauswertung beim Formel 1"
+  und danach "kommt kein extra Tab" / "bitte als gesonderter Tab sonst sieht man das nicht" /
+  "soll ja überall gleich sein". In v1.4.2 war die Meisterschafts-Wette nur ein weiterer Eintrag im
+  Rennen-Dropdown des Tippen-Tabs — praktisch unsichtbar und anders als bei Fußball, wo Sonderwertungen
+  einen eigenen Tab haben.
+- **Umgesetzt (Frontend):** Der F1-Bereich hat jetzt einen dritten Tab **"⭐ Sonderwertungen"** — bewusst
+  exakt gleich benannt und gleich aufgebaut wie der Fußball-Tab, damit die App überall gleich funktioniert.
+  Das Karten-Layout ist von den Fußball-Sonderwertungen übernommen: Titel, Punkte-Pills, Frist, Ergebnis-Pill,
+  darunter abgetrennt der eigene Tipp, Status-Pill ("abgegeben" / "Frist vorbei"), der Hinweis dass
+  Mitspieler-Tipps bis zum Fristende geheim bleiben, und danach die Tabelle "👀 Tipps der Mitspieler".
+  Einziger F1-spezifischer Unterschied: getippt wird über drei Fahrer-Auswahlfelder statt eines Textfelds.
+  Die Meisterschaft wurde gleichzeitig aus dem Rennen-Dropdown im Tippen-Tab entfernt — sie hat jetzt
+  ihren eigenen Ort, doppelt wäre verwirrend.
+- **Umgesetzt (Backend):** Neue REST-Route `GET /f1/championship?round=<id>`. Sie liefert den
+  Meisterschafts-Eintrag, die Sperre, den eigenen Tipp und — erst nach Fristende — die Tipps aller
+  Mitspieler samt Punkten. **Die Punkte werden dabei serverseitig mit derselben `ftipp_f1_score_tip()`
+  berechnet wie die Rangliste**, bewusst nicht im Browser nachgerechnet, damit Tab und Rangliste nie
+  auseinanderlaufen können. Gefiltert wird wie in der Rangliste auf Mitspieler mit aktivem F1-Abo.
+  Zum Speichern reicht die bestehende `POST /f1/tips`-Route (die Meisterschaft ist dort einfach eine
+  weitere `race_id`) — keine neue Schreib-Route nötig.
+- Lokal getestet: `php -l` fehlerfrei, alle drei Script-Blöcke der `tippspiel.html` syntaktisch geprüft.
+  Browser-Test mit simuliertem `FTIPP_BOOT` + `fetch` in beiden Zuständen: **offen** — Tab zeigt Titel,
+  beide Punkte-Pills, Frist, drei Fahrer-Dropdowns, "Tipp abgeben" und den Geheimhaltungs-Hinweis;
+  **gesperrt** — Ergebnis-Pill (P1 Norris · P2 Verstappen · P3 Piastri), eigener Tipp korrekt
+  vorausgewählt und die Felder deaktiviert, Pill "Frist vorbei", Mitspieler-Tabelle mit korrekten
+  Punkten (Floh 15 = dreimal exakt, geli 4 = zwei richtige Fahrer auf falschem Platz). Zusätzlich
+  geprüft: die drei Tabs stehen korrekt nebeneinander und im Tippen-Dropdown taucht nur noch das echte
+  Rennen auf. Keine Änderung an `FTIPP_DB_VERSION` (kein Schema-Wechsel).
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.4.3 einspielen, unter
+  Tippstube → Formel 1 einmal "Jetzt abrufen" klicken und den neuen Tab im Frontend prüfen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

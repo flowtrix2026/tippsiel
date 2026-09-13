@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball (19 Wettbewerbe) und Formel 1 (Podium-Tipp), echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version:           1.4.2
+ * Version:           1.4.3
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.4.2' );
+define( 'FTIPP_VERSION', '1.4.3' );
 define( 'FTIPP_DB_VERSION', '14' );
 
 /**
@@ -2889,6 +2889,60 @@ add_action( 'rest_api_init', function () {
             $rid = intval( $req->get_param( 'round' ) ); $uid = get_current_user_id();
             if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
             return array( 'rows' => ftipp_f1_compute_leaderboard( $rid ) );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/f1/championship', array(
+        // Eigene Route für die Sonderwertung "Fahrer-Weltmeisterschaft" (eigener Tab im Frontend).
+        // Die Punkte werden hier serverseitig mit derselben ftipp_f1_score_tip() berechnet wie in der
+        // Rangliste — bewusst nicht im Browser nachgerechnet, damit beide nie auseinanderlaufen können.
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req->get_param( 'round' ) );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $races   = get_option( 'ftipp_f1_races', array() );
+            $champId = 'meisterschaft_' . ftipp_f1_get_season();
+            if ( ! isset( $races[ $champId ] ) ) { return array( 'race' => null ); }
+            $race   = $races[ $champId ];
+            $cfg    = ftipp_f1_round_cfg( $rid );
+            $raceTs = $race['date'] ? strtotime( $race['date'] . 'T' . $race['time'] ) : 0;
+            $locked = $raceTs && ( time() >= ( $raceTs - $cfg['deadlineMin'] * 60 ) );
+            $mine   = $wpdb->get_row( $wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}ftipp_f1_tips WHERE user_id=%d AND race_id=%s", $uid, $champId
+            ), ARRAY_A );
+            $out = array(
+                'race' => $race, 'locked' => (bool) $locked, 'cfg' => $cfg, 'rows' => array(),
+                'mine' => $mine ? array(
+                    'p1' => $mine['p1_driver_id'], 'p2' => $mine['p2_driver_id'], 'p3' => $mine['p3_driver_id'],
+                    'committed' => (bool) $mine['committed'],
+                ) : null,
+            );
+            // Tipps der Mitspieler bleiben bis zum Fristende verdeckt — wie bei den Fußball-Sonderwertungen.
+            if ( ! $locked ) { return $out; }
+
+            $subRows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT user_id FROM {$wpdb->prefix}ftipp_round_subs WHERE round_id=%d AND comp_id='F1' AND active=1", $rid
+            ), ARRAY_A );
+            $activeIds = array();
+            foreach ( $subRows as $r ) { $activeIds[ intval( $r['user_id'] ) ] = true; }
+            foreach ( ftipp_round_members( $rid ) as $m ) {
+                if ( ! isset( $activeIds[ $m['id'] ] ) ) { continue; }
+                $tip = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT * FROM {$wpdb->prefix}ftipp_f1_tips WHERE user_id=%d AND race_id=%s", $m['id'], $champId
+                ), ARRAY_A );
+                $committed = $tip && $tip['committed'];
+                $u = get_userdata( $m['id'] );
+                $out['rows'][] = array(
+                    'user_id' => $m['id'],
+                    'name'    => $u ? ftipp_public_name( $u ) : ( 'Spieler #' . $m['id'] ),
+                    'p1'      => $committed ? $tip['p1_driver_id'] : null,
+                    'p2'      => $committed ? $tip['p2_driver_id'] : null,
+                    'p3'      => $committed ? $tip['p3_driver_id'] : null,
+                    'pts'     => ( $committed && ! empty( $race['result'] ) )
+                        ? ftipp_f1_score_tip( $race['result'], $tip, $cfg )['pts'] : 0,
+                );
+            }
+            usort( $out['rows'], function ( $a, $b ) { return $b['pts'] <=> $a['pts']; } );
+            return $out;
         },
     ) );
     register_rest_route( 'ftipp/v1', '/f1/config', array(
