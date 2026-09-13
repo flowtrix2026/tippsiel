@@ -2073,6 +2073,16 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
   `dbDelta`-Tabellenaufbau), auf Tippstube → Formel 1 einmal "Jetzt abrufen" klicken, danach im Frontend
   eine Runde für F1 aktivieren und einen echten Tipp abgeben.
 
+## v1.4.1 — Plugin-Beschreibung gekürzt
+- **Anfrage:** Auf der echten Seite im Plugins-Bereich zeigte sich die Beschreibung als sehr lange
+  Aufzählung aller einzelnen Wettbewerbe und Datenquellen ("Spieldaten: 1./2./3. Liga + DFB-Pokal + ...").
+  Wunsch: "das muss auf die Sportarten gekürzt werden."
+- **Umgesetzt:** Den `Description:`-Header in `fussball-tippspiel.php` auf die unterstützten Sportarten
+  gekürzt (Fußball mit 19 Wettbewerben, Formel 1 mit Podium-Tipp) statt jede einzelne Liga und
+  Datenquelle aufzuzählen — reine Text-Änderung, keine Funktionsänderung.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.4.1 einspielen und die gekürzte
+  Beschreibung im Plugins-Bereich prüfen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
