@@ -2344,6 +2344,21 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Update einspielen (legt die zwei neuen Tabellen an), im
   Sonderwertungen-Tab Punkte setzen, tippen und nach einem Finale den Sieger eintragen.
 
+## v1.9.1 — Adminmenü: "Einstellungen" heißt jetzt "Fußball"
+
+- **Anfrage:** "mach mal aus Einstellung Fussball". Der Menüpunkt hieß noch aus der Zeit, als es nur
+  Fußball gab, allgemein "Einstellungen" — enthält aber die Fußball-Spieldaten. Seit Formel 1 (v1.4.0)
+  und Tennis (v1.7.0) eigene Seiten haben, war das irreführend: drei Sportarten, aber nur zwei davon
+  auch so benannt.
+- **Umgesetzt:** Menüpunkt und Seitenüberschrift heißen jetzt "Fußball" (⚽), dazu die Verweise auf
+  diese Seite im Cron-Job- und Info-Text sowie in der README angepasst. Der Seiten-Link (`page=ftipp`)
+  bleibt unverändert, alte Lesezeichen funktionieren also weiter. Bewusst **nicht** angefasst: die
+  Erwähnungen von "Einstellungen" bei cron-job.org (deren eigener Bereich) und bei WordPress selbst
+  ("Einstellungen → Allgemein"), und der Plugin-Zeilen-Link in der Plugins-Liste, wo "Einstellungen"
+  die übliche WordPress-Konvention ist.
+- Lokal getestet: `php -l` fehlerfrei, Menü-Registrierung geprüft. Reine Beschriftungsänderung, keine
+  Funktions-, Schema- oder Frontend-Änderung (`tippspiel.html` unverändert, daher kein Sync nötig).
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

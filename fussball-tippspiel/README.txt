@@ -4,7 +4,7 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.9.0
+Stable tag: 1.9.1
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -29,7 +29,7 @@ Tippstube ist ein WordPress-Plugin für private Fußball-Tippspiele unter Famili
 
 Neun Verwaltungsseiten unter "Tippstube" im WordPress-Adminmenü:
 
-* **Einstellungen** — API-Football-Key, automatischer Datenabruf, CSV-Import für Wettbewerbe ohne gute kostenlose Quelle
+* **Fußball** — Datenabruf der Fußball-Wettbewerbe, API-Football-Key, CSV-Import für Wettbewerbe ohne gute kostenlose Quelle
 * **Design** — Akzentfarbe, Logo und Untertitel jeder Tipprunde zentral einsehbar und bearbeitbar
 * **Cron-Job** — frei einstellbarer Abrufplan, dazu ein optionaler zuverlässiger externer Cron-Dienst (manuell oder automatisch über die cron-job.org-API)
 * **History** — Protokoll aller automatischen und manuellen Datenänderungen
@@ -49,7 +49,7 @@ Updates erscheinen wie bei einem regulären WordPress.org-Plugin direkt im Plugi
 
 1. Plugin hochladen und aktivieren (Plugins → Installieren → Plugin hochladen).
 2. Eine neue WordPress-Seite anlegen und den Shortcode `[tippspiel]` in den Inhalt eintragen, dann veröffentlichen.
-3. Unter Tippstube → Einstellungen ggf. einen API-Football-Key hinterlegen und die Spieldaten abrufen.
+3. Unter Tippstube → Fußball die Spieldaten abrufen (und nur falls nötig einen API-Football-Key hinterlegen).
 4. Fertig — Nutzer können sich anmelden, eine Tipprunde erstellen oder per Einladungscode beitreten.
 
 Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-Adminmenü.
@@ -57,6 +57,10 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.9.1 =
+Der Adminmenü-Punkt "Einstellungen" heißt jetzt "Fußball" — er enthält ja die Fußball-Spieldaten, und
+seit Formel 1 und Tennis eigene Seiten haben, war der alte Name irreführend.
 
 = 1.9.0 =
 Neue Tennis-Sonderwertung "Turniersieger": Je Turnier tippen die Mitspieler vor dem ersten Match, wer

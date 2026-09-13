@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball (19 Wettbewerbe) und Formel 1 (Podium-Tipp), echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version:           1.9.0
+ * Version:           1.9.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.9.0' );
+define( 'FTIPP_VERSION', '1.9.1' );
 define( 'FTIPP_DB_VERSION', '18' );
 
 /**
@@ -4315,7 +4315,7 @@ add_action( 'admin_menu', function () {
     // Gleicher Slug wie der Parent ersetzt WordPress' automatisch erzeugten Default-Untermenüpunkt
     // (sonst gäbe es "Tippstube" doppelt ganz oben in der Liste).
     add_submenu_page( 'ftipp', 'Info', 'Info', 'manage_options', 'ftipp_info', 'ftipp_page_info' );
-    add_submenu_page( 'ftipp', 'Einstellungen', 'Einstellungen', 'manage_options', 'ftipp', 'ftipp_settings_page' );
+    add_submenu_page( 'ftipp', 'Fußball', 'Fußball', 'manage_options', 'ftipp', 'ftipp_settings_page' );
     add_submenu_page( 'ftipp', 'Design', 'Design', 'manage_options', 'ftipp_design', 'ftipp_page_design' );
     add_submenu_page( 'ftipp', 'Datensicherung', 'Datensicherung', 'manage_options', 'ftipp_backup', 'ftipp_page_backup' );
     add_submenu_page( 'ftipp', 'Changelog', 'Changelog', 'manage_options', 'ftipp_changelog', 'ftipp_page_changelog' );
@@ -4730,7 +4730,7 @@ function ftipp_page_cron() {
     <div class="wrap">
         <h1>⏱️ Cron-Job</h1>
         <p>Legt fest, wie oft die Spieldaten automatisch abgerufen werden (OpenLigaDB/API-Football, dieselbe
-           Aktion wie der Button „Spieldaten jetzt abrufen" auf der Einstellungen-Seite).</p>
+           Aktion wie der Button „Spieldaten jetzt abrufen" auf der Fußball-Seite).</p>
 
         <?php if ( isset( $_GET['ftipp_cron_done'] ) ) : ?>
             <div class="notice notice-success is-dismissible"><p>Zeitplan gespeichert.</p></div>
@@ -5450,7 +5450,7 @@ function ftipp_page_info() {
         <h2>CSV-Import</h2>
         <p>Für Wettbewerbe ohne zuverlässige kostenlose Automatik-Quelle (aktuell nur noch: Nations League)
            lässt sich der Spielplan — und später das Ergebnis — per CSV-Datei auf der
-           Einstellungen-Seite hochladen. Bereits automatisch geladene Spiele bleiben unangetastet, und ein
+           Fußball-Seite hochladen. Bereits automatisch geladene Spiele bleiben unangetastet, und ein
            erneuter Upload derselben Begegnung (gleicher Wettbewerb + gleiche Teams + gleiches Datum)
            aktualisiert nur den bestehenden Eintrag, statt ihn zu duplizieren — so gehen keine Tipps verloren.</p>
 
@@ -5531,7 +5531,7 @@ function ftipp_settings_page() {
     $meta = get_option( 'ftipp_meta', array() );
     ?>
     <div class="wrap">
-        <h1>🏠⚽ Tippstube</h1>
+        <h1>⚽ Fußball</h1>
         <p><strong>1./2./3. Liga, DFB-Pokal, Champions League, Europa League, Premier League, LaLiga,
            Frauen-Bundesliga und Regionalliga Nordost</strong>
            kommen automatisch über
