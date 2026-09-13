@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       Tippstube
- * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Nations League + Süper Lig + Serie A + Ligue 1 per CSV-Import oder API-Football.
- * Version:           1.0.0
+ * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Serie A + Ligue 1 + Süper Lig via SportScore.com (gratis, Spieltag für Spieltag), Nations League per CSV-Import oder API-Football.
+ * Version:           1.1.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.0.0' );
+define( 'FTIPP_VERSION', '1.1.0' );
 define( 'FTIPP_DB_VERSION', '13' );
 
 /**
@@ -444,9 +444,11 @@ register_deactivation_hook( __FILE__, function () {
 /* ============================================================
  * Spieldaten-Abruf — Hybrid:
  *   1./2./3. Liga + DFB-Pokal + Champions League + Europa League + Premier League + LaLiga -> OpenLigaDB (aktuelle Saison, gratis, ohne Key)
- *   Nations League + Süper Lig -> CSV-Import (siehe ftipp_import_fixtures_csv()) — für beide gibt es keine
- *   zuverlässige kostenlose Automatik-Quelle (OpenLigaDB bei Süper Lig seit 2013/2014 veraltet; ESPN wurde
- *   live getestet, wird aber von manchen Servern per PHP-Anfrage geblockt, siehe ftipp_fetch_espn_soccer())
+ *   Serie A + Ligue 1 + Süper Lig -> SportScore.com, Tag für Tag (siehe ftipp_sportscore_sync()) — bei
+ *   OpenLigaDB seit 2013/2014 veraltet bzw. gar nicht vorhanden, ESPN wird von manchen Servern per
+ *   PHP-Anfrage geblockt (siehe ftipp_fetch_espn_soccer()).
+ *   Nations League -> CSV-Import (siehe ftipp_import_fixtures_csv()) oder API-Football — dafür gibt es
+ *   (noch) keine brauchbare kostenlose Automatik-Quelle mit der kompletten aktuellen Saison.
  * DFB-Pokal (v0.8.17) und Champions/Europa League (v0.8.22) bewusst auf OpenLigaDB umgestellt
  * (Nutzerentscheidung): einzige Quelle, die diese Wettbewerbe in der AKTUELLEN Saison kostenlos
  * abdeckt. Nachteil bekannt und akzeptiert: OpenLigaDB kennzeichnet "nach Verlängerung/
@@ -648,6 +650,137 @@ function ftipp_fetch_espn_soccer( $slug, $season_start_year ) {
     return array( 'ok' => true, 'error' => '', 'fixtures' => $fx );
 }
 
+/**
+ * SportScore.com (sportscore.com/developers) als Tag-für-Tag-Quelle für Wettbewerbe ohne brauchbare
+ * OpenLigaDB-/ESPN-Abdeckung (aktuell: Serie A, Ligue 1, Süper Lig). Anders als OpenLigaDB gibt es dort
+ * keinen "ganze Saison auf einmal"-Endpunkt — /api/v1/fixtures/ liefert immer nur EINEN Kalendertag,
+ * dafür live geprüft sauber nach Wettbewerb UND Datum gefiltert (die einfacheren /api/widget/-Endpunkte
+ * derselben API ignorieren ihre eigenen Filter-Parameter, siehe Journal — deshalb bewusst /api/v1/).
+ * Strategie deshalb zweistufig, um nicht bei jedem Cron-Lauf hunderte Anfragen am Stück zu brauchen
+ * (Lehre aus dem ESPN-Blocking-Fall: lieber in kleinen, sicheren Häppchen als in einem großen Rutsch,
+ * der auf manchem Hosting am PHP-Zeitlimit scheitern kann):
+ *   1) Einmaliger Rückstands-Abruf (Backfill): komplette Saison (Juli-Juni) tageweise abklappern, in
+ *      Häppchen von FTIPP_SPORTSCORE_BACKFILL_BATCH Tagen pro Cron-Lauf, bis die ganze Saison bekannt ist.
+ *   2) Danach nur noch Tage erneut abrufen, an denen mindestens ein bereits bekanntes Spiel noch KEIN
+ *      Endergebnis hat und die schon angepfiffen sein müssten (Datum <= heute) — ein fertig gespielter
+ *      Spieltag wird nie wieder angefragt, der nächste offene rückt automatisch nach.
+ * Ergebnis liegt dauerhaft in der Option 'ftipp_sportscore_cache' (pro Wettbewerb), damit der Fortschritt
+ * über mehrere Cron-Läufe hinweg erhalten bleibt.
+ */
+function ftipp_sportscore_map() {
+    return array(
+        'ITA1' => 'italian-serie-a',
+        'FRA1' => 'french-ligue-1',
+        'TR1'  => 'turkish-super-league',
+    );
+}
+// Live gemessen (v1.1.0): 3 Ligen x 40 Tage/Lauf = 120 HTTP-Anfragen brauchten ca. 45-51 Sekunden — zu
+// knapp, addiert zu den übrigen OpenLigaDB-Abrufen im selben Durchlauf, für viele Hosting-Zeitlimits
+// (oft 30s). Bei 12 Tagen/Liga/Lauf (36 Anfragen gesamt, ca. 15s) bleibt genug Luft; dauert der einmalige
+// Rückstands-Abruf dafür entsprechend mehr Cron-Läufe (auf "Jetzt abrufen" mehrfach hintereinander
+// klicken beschleunigt das bei Bedarf).
+if ( ! defined( 'FTIPP_SPORTSCORE_BACKFILL_BATCH' ) ) { define( 'FTIPP_SPORTSCORE_BACKFILL_BATCH', 12 ); }
+
+/** Ein einzelner Kalendertag für einen SportScore.com-Wettbewerb, gratis, ohne Key. */
+function ftipp_fetch_sportscore_day( $slug, $date ) {
+    $url = add_query_arg(
+        array( 'sport' => 'football', 'date' => $date, 'competition' => $slug, 'limit' => 200 ),
+        'https://sportscore.com/api/v1/fixtures/'
+    );
+    $resp = wp_remote_get( $url, array( 'timeout' => 15 ) );
+    if ( is_wp_error( $resp ) ) { return array( 'ok' => false, 'error' => $resp->get_error_message(), 'matches' => array() ); }
+    $code = (int) wp_remote_retrieve_response_code( $resp );
+    $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+    if ( 200 !== $code || ! isset( $body['matches'] ) || ! is_array( $body['matches'] ) ) {
+        return array( 'ok' => false, 'error' => 'HTTP ' . $code, 'matches' => array() );
+    }
+    return array( 'ok' => true, 'error' => '', 'matches' => $body['matches'] );
+}
+
+/**
+ * Baut/pflegt den Spielplan für einen SportScore.com-Wettbewerb weiter (siehe Kommentar oben).
+ * $season_start_year im gleichen Format wie ftipp_current_de_season() (z.B. 2026 für Saison 2026/27).
+ */
+function ftipp_sportscore_sync( $cid, $slug, $season_start_year ) {
+    $allCache = get_option( 'ftipp_sportscore_cache', array() );
+    $cache = isset( $allCache[ $cid ] ) ? $allCache[ $cid ] : array( 'fixtures' => array(), 'cursor' => null, 'done' => false );
+
+    $from  = $season_start_year . '-07-01';
+    $to    = ( $season_start_year + 1 ) . '-06-30';
+    $today = gmdate( 'Y-m-d' );
+
+    $datesToFetch = array();
+    if ( empty( $cache['done'] ) ) {
+        // Backfill-Häppchen ab dem letzten Stand (oder Saisonbeginn).
+        $d = $cache['cursor'] ? $cache['cursor'] : $from;
+        for ( $i = 0; $i < FTIPP_SPORTSCORE_BACKFILL_BATCH && strtotime( $d ) <= strtotime( $to ); $i++ ) {
+            $datesToFetch[] = $d;
+            $d = gmdate( 'Y-m-d', strtotime( $d . ' +1 day' ) );
+        }
+        $cache['cursor'] = $d;
+        if ( strtotime( $d ) > strtotime( $to ) ) { $cache['done'] = true; }
+    } else {
+        // Nur Tage mit noch offenem Ergebnis, die schon angepfiffen sein müssten — ein fertig gespielter
+        // Spieltag (alle Spiele 'FT') wird dadurch automatisch nie wieder angefragt.
+        $seen = array();
+        foreach ( $cache['fixtures'] as $fx ) {
+            $day = substr( $fx['date'], 0, 10 );
+            if ( 'FT' !== $fx['status'] && strtotime( $day ) <= strtotime( $today ) && ! isset( $seen[ $day ] ) ) {
+                $datesToFetch[] = $day; $seen[ $day ] = true;
+            }
+        }
+    }
+
+    foreach ( $datesToFetch as $date ) {
+        $r = ftipp_fetch_sportscore_day( $slug, $date );
+        if ( ! $r['ok'] ) { continue; } // einzelner Tag scheitert nicht den ganzen Sync, wird beim nächsten Mal erneut versucht
+
+        // Alte Einträge dieses Tages verwerfen, damit abgesagte/verschobene Spiele nicht als Karteileichen bleiben.
+        $cache['fixtures'] = array_values( array_filter( $cache['fixtures'], function ( $fx ) use ( $date ) {
+            return substr( $fx['date'], 0, 10 ) !== $date;
+        } ) );
+
+        foreach ( $r['matches'] as $m ) {
+            $finished   = ( 'finished' === $m['status'] );
+            $ts         = isset( $m['time'] ) ? strtotime( $m['time'] ) : false;
+            $localDate  = $ts ? get_date_from_gmt( gmdate( 'Y-m-d H:i:s', $ts ), 'Y-m-d\TH:i' ) : ( $date . 'T00:00' );
+            $matchSlug  = isset( $m['url'] ) ? trim( $m['url'], '/' ) : ( $m['home'] . '-' . $m['away'] . '-' . $date );
+            $cache['fixtures'][] = array(
+                'id'      => 'sc-' . md5( $matchSlug ),
+                'round'   => 'Spieltag', // wird unten aus allen bekannten Terminen neu berechnet
+                'date'    => $localDate,
+                'home'    => $m['home'], 'away' => $m['away'],
+                'hg'      => $finished ? intval( $m['home_score'] ) : null,
+                'ag'      => $finished ? intval( $m['away_score'] ) : null,
+                'status'  => $finished ? 'FT' : 'NS',
+                'ko'      => false, 'decided' => null, 'winner' => null,
+            );
+        }
+    }
+
+    // Spieltag-Nummern chronologisch aus den bisher bekannten Spielen ableiten (gleiche Technik wie bei
+    // ESPN, siehe ftipp_fetch_espn_soccer()) — wird bei jedem Sync neu berechnet, weil während des
+    // Backfills nach und nach mehr Teams/Spiele bekannt werden.
+    $fx = $cache['fixtures'];
+    usort( $fx, function ( $a, $b ) { return strcmp( $a['date'], $b['date'] ); } );
+    $teamNames = array();
+    foreach ( $fx as $f ) { $teamNames[ $f['home'] ] = true; $teamNames[ $f['away'] ] = true; }
+    $perRound = count( $teamNames ) >= 2 ? intval( count( $teamNames ) / 2 ) : 1;
+    foreach ( $fx as $i => $f ) { $fx[ $i ]['round'] = 'Spieltag ' . ( intval( $i / $perRound ) + 1 ); }
+    $cache['fixtures'] = $fx;
+
+    $allCache[ $cid ] = $cache;
+    update_option( 'ftipp_sportscore_cache', $allCache, false );
+
+    $totalDays = intval( ( strtotime( $to ) - strtotime( $from ) ) / DAY_IN_SECONDS ) + 1;
+    $doneDays  = $cache['cursor'] ? intval( ( strtotime( $cache['cursor'] ) - strtotime( $from ) ) / DAY_IN_SECONDS ) : $totalDays;
+    $note      = empty( $cache['done'] )
+        ? sprintf( 'Erstabruf läuft: %d/%d Tage der Saison geladen.', max( 0, min( $doneDays, $totalDays ) ), $totalDays )
+        : '';
+
+    return array( 'ok' => true, 'error' => '', 'fixtures' => $fx, 'note' => $note );
+}
+
 function ftipp_fetch_all( $trigger = 'cron' ) {
     $key       = trim( (string) get_option( 'ftipp_api_key', '' ) );
     $season    = intval( get_option( 'ftipp_season', 2026 ) );
@@ -679,8 +812,21 @@ function ftipp_fetch_all( $trigger = 'cron' ) {
         }
     }
 
-    // 2) Alles, was noch offen ist (NL immer, außerdem Fallback falls OpenLigaDB/ESPN für einen der
-    //    obigen Wettbewerbe mal ausfällt/leer ist) über API-Football.
+    // 1c) Wettbewerbe ohne brauchbare OpenLigaDB-/ESPN-Quelle, aber mit SportScore.com-Abdeckung (aktuell:
+    //     Serie A, Ligue 1, Süper Lig) — Tag-für-Tag-Abruf mit Cache, siehe ftipp_sportscore_sync().
+    foreach ( ftipp_sportscore_map() as $cid => $slug ) {
+        if ( isset( $all[ $cid ] ) ) { continue; }
+        $r = ftipp_sportscore_sync( $cid, $slug, $de_season );
+        if ( $r['ok'] && count( $r['fixtures'] ) > 0 ) {
+            $all[ $cid ] = $r['fixtures']; $counts[ $cid ] = count( $r['fixtures'] );
+            $errors[ $cid ] = $r['note']; $sources[ $cid ] = 'SportScore.com' . ( $r['note'] ? ' (Erstabruf läuft)' : ' (Spieltag für Spieltag)' );
+        } else {
+            $errors[ $cid ] = 'SportScore.com: noch keine Daten geladen (nächster Cron-Lauf versucht es erneut).';
+        }
+    }
+
+    // 2) Alles, was noch offen ist (NL immer, außerdem Fallback falls OpenLigaDB/ESPN/SportScore.com für
+    //    einen der obigen Wettbewerbe mal ausfällt/leer ist) über API-Football.
     foreach ( ftipp_leagues() as $cid => $lg ) {
         if ( isset( $all[ $cid ] ) ) { continue; } // schon per OpenLigaDB geladen
         if ( $key === '' ) {
@@ -2300,8 +2446,9 @@ add_action( 'rest_api_init', function () {
                 $season = ftipp_current_de_season();
                 return array( 'supported' => true, 'mode' => 'league', 'season' => $season, 'rows' => ftipp_fetch_bltable( $shortcut, $season ) );
             }
-            // Kein OpenLigaDB-Shortcut, aber evtl. eigene (CSV-)Spieldaten vorhanden (aktuell: Süper Lig) —
-            // Tabelle selbst berechnen, gleiche Funktion wie bei der Nations League.
+            // Kein OpenLigaDB-Shortcut, aber evtl. eigene Spieldaten vorhanden (SportScore.com und/oder CSV,
+            // aktuell: Serie A, Ligue 1, Süper Lig) — Tabelle selbst berechnen, gleiche Funktion wie bei der
+            // Nations League.
             $fixtures = ftipp_fixtures_for( $comp );
             if ( ! $fixtures ) { return array( 'supported' => false ); }
             $teams = array();
@@ -3742,8 +3889,8 @@ function ftipp_page_info() {
            manuell übersteuern, falls der Wortlaut nur leicht abweicht (z. B. „St. Pauli" vs. „FC St. Pauli").</p>
 
         <h2>CSV-Import</h2>
-        <p>Für Wettbewerbe ohne zuverlässige kostenlose Quelle (aktuell z. B. Nations League, Süper Lig, Serie A,
-           Ligue 1) lässt sich der Spielplan — und später das Ergebnis — per CSV-Datei auf der
+        <p>Für Wettbewerbe ohne zuverlässige kostenlose Automatik-Quelle (aktuell nur noch: Nations League)
+           lässt sich der Spielplan — und später das Ergebnis — per CSV-Datei auf der
            Einstellungen-Seite hochladen. Bereits automatisch geladene Spiele bleiben unangetastet, und ein
            erneuter Upload derselben Begegnung (gleicher Wettbewerb + gleiche Teams + gleiches Datum)
            aktualisiert nur den bestehenden Eintrag, statt ihn zu duplizieren — so gehen keine Tipps verloren.</p>
@@ -3804,12 +3951,13 @@ function ftipp_settings_page() {
            <strong>OpenLigaDB</strong> — gratis, ohne Key, immer die <strong>aktuelle Saison</strong>. Bei den
            Pokal-/Europapokal-Wettbewerben gibt es dafür bewusst <strong>keinen K.o.-Zusatztipp</strong> (Verlängerung/Elfmeterschießen)
            mehr — OpenLigaDB kennzeichnet das nicht zuverlässig genug, der normale Tendenz/Exakt-Tipp funktioniert
-           aber einwandfrei. Die <strong>Süper Lig, Serie A</strong> und <strong>Ligue 1</strong>
-           laufen — wie die Nations League — per <strong>CSV-Import</strong> weiter unten, da es dafür keine
-           zuverlässige kostenlose Automatik-Quelle gibt (OpenLigaDB hat diese drei gar nicht in der aktuellen
-           Saison, ESPN wird von manchen Servern blockiert). Für <strong>Nations League, Serie A und Ligue
-           1</strong> versucht das Plugin zusätzlich automatisch <strong>API-Football</strong>, falls
-           du dort einen Key hinterlegst. <strong>Hinweis:</strong> der Gratis-Tarif von API-Football deckt
+           aber einwandfrei. <strong>Serie A, Ligue 1</strong> und <strong>Süper Lig</strong> kommen automatisch
+           über <strong>SportScore.com</strong> — ebenfalls gratis, ohne Key, allerdings Spieltag für Spieltag statt
+           auf einmal: nach der Aktivierung dauert es ein paar Cron-Läufe, bis die komplette Saison einmal
+           durchgeladen ist, danach wird nur noch der jeweils aktuelle Spieltag aktualisiert. Nur für die
+           <strong>Nations League</strong> gibt es (noch) keine solche Automatik-Quelle — die läuft weiterhin per
+           <strong>CSV-Import</strong> weiter unten oder über <strong>API-Football</strong>, falls du dort einen
+           Key hinterlegst. <strong>Hinweis:</strong> der Gratis-Tarif von API-Football deckt
            nur alte Saisons (2021–2023) ab — für die aktuelle Saison ist (noch) ein Bezahltarif nötig, oder du
            nutzt zum Testen „🎲 Test-Spiele laden" weiter unten.</p>
 
@@ -3830,12 +3978,13 @@ function ftipp_settings_page() {
                 <tr>
                     <th scope="row"><label for="ftipp_season">Saison (API-Football)</label></th>
                     <td><input name="ftipp_season" id="ftipp_season" type="number" value="<?php echo esc_attr( get_option( 'ftipp_season', 2026 ) ); ?>" style="width:110px" />
-                        <p class="description">Gilt für alle API-Football-Wettbewerbe (Nations League, Serie A,
-                        Ligue 1). Startjahr der Saison. 2026 = Saison 2026/27. Zum Testen mit
+                        <p class="description">Gilt nur, falls du für die <strong>Nations League</strong> einen
+                        API-Football-Key hinterlegst (Fallback, da es dafür keine gratis Automatik-Quelle gibt).
+                        Startjahr der Saison. 2026 = Saison 2026/27. Zum Testen mit
                         vollständigen Ergebnissen: 2023.
                         1./2./3. Liga, DFB-Pokal, Champions League, Europa League, Premier League, LaLiga,
                         Frauen-Bundesliga und Regionalliga Nordost laufen unabhängig davon immer auf der
-                        aktuellen Saison via OpenLigaDB, die Süper Lig per CSV-Import.</p></td>
+                        aktuellen Saison via OpenLigaDB, Serie A/Ligue 1/Süper Lig via SportScore.com.</p></td>
                 </tr>
             </table>
             <?php submit_button( 'Speichern' ); ?>
@@ -3866,11 +4015,11 @@ function ftipp_settings_page() {
 
         <hr>
         <h2 style="margin-top:30px">📄 Spieldaten per CSV importieren</h2>
-        <p>Für Wettbewerbe ohne gute kostenlose API (aktuell: <strong>Nations League</strong>,
-           <strong>Süper Lig</strong>, <strong>Serie A</strong> und <strong>Ligue 1</strong>
-           — für Serie A/Ligue 1 alternativ auch per
-           API-Football, falls du dort einen Bezahltarif mit aktueller Saison hast) kannst du den
-           Spielplan (und später die Ergebnisse) selbst per CSV-Datei hochladen. Das <strong>ergänzt</strong> nur —
+        <p>Für Wettbewerbe ohne gute kostenlose Automatik-Quelle (aktuell nur noch: <strong>Nations
+           League</strong> — Serie A, Ligue 1 und Süper Lig laufen jetzt automatisch über SportScore.com,
+           siehe oben) kannst du den
+           Spielplan (und später die Ergebnisse) selbst per CSV-Datei hochladen, oder alternativ per
+           API-Football, falls du dort einen Bezahltarif mit aktueller Saison hast. Das <strong>ergänzt</strong> nur —
            bereits automatisch geladene Spiele bleiben unangetastet, und ein erneuter Upload derselben Begegnung
            (gleicher Wettbewerb + gleiche Teams + gleiches Datum) aktualisiert den Eintrag, statt ihn zu
            duplizieren (damit dabei keine Tipps verwaisen).</p>

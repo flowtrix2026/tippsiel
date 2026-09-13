@@ -1862,6 +1862,37 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - Lokal geprüft: alle sieben Untermenüpunkte laden weiterhin fehlerfrei, keine PHP-Fehler.
 - *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.0.0 einspielen.
 
+## v1.1.0 — Serie A, Ligue 1, Süper Lig automatisch über SportScore.com
+- **Anfrage:** Auf der Suche nach einer kostenlosen Automatik-Quelle für die drei Ligen ohne OpenLigaDB-
+  Abdeckung wurden nacheinander TheSportsDB (Test-Key liefert nur 5-15 Spiele statt der ganzen Saison —
+  ungeeignet) und SportScore.com (die einfachen `/api/widget/`-Endpunkte filtern nicht wirklich, trotz
+  anderslautender Doku) geprüft und live gegengetestet. Erst über die vollständige OpenAPI-Spezifikation
+  (`sportscore.com/developers/openapi.yaml`, verlinkt von der "Built with"-Unterseite) kam der eigentlich
+  brauchbare Endpunkt `/api/v1/fixtures/` zum Vorschein — echte, funktionierende Filter nach Wettbewerb
+  UND Kalendertag, live verifiziert für `italian-serie-a`, `french-ligue-1`, `turkish-super-league`.
+- **Umgesetzt:** Neue Funktionen `ftipp_sportscore_map()`, `ftipp_fetch_sportscore_day()` und
+  `ftipp_sportscore_sync()`. Da der Endpunkt anders als OpenLigaDB immer nur EINEN Kalendertag liefert
+  (keine ganze Saison auf einmal), läuft der Abruf zweistufig: (1) einmaliger Rückstands-Abruf, der die
+  komplette Saison (Juli-Juni) in Häppchen von `FTIPP_SPORTSCORE_BACKFILL_BATCH` Tagen pro Cron-Lauf
+  abklappert, gespeichert in der neuen Option `ftipp_sportscore_cache`; (2) danach werden nur noch Tage
+  erneut abgefragt, an denen ein bereits bekanntes Spiel noch kein Endergebnis hat und die schon
+  angepfiffen sein müssten — ein fertig gespielter Spieltag wird nie wieder angefragt, der jeweils
+  nächste offene rückt automatisch nach. Spieltag-Nummern werden (wie schon bei der früheren
+  ESPN-Anbindung) chronologisch aus der Team-Anzahl abgeleitet, da die API selbst keine Spieltag-Nummer
+  liefert. Alle drei Ligen bleiben zusätzlich per CSV-Import oder API-Football überschreibbar.
+- **Live-Timing-Test (wichtig):** Mit `FTIPP_SPORTSCORE_BACKFILL_BATCH = 40` brauchten 3 Ligen x 40 Tage
+  (120 HTTP-Anfragen) 45-51 Sekunden — zu knapp für viele Hosting-PHP-Zeitlimits, addiert zu den übrigen
+  OpenLigaDB-Abrufen im selben Durchlauf. Auf 12 Tage/Liga/Lauf reduziert (36 Anfragen, 13-17 Sekunden
+  gemessen) — der einmalige Rückstands-Abruf einer ganzen Saison (~365 Tage) braucht dadurch mehr
+  Cron-Läufe, lässt sich aber durch mehrfaches Klicken auf "Jetzt abrufen" beliebig beschleunigen.
+- Lokal getestet: kompletter Fetch-Layer (inkl. aller bestehenden OpenLigaDB-Quellen) über einen
+  isolierten PHP-Rauchtest gegen die echte Live-API geprüft — keine Fatal Errors, andere Wettbewerbe
+  unverändert, echte Ergebnisse (z.B. Süper Lig Spieltag 1) korrekt geladen und gruppiert. Keine
+  Datenbank-/Schema-Änderung (`FTIPP_DB_VERSION` bleibt 13) — bestehende Tipps, Ergebnisse und
+  Nutzerkonten sind von diesem Update nicht betroffen.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.1.0 einspielen, echten Erstabruf über
+  mehrere Cron-Läufe/Klicks auf "Jetzt abrufen" beobachten.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

@@ -4,7 +4,7 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.1.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -39,7 +39,7 @@ Updates erscheinen wie bei einem regulären WordPress.org-Plugin direkt im Plugi
 
 = Datenquellen =
 
-1./2./3. Liga, DFB-Pokal, Champions League, Europa League, Premier League, LaLiga, Frauen-Bundesliga und Regionalliga Nordost laufen automatisch über [OpenLigaDB](https://www.openligadb.de/) (kostenlos, kein Key nötig). Für Nations League, Süper Lig, Serie A und Ligue 1 gibt es dafür keine zuverlässige kostenlose Automatik-Quelle — hier hilft CSV-Import oder wahlweise [API-Football](https://www.api-football.com/) mit eigenem Key.
+1./2./3. Liga, DFB-Pokal, Champions League, Europa League, Premier League, LaLiga, Frauen-Bundesliga und Regionalliga Nordost laufen automatisch über [OpenLigaDB](https://www.openligadb.de/) (kostenlos, kein Key nötig). Serie A, Ligue 1 und Süper Lig laufen automatisch über [SportScore.com](https://sportscore.com/developers/) (ebenfalls kostenlos, kein Key nötig, dafür Spieltag für Spieltag statt auf einmal — nach der Aktivierung dauert der komplette Erstabruf einige Cron-Läufe). Nur für die Nations League gibt es (noch) keine zuverlässige kostenlose Automatik-Quelle — hier hilft CSV-Import oder wahlweise [API-Football](https://www.api-football.com/) mit eigenem Key.
 
 == Installation ==
 
@@ -53,6 +53,10 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.1.0 =
+Serie A, Ligue 1 und Süper Lig laufen jetzt automatisch über SportScore.com (Spieltag für Spieltag,
+kostenlos, kein Key nötig) — CSV-Import/API-Football bleiben als Fallback bzw. für die Nations League.
 
 = 1.0.0 =
 Erste stabile Version — kompletter Adminbereich (Einstellungen, Design, Cron-Job, History, Changelog, Info,
