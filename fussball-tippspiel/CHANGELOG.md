@@ -1971,6 +1971,26 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
   beobachten, ob alle fünf neuen Ligen wie erwartet Spieldaten laden — insbesondere die Brasilianische
   Serie A mit ihrem abweichenden Kalenderjahr-Saisonfenster.
 
+## v1.2.1 — Ranglisten-Newsletter: eine gesammelte Mail statt einer pro Wettbewerb
+- **Anfrage:** Live auf der echten Seite getestet ("Newsletter jetzt testweise verschicken") — ein
+  Mitspieler in einer Runde mit 4 aktiven Wettbewerben bekam **4 separate E-Mails** hintereinander (eine
+  pro Wettbewerb). Wunsch: alle Wettbewerbe einer Runde in **einer** HTML-Mail zusammenfassen.
+  Bildschirmfoto zeigte 4 Mails ("Fam — Nations League", "Fam — DFB-Pokal", "Fam — Champions League",
+  "Fam — 1. Bundesliga") — alle zur selben Zeit, an denselben Mitspieler.
+- **Umgesetzt:** `ftipp_run_newsletter_check()` sammelt jetzt pro Runde für jeden Nutzer alle relevanten
+  Wettbewerbs-Abschnitte (je einer mit Top 3 + eigener Platzierung, falls nicht in den Top 3) in einem
+  Array, bevor irgendeine Mail verschickt wird — verschickt wird erst danach, **eine** Mail pro Nutzer und
+  Runde, mit allen Abschnitten untereinander. Betreff entsprechend vereinfacht auf "Rangliste-Update:
+  {Rundenname}" (ohne Wettbewerbsnamen, da jetzt mehrere pro Mail). HTML-Formatierung dabei etwas
+  aufgewertet (Tabellen-Layout, dezente Trennlinien zwischen den Wettbewerbs-Abschnitten, Akzentfarbe für
+  den Rangliste-Link) statt reinem Fließtext.
+- Lokal getestet: die neue Gruppierungslogik isoliert mit Test-Daten nachgebaut (3 Mitspieler, 4
+  Wettbewerbe wie im Live-Fall) — bestätigt genau 3 statt vorher 12 Mails, jede mit allen 4
+  Wettbewerbs-Abschnitten korrekt enthalten. Die eigentliche Ranglisten-Berechnung selbst wurde nicht
+  verändert (bereits live bestätigt korrekt, siehe Bildschirmfoto). Keine Datenbank-Änderung.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.2.1 einspielen und "Newsletter jetzt
+  testweise verschicken" erneut klicken — sollte jetzt nur noch eine Mail pro Mitspieler ankommen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

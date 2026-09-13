@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Serie A + Ligue 1 + Süper Lig + Eredivisie + Primeira Liga + Saudi Pro League + Österreichische Bundesliga + Brasilianische Serie A via SportScore.com (gratis, Spieltag für Spieltag), Nations League per CSV-Import oder API-Football.
- * Version:           1.2.0
+ * Version:           1.2.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.2.0' );
+define( 'FTIPP_VERSION', '1.2.1' );
 define( 'FTIPP_DB_VERSION', '13' );
 
 /**
@@ -1845,6 +1845,11 @@ function ftipp_run_newsletter_check( $force = false ) {
 
     foreach ( $rounds as $round ) {
         $members = ftipp_round_members( $round['id'] );
+        // Pro Nutzer alle Wettbewerbs-Abschnitte sammeln, statt pro Wettbewerb sofort eine eigene Mail zu
+        // verschicken — am Ende gibt's dann NUR EINE gesammelte HTML-Mail pro Runde und Nutzer, mit allen
+        // Wettbewerben untereinander (statt einer Flut von Einzel-Mails, siehe Nutzer-Feedback).
+        $sections = array(); // user_id => Liste von HTML-Blöcken
+
         foreach ( ftipp_leagues() as $cid => $lg ) {
             $relevant = array_values( array_filter( $members, function ( $m ) use ( $cid, $round ) {
                 $s = ftipp_round_subs( $round['id'], $m['id'] ); return ! empty( $s[ $cid ] );
@@ -1854,23 +1859,34 @@ function ftipp_run_newsletter_check( $force = false ) {
             if ( ! $rows ) { continue; }
             $top = array_slice( $rows, 0, 3 );
 
+            $lines = array();
+            foreach ( $top as $r ) { $lines[] = intval( $r['rank'] ) . '. ' . esc_html( $r['name'] ) . ' — ' . intval( $r['total'] ) . ' Punkte'; }
+
             foreach ( $relevant as $m ) {
-                $u = get_userdata( $m['id'] );
-                if ( ! $u || ! $u->user_email ) { continue; }
                 $mine = null; foreach ( $rows as $r ) { if ( $r['user_id'] === $m['id'] ) { $mine = $r; break; } }
 
-                $lines = array();
-                foreach ( $top as $r ) { $lines[] = intval( $r['rank'] ) . '. ' . esc_html( $r['name'] ) . ' — ' . intval( $r['total'] ) . ' Punkte'; }
-                $body  = '<p>Hallo ' . esc_html( $u->display_name ) . ',</p>';
-                $body .= '<p>aktueller Stand in <b>' . esc_html( $round['name'] ) . '</b> — ' . esc_html( $lg['name'] ) . ':</p>';
-                $body .= '<p>' . implode( '<br>', $lines ) . '</p>';
+                $section  = '<tr><td style="padding:20px 0 8px;border-top:1px solid #e5e5e5;">';
+                $section .= '<div style="font-size:15px;font-weight:600;color:#1c4127;margin:0 0 8px;">🏆 ' . esc_html( $lg['name'] ) . '</div>';
+                $section .= '<div style="font-size:14px;line-height:1.7;color:#333;">' . implode( '<br>', $lines ) . '</div>';
                 if ( $mine && intval( $mine['rank'] ) > 3 ) {
-                    $body .= '<p>Du: Platz ' . intval( $mine['rank'] ) . ' mit ' . intval( $mine['total'] ) . ' Punkten.</p>';
+                    $section .= '<div style="font-size:14px;color:#555;margin-top:6px;">Du: Platz ' . intval( $mine['rank'] ) . ' mit ' . intval( $mine['total'] ) . ' Punkten.</div>';
                 }
-                $body .= '<p><a href="' . esc_url( $url ) . '">Zur Rangliste →</a></p>';
-                wp_mail( $u->user_email, '🏆 Rangliste-Update: ' . $round['name'] . ' — ' . $lg['name'], $body, array( 'Content-Type: text/html; charset=UTF-8' ) );
-                $sent++;
+                $section .= '</td></tr>';
+                $sections[ $m['id'] ][] = $section;
             }
+        }
+
+        foreach ( $sections as $uid => $userSections ) {
+            $u = get_userdata( $uid );
+            if ( ! $u || ! $u->user_email ) { continue; }
+            $body  = '<table role="presentation" style="max-width:520px;font-family:-apple-system,Segoe UI,Arial,sans-serif;">';
+            $body .= '<tr><td style="padding-bottom:4px;"><p style="font-size:15px;color:#111;margin:0;">Hallo ' . esc_html( $u->display_name ) . ',</p>';
+            $body .= '<p style="font-size:15px;color:#111;margin:6px 0 0;">dein aktueller Stand in <b>' . esc_html( $round['name'] ) . '</b>:</p></td></tr>';
+            $body .= implode( '', $userSections );
+            $body .= '<tr><td style="padding-top:20px;"><a href="' . esc_url( $url ) . '" style="color:#d9a441;font-weight:600;">Zur Rangliste →</a></td></tr>';
+            $body .= '</table>';
+            wp_mail( $u->user_email, '🏆 Rangliste-Update: ' . $round['name'], $body, array( 'Content-Type: text/html; charset=UTF-8' ) );
+            $sent++;
         }
     }
     if ( ! $force ) { update_option( 'ftipp_newsletter_last_sent', $weekKey ); }

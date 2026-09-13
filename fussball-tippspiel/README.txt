@@ -4,7 +4,7 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.1.2
+Stable tag: 1.2.1
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -53,6 +53,11 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.2.1 =
+Ranglisten-Newsletter überarbeitet: Statt einer separaten E-Mail pro Wettbewerb (bei 4 aktiven
+Wettbewerben in einer Runde also 4 Mails) kommt jetzt nur noch EINE gesammelte HTML-Mail pro Runde und
+Mitspieler mit allen Wettbewerben untereinander.
 
 = 1.2.0 =
 Fünf neue Wettbewerbe automatisch über SportScore.com: Eredivisie, Primeira Liga, Saudi Pro League,
