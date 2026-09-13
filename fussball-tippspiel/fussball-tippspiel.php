@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball (19 Wettbewerbe) und Formel 1 (Podium-Tipp), echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version:           1.9.1
+ * Version:           1.10.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.9.1' );
+define( 'FTIPP_VERSION', '1.10.0' );
 define( 'FTIPP_DB_VERSION', '18' );
 
 /**
@@ -4315,6 +4315,7 @@ add_action( 'admin_menu', function () {
     // Gleicher Slug wie der Parent ersetzt WordPress' automatisch erzeugten Default-Untermenüpunkt
     // (sonst gäbe es "Tippstube" doppelt ganz oben in der Liste).
     add_submenu_page( 'ftipp', 'Info', 'Info', 'manage_options', 'ftipp_info', 'ftipp_page_info' );
+    add_submenu_page( 'ftipp', 'Einstellungen', 'Einstellungen', 'manage_options', 'ftipp_settings', 'ftipp_page_settings' );
     add_submenu_page( 'ftipp', 'Fußball', 'Fußball', 'manage_options', 'ftipp', 'ftipp_settings_page' );
     add_submenu_page( 'ftipp', 'Design', 'Design', 'manage_options', 'ftipp_design', 'ftipp_page_design' );
     add_submenu_page( 'ftipp', 'Datensicherung', 'Datensicherung', 'manage_options', 'ftipp_backup', 'ftipp_page_backup' );
@@ -5471,10 +5472,13 @@ function ftipp_page_info() {
 add_action( 'admin_init', function () {
     register_setting( 'ftipp_group', 'ftipp_api_key', array( 'sanitize_callback' => 'sanitize_text_field', 'default' => '' ) );
     register_setting( 'ftipp_group', 'ftipp_season',  array( 'sanitize_callback' => 'absint', 'default' => 2026 ) );
-    register_setting( 'ftipp_group', 'ftipp_notify_reminders', array( 'sanitize_callback' => 'absint', 'default' => 1 ) );
-    register_setting( 'ftipp_group', 'ftipp_notify_newsletter', array( 'sanitize_callback' => 'absint', 'default' => 1 ) );
-    register_setting( 'ftipp_group', 'ftipp_newsletter_day',  array( 'sanitize_callback' => 'absint', 'default' => 1 ) );
-    register_setting( 'ftipp_group', 'ftipp_newsletter_hour', array( 'sanitize_callback' => 'absint', 'default' => 9 ) );
+    // Eigene Gruppe je Seite: options.php speichert IMMER alle Optionen einer Gruppe und setzt dabei
+    // alles, was nicht im abgeschickten Formular steht, auf leer. Lägen Fußball- und Benachrichtigungs-
+    // Optionen weiter in derselben Gruppe, würde ein Speichern auf der einen Seite die andere leeren.
+    register_setting( 'ftipp_notify_group', 'ftipp_notify_reminders', array( 'sanitize_callback' => 'absint', 'default' => 1 ) );
+    register_setting( 'ftipp_notify_group', 'ftipp_notify_newsletter', array( 'sanitize_callback' => 'absint', 'default' => 1 ) );
+    register_setting( 'ftipp_notify_group', 'ftipp_newsletter_day',  array( 'sanitize_callback' => 'absint', 'default' => 1 ) );
+    register_setting( 'ftipp_notify_group', 'ftipp_newsletter_hour', array( 'sanitize_callback' => 'absint', 'default' => 9 ) );
 } );
 add_action( 'admin_post_ftipp_fetch', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
@@ -5515,14 +5519,14 @@ add_action( 'admin_post_ftipp_test_reminder', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_test_reminder' );
     ftipp_run_reminder_check();
-    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'ftipp_test' => 'reminder' ), admin_url( 'admin.php' ) ) );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_settings', 'ftipp_test' => 'reminder' ), admin_url( 'admin.php' ) ) );
     exit;
 } );
 add_action( 'admin_post_ftipp_test_newsletter', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_test_newsletter' );
     $n = ftipp_run_newsletter_check( true );
-    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'ftipp_test' => 'newsletter', 'n' => $n ), admin_url( 'admin.php' ) ) );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp_settings', 'ftipp_test' => 'newsletter', 'n' => $n ), admin_url( 'admin.php' ) ) );
     exit;
 } );
 
@@ -5688,7 +5692,24 @@ function ftipp_settings_page() {
             </table>
         <?php endif; ?>
 
-        <hr>
+    </div>
+    <?php
+}
+/**
+ * Allgemeine Einstellungen — alles, was NICHT zu einer einzelnen Sportart gehört (E-Mail-Versand,
+ * Registrierung). Stand früher mit auf der Fußball-Seite, was seit Formel 1 und Tennis nicht mehr
+ * passte: diese Schalter gelten für alle Sportarten gleichermaßen.
+ */
+function ftipp_page_settings() {
+    if ( ! current_user_can( 'manage_options' ) ) { return; }
+    ?>
+    <div class="wrap">
+        <h1>⚙️ Einstellungen</h1>
+        <p>Gilt für alle Sportarten. Die Spieldaten der einzelnen Sportarten stellst du unter
+           <a href="<?php echo esc_url( admin_url( 'admin.php?page=ftipp' ) ); ?>">Fußball</a>,
+           <a href="<?php echo esc_url( admin_url( 'admin.php?page=ftipp_f1' ) ); ?>">Formel 1</a> und
+           <a href="<?php echo esc_url( admin_url( 'admin.php?page=ftipp_tennis' ) ); ?>">Tennis</a> ein.</p>
+
         <h2>✉️ Benachrichtigungen</h2>
         <p>Läuft serverseitig über <code>wp_mail()</code> — falls du ein SMTP-Plugin (z.B. "WP Mail SMTP") installiert hast,
            wird das automatisch für den Versand genutzt.</p>
@@ -5702,7 +5723,7 @@ function ftipp_settings_page() {
         <?php endif; ?>
 
         <form method="post" action="options.php">
-            <?php settings_fields( 'ftipp_group' ); ?>
+            <?php settings_fields( 'ftipp_notify_group' ); ?>
             <table class="form-table" role="presentation">
                 <tr>
                     <th scope="row">Fristen-Erinnerung</th>
@@ -5769,8 +5790,9 @@ function ftipp_settings_page() {
     </div>
     <?php
 }
+
 add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), function ( $links ) {
-    $links[] = '<a href="' . esc_url( admin_url( 'admin.php?page=ftipp' ) ) . '">Einstellungen</a>';
+    $links[] = '<a href="' . esc_url( admin_url( 'admin.php?page=ftipp_settings' ) ) . '">Einstellungen</a>';
     return $links;
 } );
 

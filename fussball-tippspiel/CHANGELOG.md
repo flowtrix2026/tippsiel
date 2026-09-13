@@ -2359,6 +2359,34 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - Lokal getestet: `php -l` fehlerfrei, Menü-Registrierung geprüft. Reine Beschriftungsänderung, keine
   Funktions-, Schema- oder Frontend-Änderung (`tippspiel.html` unverändert, daher kein Sync nötig).
 
+## v1.10.0 — Eigene Seite "Einstellungen" (und ein dabei gefundener Speicher-Fehler)
+
+- **Anfrage:** "das ist in Fußball drinnen, nimm das raus und bau einen Punkt Einstellungen" — gemeint
+  waren die Blöcke **✉️ Benachrichtigungen** und **👥 Registrierung für Mitspieler**, die noch auf der
+  Fußball-Seite standen, obwohl sie für alle Sportarten gelten.
+- **Umgesetzt:** Neuer Menüpunkt **⚙️ Einstellungen** (`page=ftipp_settings`) mit genau diesen beiden
+  Blöcken, inklusive der Testknöpfe "Fristen-Prüfung jetzt ausführen" und "Newsletter jetzt testweise
+  verschicken" (deren Rücksprung zeigt jetzt auf die neue Seite). Die Fußball-Seite behält nur noch, was
+  wirklich Fußball ist: API-Key, Saison, Abruf, Test-Spiele, CSV-Import, letzter Abruf, verwaiste Tipps.
+  Die neue Seite verlinkt oben auf die drei Sportart-Seiten. Der Plugin-Zeilen-Link in der Plugins-Liste
+  zeigt jetzt ebenfalls auf die echte Einstellungen-Seite.
+- **Dabei einen Fehler gefunden und behoben:** Alle sechs Optionen lagen in derselben Settings-Gruppe
+  `ftipp_group`, und beide Formulare riefen `settings_fields('ftipp_group')` auf. WordPress' `options.php`
+  speichert aber **immer die komplette Gruppe** und setzt dabei jede Option, die nicht im abgeschickten
+  Formular steht, auf leer. Praktisch hieß das: "Speichern" beim API-Key schaltete die Fristen-Erinnerung
+  und den Newsletter ab, und "Speichern" bei den Benachrichtigungen löschte API-Key und Saison. Der
+  Fehler bestand schon vorher, wäre durch die Aufteilung auf zwei Seiten aber noch wahrscheinlicher
+  geworden. Die Benachrichtigungs-Optionen liegen jetzt in einer eigenen Gruppe `ftipp_notify_group`,
+  damit sich die beiden Seiten nicht mehr gegenseitig leeren können.
+- Lokal getestet: `php -l` fehlerfrei. Beide Seitenfunktionen mit gestubbten WordPress-Funktionen echt
+  gerendert und geprüft: die neue Seite enthält Überschrift, beide Blöcke, beide Testknöpfe, die Links
+  zu Fußball/Formel 1/Tennis, ausgeglichene `<div>`-Verschachtelung und nutzt ausschließlich
+  `ftipp_notify_group`; die gespeicherten Werte sind korrekt vorausgewählt (Sonntag, 20:00, beide Haken
+  gesetzt). Die Fußball-Seite enthält die beiden Blöcke nachweislich nicht mehr, behält aber ihr
+  API-Key-Formular und weiterhin `ftipp_group`. Keine Schema- oder Frontend-Änderung.
+- *Noch nicht auf der echten Seite getestet:* Update einspielen, auf beiden Seiten je einmal speichern
+  und gegenprüfen, dass die jeweils andere Seite ihre Werte behält.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

@@ -4,7 +4,7 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.9.1
+Stable tag: 1.10.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -27,8 +27,9 @@ Tippstube ist ein WordPress-Plugin für private Fußball-Tippspiele unter Famili
 
 = Funktionen für den Plattform-Admin =
 
-Neun Verwaltungsseiten unter "Tippstube" im WordPress-Adminmenü:
+Zehn Verwaltungsseiten unter "Tippstube" im WordPress-Adminmenü:
 
+* **Einstellungen** — E-Mail-Benachrichtigungen (Fristen-Erinnerung, Ranking-Newsletter samt Versandtag/-zeit) und Hinweis zur Selbstregistrierung; gilt für alle Sportarten
 * **Fußball** — Datenabruf der Fußball-Wettbewerbe, API-Football-Key, CSV-Import für Wettbewerbe ohne gute kostenlose Quelle
 * **Design** — Akzentfarbe, Logo und Untertitel jeder Tipprunde zentral einsehbar und bearbeitbar
 * **Cron-Job** — frei einstellbarer Abrufplan, dazu ein optionaler zuverlässiger externer Cron-Dienst (manuell oder automatisch über die cron-job.org-API)
@@ -57,6 +58,13 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.10.0 =
+Neuer Adminmenü-Punkt "Einstellungen" für alles, was nicht zu einer einzelnen Sportart gehört:
+E-Mail-Benachrichtigungen und Registrierung. Diese Schalter standen bisher mit auf der Fußball-Seite,
+obwohl sie für alle Sportarten gelten. Dabei ein Fehler behoben: weil beide Formulare dieselbe
+Optionsgruppe nutzten, löschte ein Speichern auf der einen Seite jeweils die Einstellungen der anderen
+(Speichern beim API-Key schaltete die Benachrichtigungen ab und umgekehrt).
 
 = 1.9.1 =
 Der Adminmenü-Punkt "Einstellungen" heißt jetzt "Fußball" — er enthält ja die Fußball-Spieldaten, und
