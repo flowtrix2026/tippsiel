@@ -1991,6 +1991,33 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.2.1 einspielen und "Newsletter jetzt
   testweise verschicken" erneut klicken — sollte jetzt nur noch eine Mail pro Mitspieler ankommen.
 
+## v1.3.0 — Sportarten-Hub: Kachel-Startseite vor dem Tippspiel
+- **Anfrage:** Auf die Frage, ob man beim Aufruf der Tippspiel-Seite Kacheln für andere Sportarten bauen
+  könnte, zum Draufklicken zur jeweiligen Sportart — zunächst nur als Grafik zur Abstimmung ("noch nichts
+  machen, baue erst mal eine Grafik"). Nach mehreren Runden Feedback zur Konzept-Grafik (Artifact,
+  schrittweise um Basketball, Rugby, Baseball, Handball, Hockey, MMA, Volleyball ergänzt) die Freigabe:
+  "mache erstmal den HUB und dann bauen wir das step bei step weiter".
+- **Umgesetzt:** Neue Sportarten-Hub-Ansicht direkt in `tippspiel.html` (und synchron in
+  `app/index.html`) — beim Aufruf der Tippspiel-Seite erscheint zuerst eine Kachel-Auswahl (`#sport-hub`)
+  im echten Tippstube-Look, mit **Fußball als einziger aktiver, klickbarer Kachel** (führt in die
+  bestehende App) und zehn weiteren Kacheln als reine Vorschau ("Bald verfügbar": Basketball, Eishockey,
+  Formel 1, US-Sport, Rugby, Baseball, Handball, Hockey, MMA, Volleyball) — Klick darauf zeigt nur einen
+  Hinweis, keine Funktion. Die eigentliche App (`#app-shell`) ist technisch unverändert, wird nur per CSS
+  ein-/ausgeblendet — keine Änderung an `init()`/`initConnected()` oder der Boot-Logik, um das Risiko für
+  die produktiv laufende App zu minimieren. Wahl wird in `localStorage` gemerkt (`ftipp_sport`), damit man
+  nach einmaliger Fußball-Wahl beim nächsten Besuch direkt im Tippspiel landet; ein neuer
+  "⚽ Sportart wechseln"-Link im Header führt jederzeit zurück zum Hub. Dabei nebenbei auch den seit
+  v1.2.0 veralteten Untertitel im Header aktualisiert (listete nur die alten 14 statt aller 19
+  Wettbewerbe).
+- Lokal getestet: per lokalem Webserver (nicht nur `file://`, damit `localStorage` sauber funktioniert)
+  den kompletten Ablauf durchgeklickt — Hub erscheint beim ersten Aufruf, Fußball-Kachel führt korrekt in
+  die App, "Sportart wechseln" führt zurück, ein erneuter Seitenaufruf nach Fußball-Wahl überspringt den
+  Hub automatisch. Ein CSS-Bug dabei gefunden und behoben (Selektor `#sport-hub .hub-switch` griff nicht,
+  weil der Button technisch außerhalb von `#sport-hub` liegt — dadurch erbte er ungewollt den globalen
+  goldenen Button-Stil statt eines dezenten Text-Links).
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.3.0 einspielen und den Hub auf der
+  echten WordPress-Seite (nicht nur lokal) durchklicken.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

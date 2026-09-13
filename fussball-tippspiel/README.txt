@@ -4,7 +4,7 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.2.1
+Stable tag: 1.3.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -53,6 +53,13 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.3.0 =
+Neue Sportarten-Hub-Startseite: vor dem eigentlichen Tippspiel wählt man jetzt erst per Kachel die
+Sportart. Fußball ist aktiv, zehn weitere Sportarten (Basketball, Eishockey, Formel 1, US-Sport, Rugby,
+Baseball, Handball, Hockey, MMA, Volleyball) sind als Vorschau ("Bald verfügbar") zu sehen — echtes
+Tippen gibt es vorerst nur für Fußball. Wer Fußball einmal gewählt hat, landet beim nächsten Besuch
+direkt im Tippspiel; über "Sportart wechseln" kommt man jederzeit zurück zum Hub.
 
 = 1.2.1 =
 Ranglisten-Newsletter überarbeitet: Statt einer separaten E-Mail pro Wettbewerb (bei 4 aktiven

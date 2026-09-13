@@ -27,6 +27,34 @@
   header .sub{position:relative;color:#cfe0c4;font-size:13px;margin-top:4px}
   .phase-h{font-family:Georgia,'Iowan Old Style','Palatino Linotype',serif}
   .wrap{max-width:1040px;margin:0 auto;padding:16px}
+
+  /* ---------------- Sportarten-Hub ---------------- */
+  #sport-hub{max-width:1040px;margin:0 auto;padding:16px 16px 40px}
+  #sport-hub .hub-head{display:flex;align-items:center;gap:14px;padding:10px 4px 4px}
+  #sport-hub .hub-head h1{margin:0;font-size:26px;font-family:Georgia,'Iowan Old Style','Palatino Linotype',serif;
+    background:linear-gradient(180deg,var(--accent-hi),var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent}
+  #sport-hub .hub-tagline{margin:4px 0 0;color:var(--muted);font-size:14px}
+  #sport-hub .hub-label{margin:34px 0 14px;font-size:12.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--accent2);font-weight:700}
+  .hub-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+  .hub-tile{position:relative;border-radius:var(--radius);padding:18px 18px 16px;border:1px solid var(--line);
+    background:var(--panel);display:flex;flex-direction:column;gap:8px;min-height:150px;text-align:left}
+  .hub-tile.is-active{background:linear-gradient(160deg,var(--panel2),var(--panel));border-color:var(--gold-line);
+    box-shadow:0 0 0 1px rgba(217,164,65,.15),var(--shadow);cursor:pointer}
+  .hub-tile.is-active::after{content:"";position:absolute;top:0;left:0;right:0;height:3px;border-radius:var(--radius) var(--radius) 0 0;
+    background:linear-gradient(90deg,var(--accent),var(--accent-hi))}
+  .hub-tile:not(.is-active){opacity:.72;cursor:pointer}
+  .hub-tile-icon{width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:9px;font-size:19px}
+  .hub-tile.is-active .hub-tile-icon{background:rgba(217,164,65,.16)}
+  .hub-tile:not(.is-active) .hub-tile-icon{background:rgba(255,255,255,.04);filter:grayscale(.5)}
+  .hub-tile-name{font-family:Georgia,'Iowan Old Style','Palatino Linotype',serif;font-size:17px;margin:0}
+  .hub-tile:not(.is-active) .hub-tile-name{color:var(--muted)}
+  .hub-tile-meta{font-size:12.5px;color:var(--muted);line-height:1.5;flex-grow:1}
+  .hub-tile-foot{display:flex;align-items:center;justify-content:space-between;margin-top:auto}
+  .hub-pill{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px}
+  .hub-pill.is-live{color:#1c4127;background:var(--accent-hi)}
+  .hub-pill.is-soon{color:var(--muted);background:rgba(255,255,255,.05);border:1px solid var(--line)}
+  button.hub-switch{display:inline-flex;align-items:center;gap:6px;margin:10px 0 0;font-size:12.5px;color:var(--muted);
+    background:none;border:none;cursor:pointer;text-decoration:underline;padding:0;font-weight:400;width:auto}
   .tabs{display:flex;gap:8px;margin:14px 0 8px;flex-wrap:wrap}
   .tab{flex:1;min-width:120px;min-height:44px;display:flex;align-items:center;justify-content:center;
     padding:10px 12px;border:1px solid var(--line);background:var(--panel);color:var(--muted);
@@ -117,6 +145,94 @@
 </style>
 </head>
 <body>
+<div id="sport-hub">
+  <div class="hub-head">
+    <svg width="42" height="46" viewBox="0 0 240 260" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="flex:none">
+      <path d="M20 30 Q20 20 30 20 L210 20 Q220 20 220 30 L220 130 Q220 190 170 220 L120 250 L70 220 Q20 190 20 130 Z" fill="#173a22" stroke="#d9a441" stroke-width="7"/>
+      <path d="M70 150 L70 100 Q70 60 120 60 Q170 60 170 100 L170 150 Z" fill="#e3a83f"/>
+      <line x1="120" y1="62" x2="120" y2="150" stroke="#d9a441" stroke-width="6"/>
+      <line x1="73" y1="112" x2="167" y2="112" stroke="#d9a441" stroke-width="6"/>
+      <circle cx="120" cy="112" r="27" fill="#f3ead9"/>
+      <path d="M120,101.5 L129,108 L125.7,118.6 L114.3,118.6 L111,108 Z" fill="#1c4127"/>
+    </svg>
+    <div>
+      <h1>Tippstube</h1>
+      <p class="hub-tagline">Wähle deine Sportart — jede mit eigenen Runden, eigener Rangliste.</p>
+    </div>
+  </div>
+
+  <div class="hub-label">Sportarten</div>
+  <div class="hub-grid">
+    <div class="hub-tile is-active" onclick="enterSport('football')">
+      <div class="hub-tile-icon">⚽</div>
+      <p class="hub-tile-name">Fußball</p>
+      <div class="hub-tile-meta">19 Wettbewerbe — 1./2./3. Liga, Champions League, Nations League, Premier League, LaLiga, Serie A u.v.m.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-live">Aktiv</span><span style="color:var(--accent-hi)">→</span></div>
+    </div>
+    <div class="hub-tile" onclick="enterSport('hockey')">
+      <div class="hub-tile-icon">🏒</div>
+      <p class="hub-tile-name">Eishockey</p>
+      <div class="hub-tile-meta">NHL — Spielplan &amp; Ergebnisse pro Team, komplette Saison.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
+    </div>
+    <div class="hub-tile" onclick="enterSport('f1')">
+      <div class="hub-tile-icon">🏎️</div>
+      <p class="hub-tile-name">Formel 1</p>
+      <div class="hub-tile-meta">Rennkalender, Quali- &amp; Rennergebnisse, Fahrer- und Team-Wertung.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
+    </div>
+    <div class="hub-tile" onclick="enterSport('ussport')">
+      <div class="hub-tile-icon">🏈</div>
+      <p class="hub-tile-name">US-Sport</p>
+      <div class="hub-tile-meta">NFL · NBA · MLB — eigene Runden, eigene Punktesysteme.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
+    </div>
+    <div class="hub-tile" onclick="enterSport('basketball')">
+      <div class="hub-tile-icon">🏀</div>
+      <p class="hub-tile-name">Basketball</p>
+      <div class="hub-tile-meta">NBA — Spielplan &amp; Ergebnisse, komplette Saison pro Team.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
+    </div>
+    <div class="hub-tile" onclick="enterSport('rugby')">
+      <div class="hub-tile-icon">🏉</div>
+      <p class="hub-tile-name">Rugby</p>
+      <div class="hub-tile-meta">Six Nations, World Cup &amp; Co. — Spielplan &amp; Ergebnisse.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
+    </div>
+    <div class="hub-tile" onclick="enterSport('baseball')">
+      <div class="hub-tile-icon">⚾</div>
+      <p class="hub-tile-name">Baseball</p>
+      <div class="hub-tile-meta">MLB — Spielplan &amp; Ergebnisse, komplette Saison pro Team.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
+    </div>
+    <div class="hub-tile" onclick="enterSport('handball')">
+      <div class="hub-tile-icon">🤾</div>
+      <p class="hub-tile-name">Handball</p>
+      <div class="hub-tile-meta">Bundesliga &amp; Nationalmannschaft — Spielplan &amp; Ergebnisse.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
+    </div>
+    <div class="hub-tile" onclick="enterSport('feldhockey')">
+      <div class="hub-tile-icon">🏑</div>
+      <p class="hub-tile-name">Hockey</p>
+      <div class="hub-tile-meta">Feldhockey-Bundesliga &amp; internationale Turniere.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
+    </div>
+    <div class="hub-tile" onclick="enterSport('mma')">
+      <div class="hub-tile-icon">🥊</div>
+      <p class="hub-tile-name">MMA</p>
+      <div class="hub-tile-meta">UFC &amp; Co. — Kampfkarten &amp; Ergebnisse.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
+    </div>
+    <div class="hub-tile" onclick="enterSport('volleyball')">
+      <div class="hub-tile-icon">🏐</div>
+      <p class="hub-tile-name">Volleyball</p>
+      <div class="hub-tile-meta">Bundesliga &amp; Nationalmannschaft — Spielplan &amp; Ergebnisse.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
+    </div>
+  </div>
+</div>
+
+<div id="app-shell" style="display:none">
 <header>
   <h1>
     <svg width="30" height="33" viewBox="0 0 240 260" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="flex:none">
@@ -135,7 +251,9 @@
     </svg>
     Tippstube
   </h1>
-  <div class="sub">1./2./3. Liga · DFB-Pokal · Champions League · Europa League · Nations League · Premier League · LaLiga · Süper Lig · Serie A · Ligue 1 · Frauen-Bundesliga · Regionalliga Nordost — jede Runde ihre eigene Wertung</div>
+  <div class="sub">1./2./3. Liga · DFB-Pokal · Champions League · Europa League · Nations League · Premier League · LaLiga · Süper Lig · Serie A · Ligue 1 · Frauen-Bundesliga · Regionalliga Nordost · Eredivisie · Primeira Liga · Saudi Pro League · Österreichische Bundesliga · Brasilianische Serie A — jede Runde ihre eigene Wertung
+    <br><button class="hub-switch" onclick="showSportHub()">⚽ Sportart wechseln</button>
+  </div>
 </header>
 <div class="wrap">
   <div class="tabs">
@@ -1606,6 +1724,28 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
 (function init(){
   if(CONNECTED){ initConnected(); }
   else { load(); viewer=0; renderRolebar(); switchMode('tippen'); }
+})();
+</script>
+</div><!-- #app-shell -->
+
+<script>
+/* ---------------- Sportarten-Hub ---------------- */
+// Nur Fußball ist echt angebunden — alle anderen Kacheln sind bewusst nur eine Vorschau (siehe Journal).
+// Wer Fußball einmal gewählt hat, landet beim nächsten Besuch direkt wieder im Tippspiel.
+function enterSport(sport){
+  if(sport!=='football'){ alert('Kommt bald! Diese Sportart ist noch nicht angebunden.'); return; }
+  try{ localStorage.setItem('ftipp_sport','football'); }catch(e){}
+  document.getElementById('sport-hub').style.display='none';
+  document.getElementById('app-shell').style.display='';
+}
+function showSportHub(){
+  try{ localStorage.removeItem('ftipp_sport'); }catch(e){}
+  document.getElementById('app-shell').style.display='none';
+  document.getElementById('sport-hub').style.display='';
+}
+(function(){
+  let chosen=null; try{ chosen=localStorage.getItem('ftipp_sport'); }catch(e){}
+  if(chosen==='football'){ document.getElementById('sport-hub').style.display='none'; document.getElementById('app-shell').style.display=''; }
 })();
 </script>
 </body>
