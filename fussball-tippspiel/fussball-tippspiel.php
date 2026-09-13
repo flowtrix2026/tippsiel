@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Serie A + Ligue 1 + Süper Lig via SportScore.com (gratis, Spieltag für Spieltag), Nations League per CSV-Import oder API-Football.
- * Version:           1.1.1
+ * Version:           1.1.2
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.1.1' );
+define( 'FTIPP_VERSION', '1.1.2' );
 define( 'FTIPP_DB_VERSION', '13' );
 
 /**
@@ -703,18 +703,36 @@ function ftipp_fetch_sportscore_day( $slug, $date ) {
  */
 function ftipp_sportscore_sync( $cid, $slug, $season_start_year ) {
     $allCache = get_option( 'ftipp_sportscore_cache', array() );
-    $cache = isset( $allCache[ $cid ] ) ? $allCache[ $cid ] : array( 'fixtures' => array(), 'cursor' => null, 'done' => false );
+    $cache = isset( $allCache[ $cid ] )
+        ? $allCache[ $cid ]
+        : array( 'fixtures' => array(), 'cursor' => null, 'done' => false, 'failed_dates' => array() );
+    if ( ! isset( $cache['failed_dates'] ) ) { $cache['failed_dates'] = array(); } // Update von einer älteren Cache-Version
 
     $from  = $season_start_year . '-07-01';
     $to    = ( $season_start_year + 1 ) . '-06-30';
     $today = gmdate( 'Y-m-d' );
 
-    $datesToFetch = array();
+    // Live beobachtet (v1.1.1): sportscore.com antwortet vereinzelt mit HTTP 503 (vorübergehend
+    // überlastet) — ca. jeder zweite Tag in einem Testlauf. Ein fehlgeschlagener Tag darf deshalb NICHT
+    // einfach durch das Weiterrücken des Backfill-Zeigers verloren gehen, sonst bleiben Lücken für immer
+    // offen. Fehlgeschlagene Tage kommen daher in eine eigene, dauerhafte Retry-Liste
+    // ('failed_dates'), unabhängig vom normalen Fortschritts-Zeiger — die wird bei JEDEM Sync zuerst
+    // erneut versucht, bevor neue Tage dazukommen. Das Anfragen-Budget pro Lauf bleibt dabei bei
+    // FTIPP_SPORTSCORE_BACKFILL_BATCH, damit die Laufzeit sicher bleibt (siehe Journal).
+    // Retry-Liste selbst auf das Lauf-Budget deckeln — sonst könnte sie bei anhaltenden Serverfehlern
+    // unbegrenzt wachsen und die pro Lauf sicher gehaltene Anfragen-Zahl wieder aushebeln. Türmen sich
+    // mehr Fehlschläge auf, als in einen Lauf passen, wird zuerst nur der Rückstand abgearbeitet (kein
+    // Fortschritt bei neuen Tagen), bis die Liste wieder unter das Budget passt.
+    $retryDates = array_slice( array_keys( $cache['failed_dates'] ), 0, FTIPP_SPORTSCORE_BACKFILL_BATCH );
+    $budget     = max( 0, FTIPP_SPORTSCORE_BACKFILL_BATCH - count( $retryDates ) );
+    $newDates   = array();
+
     if ( empty( $cache['done'] ) ) {
-        // Backfill-Häppchen ab dem letzten Stand (oder Saisonbeginn).
+        // Backfill-Häppchen ab dem letzten Stand (oder Saisonbeginn) — der Zeiger rückt IMMER exakt um die
+        // hier gewählten neuen Tage weiter, unabhängig davon, ob sie gleich klappen (Retry übernimmt das).
         $d = $cache['cursor'] ? $cache['cursor'] : $from;
-        for ( $i = 0; $i < FTIPP_SPORTSCORE_BACKFILL_BATCH && strtotime( $d ) <= strtotime( $to ); $i++ ) {
-            $datesToFetch[] = $d;
+        for ( $i = 0; $i < $budget && strtotime( $d ) <= strtotime( $to ); $i++ ) {
+            $newDates[] = $d;
             $d = gmdate( 'Y-m-d', strtotime( $d . ' +1 day' ) );
         }
         $cache['cursor'] = $d;
@@ -724,24 +742,29 @@ function ftipp_sportscore_sync( $cid, $slug, $season_start_year ) {
         // Spieltag (alle Spiele 'FT') wird dadurch automatisch nie wieder angefragt.
         $seen = array();
         foreach ( $cache['fixtures'] as $fx ) {
+            if ( count( $newDates ) >= $budget ) { break; }
             $day = substr( $fx['date'], 0, 10 );
-            if ( 'FT' !== $fx['status'] && strtotime( $day ) <= strtotime( $today ) && ! isset( $seen[ $day ] ) ) {
-                $datesToFetch[] = $day; $seen[ $day ] = true;
+            if ( 'FT' !== $fx['status'] && strtotime( $day ) <= strtotime( $today ) && ! isset( $seen[ $day ] ) && ! isset( $cache['failed_dates'][ $day ] ) ) {
+                $newDates[] = $day; $seen[ $day ] = true;
             }
         }
     }
+
+    $datesToFetch = array_merge( $retryDates, $newDates );
 
     $failCount = 0; $lastError = '';
     foreach ( $datesToFetch as $date ) {
         $r = ftipp_fetch_sportscore_day( $slug, $date );
         if ( ! $r['ok'] ) {
-            // Einzelner Tag scheitert nicht den ganzen Sync, wird beim nächsten Mal erneut versucht — aber
-            // mitzählen, damit ftipp_fetch_all() zwischen "läuft noch, bisher legitim 0 Spiele" (z.B.
-            // Sommerpause) und "Anfragen schlagen tatsächlich fehl" (siehe ESPN-Blocking-Fall) unterscheiden
-            // kann, statt beides mit derselben Meldung zu verschleiern.
+            // Einzelner Tag scheitert nicht den ganzen Sync — kommt (falls noch nicht drin) in die
+            // Retry-Liste und wird beim nächsten Sync automatisch zuerst erneut versucht. Mitzählen, damit
+            // ftipp_fetch_all() zwischen "läuft noch, bisher legitim 0 Spiele" (z.B. Sommerpause) und
+            // "Anfragen schlagen tatsächlich fehl" (siehe ESPN-Blocking-Fall) unterscheiden kann.
+            $cache['failed_dates'][ $date ] = true;
             $failCount++; $lastError = $r['error'];
             continue;
         }
+        unset( $cache['failed_dates'][ $date ] ); // dieser Tag hat jetzt geklappt, raus aus der Retry-Liste
 
         // Alte Einträge dieses Tages verwerfen, damit abgesagte/verschobene Spiele nicht als Karteileichen bleiben.
         $cache['fixtures'] = array_values( array_filter( $cache['fixtures'], function ( $fx ) use ( $date ) {

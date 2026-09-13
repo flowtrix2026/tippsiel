@@ -4,7 +4,7 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.1.1
+Stable tag: 1.1.2
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -53,6 +53,12 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.1.2 =
+Live auf der echten Seite entdeckt: sportscore.com antwortet vereinzelt mit "vorübergehend überlastet"
+(HTTP 503). Fehlgeschlagene Tage gingen dadurch bisher unbemerkt verloren, weil der Fortschritts-Zeiger
+trotzdem weiterrückte. Jetzt merkt sich das Plugin fehlgeschlagene Tage in einer eigenen, auf die
+Lauf-Größe gedeckelten Liste und holt sie beim nächsten Abruf automatisch zuerst nach.
 
 = 1.1.1 =
 Anzeige-Fehler behoben: Solange der SportScore.com-Erstabruf noch läuft (z.B. während der Sommerpause

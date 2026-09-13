@@ -1915,6 +1915,30 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
   mehreren Klicks auf "Jetzt abrufen" die Meldung "ACHTUNG: alle Anfragen fehlgeschlagen" erscheint (dann
   blockt das Hosting sportscore.com, wie einst bei ESPN) oder ob der Fortschritt normal weiterläuft.
 
+## v1.1.2 — SportScore.com: fehlgeschlagene Tage gehen nicht mehr verloren
+- **Anfrage:** Nach dem Update auf v1.1.1 auf der echten Seite zeigte sich: kein Totalausfall, aber
+  regelmäßig einzelne Tage mit `HTTP 503` (sportscore.com vorübergehend überlastet) — z.B. "6 von 12
+  Tagen diesmal fehlgeschlagen". Das deckte einen tieferliegenden Bug auf.
+- **Ursache gefunden:** In `ftipp_sportscore_sync()` rückte der Backfill-Fortschritts-Zeiger bei jedem
+  Lauf unabhängig davon weiter, ob die einzelnen Tage tatsächlich erfolgreich geladen wurden. Ein
+  fehlgeschlagener Tag (503, Timeout etc.) wurde dadurch beim nächsten Lauf NIE wieder angefragt — der
+  Zeiger stand ja schon dahinter. Bei einer Fehlerquote von ca. 50 % wären so dauerhaft Lücken in der
+  Saison entstanden, ohne dass das für den Nutzer sichtbar gewesen wäre (die Fehler-Spalte zeigt nur den
+  jeweils letzten Durchlauf, nicht die Historie).
+- **Umgesetzt:** Fehlgeschlagene Tage kommen jetzt in eine eigene, dauerhafte Liste
+  (`$cache['failed_dates']`), getrennt vom normalen Fortschritts-Zeiger. Bei jedem Sync wird zuerst diese
+  Retry-Liste erneut versucht, bevor neue Tage dazukommen — ein Tag verschwindet aus der Liste, sobald er
+  einmal klappt. Die Retry-Liste selbst ist auf `FTIPP_SPORTSCORE_BACKFILL_BATCH` Einträge pro Lauf
+  gedeckelt, damit sie bei einer länger anhaltenden Störung nicht unbegrenzt wächst und die
+  Lauf-Zeit-Sicherheit aus v1.1.0 nicht wieder aushebelt (türmen sich mehr Fehlschläge auf, wird zuerst
+  nur der Rückstand abgearbeitet, bis er wieder unters Budget passt).
+- Lokal getestet: isolierte Simulation mit exakt 50 % künstlicher HTTP-503-Fehlerquote über 6
+  aufeinanderfolgende Läufe — die Retry-Liste blieb dabei durchgehend klein (1-3 Einträge statt
+  unbegrenzt wachsend), und der Fortschritts-Zeiger rückte trotz der Fehlerquote stetig weiter, ohne
+  dass ein einziger Tag dauerhaft verloren ging. Keine Datenbank-Änderung.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.1.2 einspielen und über mehrere Klicks
+  beobachten, ob die zuvor als "fehlgeschlagen" gemeldeten Tage jetzt tatsächlich nachgeladen werden.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
