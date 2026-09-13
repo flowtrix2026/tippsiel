@@ -1893,6 +1893,28 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.1.0 einspielen, echten Erstabruf über
   mehrere Cron-Läufe/Klicks auf "Jetzt abrufen" beobachten.
 
+## v1.1.1 — SportScore.com: Anzeige-Fehler bei "0 Spiele" behoben
+- **Anfrage:** Nach dem Update auf v1.1.0 auf der echten Seite zeigte die "Letzter Abruf"-Tabelle bei
+  Serie A/Ligue 1/Süper Lig nur "SportScore.com: noch keine Daten geladen" — sah nach einem echten
+  Fehler aus (evtl. wie beim früheren ESPN-Blocking-Fall), obwohl der Erstabruf zu dem Zeitpunkt
+  eigentlich einfach noch in der Sommerpause (Juli) steckte, wo es schlicht noch keine Spiele gibt.
+- **Ursache gefunden:** In `ftipp_fetch_all()` wurde der informative Fortschritts-Hinweis aus
+  `ftipp_sportscore_sync()` (z.B. "Erstabruf läuft: 12/365 Tage der Saison geladen.") verworfen und durch
+  eine generische Meldung ersetzt, sobald noch 0 Spiele bekannt waren — dadurch war "läuft noch ganz
+  normal" optisch nicht mehr von "Anfragen schlagen echt fehl" zu unterscheiden.
+- **Umgesetzt:** `ftipp_sportscore_sync()` zählt jetzt fehlgeschlagene Tages-Anfragen separat mit und
+  hängt bei einem kompletten Fehlschlag aller Anfragen eines Durchlaufs ein deutliches "ACHTUNG: alle N
+  Anfragen ... fehlgeschlagen (Hosting blockt evtl.)" an die Meldung an; bei nur vereinzelten
+  Fehlschlägen einen kurzen Hinweis mit Anzahl und letztem Fehler. `ftipp_fetch_all()` gibt diesen
+  Hinweis jetzt immer weiter, auch wenn (noch) 0 Spiele geladen sind, statt ihn zu überschreiben.
+- Lokal getestet (isolierter PHP-Rauchtest mit simuliertem Totalausfall aller Anfragen sowie gegen die
+  echte Live-API): normaler Fortschritt, simulierter Totalausfall und ein echter, kurzzeitiger
+  HTTP-503-Fehler von sportscore.com wurden alle korrekt und unterscheidbar angezeigt. Keine
+  Datenbank-Änderung.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.1.1 einspielen und beobachten, ob nach
+  mehreren Klicks auf "Jetzt abrufen" die Meldung "ACHTUNG: alle Anfragen fehlgeschlagen" erscheint (dann
+  blockt das Hosting sportscore.com, wie einst bei ESPN) oder ob der Fortschritt normal weiterläuft.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Fußball-Tippspiel für deine Tipprunde. Echtes WordPress-Login, Tipprunden, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten: 1./2./3. Liga + DFB-Pokal + Champions/Europa League + Premier League + LaLiga + Frauen-Bundesliga + Regionalliga Nordost via OpenLigaDB (aktuelle Saison, gratis), Serie A + Ligue 1 + Süper Lig via SportScore.com (gratis, Spieltag für Spieltag), Nations League per CSV-Import oder API-Football.
- * Version:           1.1.0
+ * Version:           1.1.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.1.0' );
+define( 'FTIPP_VERSION', '1.1.1' );
 define( 'FTIPP_DB_VERSION', '13' );
 
 /**
@@ -731,9 +731,17 @@ function ftipp_sportscore_sync( $cid, $slug, $season_start_year ) {
         }
     }
 
+    $failCount = 0; $lastError = '';
     foreach ( $datesToFetch as $date ) {
         $r = ftipp_fetch_sportscore_day( $slug, $date );
-        if ( ! $r['ok'] ) { continue; } // einzelner Tag scheitert nicht den ganzen Sync, wird beim nächsten Mal erneut versucht
+        if ( ! $r['ok'] ) {
+            // Einzelner Tag scheitert nicht den ganzen Sync, wird beim nächsten Mal erneut versucht — aber
+            // mitzählen, damit ftipp_fetch_all() zwischen "läuft noch, bisher legitim 0 Spiele" (z.B.
+            // Sommerpause) und "Anfragen schlagen tatsächlich fehl" (siehe ESPN-Blocking-Fall) unterscheiden
+            // kann, statt beides mit derselben Meldung zu verschleiern.
+            $failCount++; $lastError = $r['error'];
+            continue;
+        }
 
         // Alte Einträge dieses Tages verwerfen, damit abgesagte/verschobene Spiele nicht als Karteileichen bleiben.
         $cache['fixtures'] = array_values( array_filter( $cache['fixtures'], function ( $fx ) use ( $date ) {
@@ -777,6 +785,14 @@ function ftipp_sportscore_sync( $cid, $slug, $season_start_year ) {
     $note      = empty( $cache['done'] )
         ? sprintf( 'Erstabruf läuft: %d/%d Tage der Saison geladen.', max( 0, min( $doneDays, $totalDays ) ), $totalDays )
         : '';
+    // Schlagen ALLE Anfragen dieses Durchlaufs fehl (z.B. vom Hosting geblockt, siehe ESPN-Blocking-Fall),
+    // das explizit dazuschreiben — sonst sieht "0 Spiele, Backfill läuft" identisch aus wie ein echter
+    // Verbindungsfehler, und beides bleibt ununterscheidbar in der Adminoberfläche.
+    if ( $failCount > 0 && $failCount === count( $datesToFetch ) ) {
+        $note = trim( $note . sprintf( ' ACHTUNG: alle %d Anfragen dieses Durchlaufs sind fehlgeschlagen (%s) — evtl. blockt dein Hosting Anfragen an sportscore.com.', $failCount, $lastError ) );
+    } elseif ( $failCount > 0 ) {
+        $note = trim( $note . sprintf( ' (%d von %d Tagen diesmal fehlgeschlagen, wird erneut versucht: %s)', $failCount, count( $datesToFetch ), $lastError ) );
+    }
 
     return array( 'ok' => true, 'error' => '', 'fixtures' => $fx, 'note' => $note );
 }
@@ -817,11 +833,14 @@ function ftipp_fetch_all( $trigger = 'cron' ) {
     foreach ( ftipp_sportscore_map() as $cid => $slug ) {
         if ( isset( $all[ $cid ] ) ) { continue; }
         $r = ftipp_sportscore_sync( $cid, $slug, $de_season );
-        if ( $r['ok'] && count( $r['fixtures'] ) > 0 ) {
+        if ( count( $r['fixtures'] ) > 0 ) {
             $all[ $cid ] = $r['fixtures']; $counts[ $cid ] = count( $r['fixtures'] );
             $errors[ $cid ] = $r['note']; $sources[ $cid ] = 'SportScore.com' . ( $r['note'] ? ' (Erstabruf läuft)' : ' (Spieltag für Spieltag)' );
         } else {
-            $errors[ $cid ] = 'SportScore.com: noch keine Daten geladen (nächster Cron-Lauf versucht es erneut).';
+            // Noch 0 Spiele bekannt — WICHTIG: den Hinweis aus ftipp_sportscore_sync() nicht verwerfen,
+            // sonst sieht "Backfill läuft noch, bisher legitim 0 Spiele (z.B. Sommerpause)" in der
+            // Adminoberfläche identisch aus wie ein echter Verbindungsfehler (siehe Journal).
+            $errors[ $cid ] = $r['note'] ? $r['note'] : 'SportScore.com: noch keine Daten geladen (nächster Cron-Lauf versucht es erneut).';
         }
     }
 

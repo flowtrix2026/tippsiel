@@ -4,7 +4,7 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.1.0
+Stable tag: 1.1.1
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -53,6 +53,12 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.1.1 =
+Anzeige-Fehler behoben: Solange der SportScore.com-Erstabruf noch läuft (z.B. während der Sommerpause
+legitim 0 Spiele), erschien fälschlich dieselbe Meldung wie bei einem echten Verbindungsfehler. Jetzt
+zeigt die Tabelle den echten Fortschritt ("Erstabruf läuft: X/365 Tage") und markiert einen tatsächlichen
+Verbindungsfehler klar mit "ACHTUNG".
 
 = 1.1.0 =
 Serie A, Ligue 1 und Süper Lig laufen jetzt automatisch über SportScore.com (Spieltag für Spieltag,
