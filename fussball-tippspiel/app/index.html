@@ -1831,7 +1831,7 @@ async function renderF1Tippen(){
     const next = races.find(r=>!r.locked);
     f1CurrentRaceId = next ? next.race.raceId : races[races.length-1].race.raceId;
   }
-  box.appendChild(mkSelect('Rennen', races.map(r=>({v:r.race.raceId, label:`Runde ${r.race.round}: ${r.race.raceName}`})), f1CurrentRaceId, v=>{ f1CurrentRaceId=v; renderF1Tippen(); }));
+  box.appendChild(mkSelect('Rennen', races.map(r=>({v:r.race.raceId, label:r.race.is_championship ? `🏆 ${r.race.raceName}` : `Runde ${r.race.round}: ${r.race.raceName}`})), f1CurrentRaceId, v=>{ f1CurrentRaceId=v; renderF1Tippen(); }));
 
   const race = races.find(r=>r.race.raceId===f1CurrentRaceId);
   const driverOpts = [{v:'',label:'– wählen –'}].concat(f1Drivers.map(d=>({v:d.driverId,label:d.name})));

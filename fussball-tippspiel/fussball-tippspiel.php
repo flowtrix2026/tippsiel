@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball (19 Wettbewerbe) und Formel 1 (Podium-Tipp), echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version:           1.4.1
+ * Version:           1.4.2
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.4.1' );
+define( 'FTIPP_VERSION', '1.4.2' );
 define( 'FTIPP_DB_VERSION', '14' );
 
 /**
@@ -1042,8 +1042,28 @@ function ftipp_f1_sync( $trigger = 'cron' ) {
         $updated++;
     }
 
+    // Sonderwertung "Fahrer-Weltmeisterschaft" — bewusst als ein weiteres "Rennen" modelliert (Tipp auf
+    // Top-3 der Endabrechnung), damit der komplette bestehende Podium-Mechanismus (ftipp_f1_score_tip(),
+    // ftipp_f1_compute_leaderboard(), das ganze Tippen/Auswertung-Frontend) 1:1 mitgenutzt werden kann,
+    // statt ein zweites, F1-fremdes Sonderwertungssystem zu bauen. Sperrt zum Anpfiff des ersten Rennens
+    // der Saison — man tippt den Meister also vor Saisonstart, wie bei einer klassischen Vorab-Wette.
+    $champId = 'meisterschaft_' . $season;
+    $firstDate = null; $firstTime = '00:00:00Z';
+    foreach ( $races as $id => $race ) {
+        if ( ! empty( $race['is_championship'] ) || empty( $race['date'] ) ) { continue; }
+        if ( null === $firstDate || $race['date'] < $firstDate ) { $firstDate = $race['date']; $firstTime = $race['time']; }
+    }
+    $existingChamp = isset( $races[ $champId ] ) ? $races[ $champId ] : array();
+    $races[ $champId ] = array(
+        'raceId' => $champId, 'raceName' => "Fahrer-Weltmeisterschaft {$season}", 'round' => 999,
+        'season' => $season, 'date' => $firstDate, 'time' => $firstTime,
+        'circuit' => 'Gesamte Saison', 'country' => '', 'is_championship' => true,
+        'result' => isset( $existingChamp['result'] ) ? $existingChamp['result'] : null,
+    );
+
     $errors = array(); $fetched = 0; $now = time();
     foreach ( $races as $id => $race ) {
+        if ( ! empty( $race['is_championship'] ) ) { continue; } // separat unten behandelt
         if ( null !== $race['result'] || empty( $race['date'] ) ) { continue; }
         $raceTs = strtotime( $race['date'] . 'T' . $race['time'] );
         if ( ! $raceTs || $raceTs > $now ) { continue; } // Rennen liegt noch in der Zukunft
@@ -1070,6 +1090,39 @@ function ftipp_f1_sync( $trigger = 'cron' ) {
         usort( $top3, function ( $a, $b ) { return $a['position'] <=> $b['position']; } );
         if ( count( $top3 ) >= 3 ) { $races[ $id ]['result'] = $top3; $fetched++; }
         else { $errors[] = "$id: unvollständiges Ergebnis"; }
+    }
+
+    // Meisterschaft erst auflösen, wenn wirklich JEDES echte Rennen der Saison ein Ergebnis hat — sonst
+    // stünde eine Zwischen-Rangliste fälschlich als "endgültiges Ergebnis" da und würde nie mehr
+    // aktualisiert (Ergebnisse werden ja bewusst nie überschrieben, siehe Merge-Regel oben).
+    if ( null === $races[ $champId ]['result'] ) {
+        $allDecided = true;
+        foreach ( $races as $id => $race ) {
+            if ( empty( $race['is_championship'] ) && null === $race['result'] ) { $allDecided = false; break; }
+        }
+        if ( $allDecided ) {
+            $cr = wp_remote_get( "https://f1api.dev/api/{$season}/drivers-championship", array( 'timeout' => 20 ) );
+            if ( ! is_wp_error( $cr ) && 200 === (int) wp_remote_retrieve_response_code( $cr ) ) {
+                $cbody = json_decode( wp_remote_retrieve_body( $cr ), true );
+                $standings = isset( $cbody['drivers_championship'] ) ? $cbody['drivers_championship'] : null;
+                if ( is_array( $standings ) ) {
+                    $top3 = array();
+                    foreach ( $standings as $s ) {
+                        $pos = intval( isset( $s['position'] ) ? $s['position'] : 0 );
+                        if ( $pos < 1 || $pos > 3 ) { continue; }
+                        $d = isset( $s['driver'] ) ? $s['driver'] : array();
+                        $top3[] = array(
+                            'position'   => $pos,
+                            'driverId'   => isset( $s['driverId'] ) ? $s['driverId'] : '',
+                            'driverName' => trim( ( isset( $d['name'] ) ? $d['name'] : '' ) . ' ' . ( isset( $d['surname'] ) ? $d['surname'] : '' ) ),
+                            'teamId'     => isset( $s['teamId'] ) ? $s['teamId'] : '',
+                        );
+                    }
+                    usort( $top3, function ( $a, $b ) { return $a['position'] <=> $b['position']; } );
+                    if ( count( $top3 ) >= 3 ) { $races[ $champId ]['result'] = $top3; $fetched++; }
+                } else { $errors[] = 'Meisterschaft: unerwartete Antwort'; }
+            } else { $errors[] = 'Meisterschaft: Abruf fehlgeschlagen'; }
+        }
     }
 
     update_option( 'ftipp_f1_races', $races, false );
@@ -3937,7 +3990,7 @@ function ftipp_page_f1() {
             <tbody>
             <?php foreach ( $races as $r ) : ?>
                 <tr>
-                    <td><?php echo intval( $r['round'] ); ?></td>
+                    <td><?php echo ! empty( $r['is_championship'] ) ? '🏆' : intval( $r['round'] ); ?></td>
                     <td><?php echo esc_html( $r['raceName'] ); ?></td>
                     <td><?php echo esc_html( $r['date'] ); ?></td>
                     <td><?php echo ! empty( $r['result'] ) ? '✅' : '—'; ?></td>

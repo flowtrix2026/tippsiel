@@ -2083,6 +2083,42 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.4.1 einspielen und die gekürzte
   Beschreibung im Plugins-Bereich prüfen.
 
+## v1.4.2 — Formel 1: Sonderwertung "Fahrer-Weltmeisterschaft"
+
+- **Anfrage:** Beim Anschauen der live laufenden F1-Auswertung der Wunsch nach einer Sonderwertung
+  "Für wer wird Meister. Und wieviel Punkte es für die ersten 3 Plätze gibt" — direkt danach die
+  architektonische Vorgabe für alle künftigen Sportarten: "jede sport art soll auf seiner seite sein
+  eigenes haben" (kein gemeinsames, sportartübergreifendes Sonderwertungssystem).
+- **Umgesetzt:** Die Meisterschafts-Wette wurde bewusst NICHT als neues, F1-fremdes Sonderwertungssystem
+  gebaut, sondern als ein weiterer Eintrag in der bestehenden `ftipp_f1_races`-Option modelliert (Flag
+  `is_championship => true`, `round => 999`, `raceId => 'meisterschaft_{saison}'`). Dadurch übernehmen
+  der bereits bestehende `ftipp_f1_score_tip()` (Punkte für exakte Position/richtigen Fahrer) und
+  `ftipp_f1_compute_leaderboard()` die neue Wette automatisch, ohne eine einzige Zeile neuer
+  Scoring-Logik — genau das beantwortet auch "wieviel Punkte es für die ersten 3 Plätze gibt": dieselben,
+  admin-konfigurierbaren Werte wie bei jedem echten Rennen. `ftipp_f1_sync()` legt den Eintrag bei jedem
+  Lauf an/aktualisiert ihn, mit Tipp-Sperre zum Anpfiff des allerersten Saisonrennens (Deadline = frühestes
+  bekanntes Renndatum). Der bestehende Ergebnis-Abruf-Loop überspringt den Pseudo-Eintrag explizit; erst
+  wenn wirklich JEDES echte Rennen der Saison ein Ergebnis hat, wird einmalig `f1api.dev`s
+  `/drivers-championship`-Endpunkt abgerufen und die Top-3 der Fahrerwertung als Ergebnis eingetragen (wie
+  bei echten Rennen: ein einmal gesetztes Ergebnis wird nie wieder überschrieben). Frontend: die
+  Rennauswahl in "F1 Tippen" zeigt den Eintrag mit 🏆-Symbol statt der sonst üblichen "Runde N:"-Angabe;
+  die Admin-Rennkalender-Tabelle zeigt an derselben Stelle ein 🏆 statt der (dort sinnlosen) Zahl 999.
+- Lokal getestet: `php -l` fehlerfrei. Isolierter Logik-Test (5 Testfälle: Deadline = frühestes echtes
+  Rennen, bereits bekanntes Meisterschafts-Ergebnis wird bei erneutem Sync nicht überschrieben, Pseudo-Eintrag
+  wird vom echten Ergebnis-Loop übersprungen, Auflösung erfolgt nur wenn wirklich alle echten Rennen
+  entschieden sind, Rennen ohne Termin werden bei der Deadline-Suche ignoriert) — alle korrekt.
+  `ftipp_f1_sync()` live gegen die echte, abgeschlossene Saison 2025 ausgeführt: Meisterschafts-Eintrag
+  korrekt mit Deadline des ersten Saisonrennens angelegt, nach Abruf aller 24 Rennergebnisse automatisch
+  aufgelöst mit dem echten Ergebnis der Fahrerwertung 2025 (P1 Norris, P2 Verstappen, P3 Piastri — stimmt
+  mit der echten Saison überein). Frontend end-to-end im Browser geprüft (simuliertes `FTIPP_BOOT` +
+  `fetch`): Meisterschafts-Eintrag erscheint mit 🏆 in der Rennauswahl, lässt sich wie ein normales Rennen
+  über dieselben P1/P2/P3-Dropdowns tippen, ein normales (gesperrtes) Rennen zeigt weiterhin korrekt
+  Ergebnis + Mitspieler-Tipps an, Auswertung zeigt die Rangliste unverändert korrekt. Keine Änderung an
+  `FTIPP_DB_VERSION` nötig (kein Schema-Wechsel, reine Nutzung der bestehenden Tabellen/Optionen).
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.4.2 einspielen, auf Tippstube →
+  Formel 1 einmal "Jetzt abrufen" klicken und prüfen, dass der Meisterschafts-Eintrag im Rennkalender
+  und im Frontend erscheint.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
