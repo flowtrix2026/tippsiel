@@ -2152,6 +2152,46 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.4.3 einspielen, unter
   Tippstube → Formel 1 einmal "Jetzt abrufen" klicken und den neuen Tab im Frontend prüfen.
 
+## v1.5.0 — Formel 1: Punkte und Tipp-Fristen selbst festlegen
+
+- **Anfrage:** Nach dem Live-Test von v1.4.3 (der neue Sonderwertungs-Tab war da und funktionierte):
+  "ich will die Punkte selber bestimmen auch für den Tipp Tag", "auch für den Meister", "und Tipp
+  Fristen müssen auch mit rein". Auslöser war zusätzlich, dass die Meisterschafts-Frist fest am Start
+  des ersten Saisonrennens hing — bei einer laufenden Saison steht dort also dauerhaft "Frist vorbei"
+  und niemand kann mehr tippen.
+- **Umgesetzt (Datenbank):** `ftipp_f1_round_config` um drei Spalten erweitert: `champ_p_exact` (Default
+  10), `champ_p_partial` (Default 4) und `champ_deadline` (frei setzbare Frist, NULL = automatisch).
+  `FTIPP_DB_VERSION` von 14 auf 15 angehoben. Die Meisterschaft ist damit — wie eine Fußball-Sonderwertung —
+  **punktemäßig unabhängig von den Rennen** und standardmäßig doppelt so viel wert wie ein einzelnes Rennen
+  (Saison-Wette statt Einzelrennen).
+- **Umgesetzt (Backend):** Zwei neue Helfer, damit Rennen und Meisterschaft sauber getrennt bleiben:
+  `ftipp_f1_points_for()` (liefert je nach Eintrag die Renn- oder die Meisterschafts-Punkte) und
+  `ftipp_f1_lock_ts()` (Sperrzeitpunkt: bei Rennen Startzeit minus Vorlauf, bei der Meisterschaft die
+  gesetzte Frist, ersatzweise weiter das erste Saisonrennen). Beide werden jetzt überall benutzt —
+  Rangliste, `/f1/tips` GET und POST, `/f1/championship`. `POST /f1/config` nimmt zusätzlich `champExact`,
+  `champPartial` und `champDeadline` entgegen und **ändert nur die tatsächlich übergebenen Felder**
+  (vorher wurde die komplette Zeile überschrieben) — nötig, weil die Oberfläche jedes Feld einzeln sofort
+  beim Ändern speichert. Frist-Format identisch zu den Fußball-Sonderwertungen (datetime-local, lokale Zeit).
+- **Umgesetzt (Frontend):** In der Sonderwertungs-Karte sieht der **Runden-Admin** jetzt drei
+  Bearbeitungsfelder (Punkte je exaktem Platz, Punkte je richtigem Fahrer, Tipp-Frist) — genau wie bei den
+  Fußball-Sonderwertungen, wo Punkte und Frist ebenfalls direkt in der Karte stehen. Mitspieler sehen
+  weiterhin nur die Pills mit den gesetzten Werten. Zusätzlich neuer vierter Tab **"⚙️ Einstellungen"**
+  (gleich benannt wie bei Fußball) für die Regeln der Rennen: Punkte exakt, Punkte richtiger Fahrer,
+  Tipp-Frist in Minuten vor Rennstart, Malus an/aus und Malus-Höhe. Auch hier: Nicht-Admins sehen die
+  Werte nur als Anzeige.
+- Lokal getestet: `php -l` fehlerfrei, alle drei Script-Blöcke geprüft. Browser-Test mit simuliertem
+  `FTIPP_BOOT`/`fetch` **als Runden-Admin**: alle vier Tabs vorhanden; in der Sonderwertung Punkte auf
+  25/8 und Frist auf 30.11.2026 18:00 geändert — jedes Feld schickt einzeln nur seinen eigenen Wert
+  (`{champExact:25}`, `{champPartial:8}`, `{champDeadline:"2026-11-30T18:00"}`), die Werte stehen nach dem
+  Neuaufbau korrekt in den Feldern und der Hinweis auf die automatische Ersatz-Frist verschwindet, sobald
+  eine eigene gesetzt ist. Im Einstellungen-Tab Tipp-Frist auf 90 Minuten, Malus eingeschaltet und auf -3
+  gesetzt — ebenfalls korrekt einzeln gespeichert und übernommen. **Als normales Mitglied** gegengeprüft:
+  null Bearbeitungsfelder in beiden Tabs, stattdessen die vom Admin gesetzten Werte als Anzeige
+  (25 Punkte je exaktem Platz, 8 je richtigem Fahrer, Frist Mo. 30.11. 18:00 bzw. Tipp-Frist 90 Min., Malus -3).
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.5.0 einspielen (legt per `dbDelta` die
+  drei neuen Spalten an), dann als Runden-Admin Punkte und Frist setzen und mit einem zweiten Konto
+  gegenprüfen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

@@ -4,7 +4,7 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.4.3
+Stable tag: 1.5.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -55,6 +55,12 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.5.0 =
+Bei Formel 1 legt der Runden-Admin jetzt alle Regeln selbst fest: Punkte und Tipp-Frist für die
+Meisterschafts-Sonderwertung direkt in deren Karte, sowie Punkte, Tipp-Frist (Minuten vor Rennstart)
+und Malus für die Rennen im neuen Tab "⚙️ Einstellungen". Die Meisterschaft hat dabei eigene Punkte,
+unabhängig von den Rennen (Standard: 10 je exaktem Platz, 4 je richtigem Fahrer).
 
 = 1.4.3 =
 Die Formel-1-Sonderwertung hat jetzt einen eigenen Tab "⭐ Sonderwertungen" — genauso benannt und

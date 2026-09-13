@@ -1750,10 +1750,12 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
     <div class="tab active" data-mode="f1tippen" onclick="switchF1Mode('f1tippen')">📝 Tippen</div>
     <div class="tab" data-mode="f1auswertung" onclick="switchF1Mode('f1auswertung')">🏆 Auswertung</div>
     <div class="tab" data-mode="f1sonder" onclick="switchF1Mode('f1sonder')">⭐ Sonderwertungen</div>
+    <div class="tab" data-mode="f1einstellungen" onclick="switchF1Mode('f1einstellungen')">⚙️ Einstellungen</div>
   </div>
   <section id="f1mode-f1tippen"></section>
   <section id="f1mode-f1auswertung" style="display:none"></section>
   <section id="f1mode-f1sonder" style="display:none"></section>
+  <section id="f1mode-f1einstellungen" style="display:none"></section>
 </div>
 </div><!-- #f1-shell -->
 
@@ -1795,11 +1797,12 @@ let f1CurrentRaceId = null;
 
 function switchF1Mode(mode){
   document.querySelectorAll('#f1-shell .tab').forEach(t=>t.classList.toggle('active', t.dataset.mode===mode));
-  ['f1tippen','f1auswertung','f1sonder'].forEach(m=>{
+  ['f1tippen','f1auswertung','f1sonder','f1einstellungen'].forEach(m=>{
     document.getElementById('f1mode-'+m).style.display = (m===mode) ? '' : 'none';
   });
   if(mode==='f1tippen') renderF1Tippen();
   else if(mode==='f1sonder') renderF1Sonder();
+  else if(mode==='f1einstellungen') renderF1Einstellungen();
   else renderF1Auswertung();
 }
 
@@ -1885,6 +1888,21 @@ async function renderF1Auswertung(){
   }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; }
 }
 
+/* Zahlenfeld für eine F1-Regel, speichert sofort beim Ändern (wie mkCfgNumRT bei Fußball).
+   Es wird immer nur das eine geänderte Feld geschickt — der Server lässt alle übrigen Werte stehen. */
+function mkF1CfgNum(label, value, key, onSaved){
+  const w = el('<div class="flexcol" style="align-items:center"></div>');
+  w.appendChild(el(`<label>${label}</label>`));
+  const inp = el(`<input type="number" class="score" value="${value}" style="width:70px">`);
+  inp.onchange = async ()=>{
+    const v = parseInt(inp.value);
+    const payload = {round_id: currentRoundId}; payload[key] = isNaN(v) ? 0 : v;
+    try{ await api_post('f1/config', payload); if(onSaved) onSaved(); }
+    catch(e){ alert('Fehler: '+e.message); }
+  };
+  w.appendChild(inp); return w;
+}
+
 /* Sonderwertung "Fahrer-Weltmeisterschaft" — eigener Tab, bewusst im selben Karten-Layout wie die
    Fußball-Sonderwertungen (Titel + Punkte-Pills + Frist + Ergebnis, darunter der eigene Tipp,
    Mitspieler-Tipps erst nach Fristende). Nur der Tipp selbst ist F1-spezifisch: drei Fahrer-Auswahlen
@@ -1916,19 +1934,36 @@ async function renderF1Sonder(){
   if(!f1Drivers.length){ try{ const d = await api_get('f1/drivers'); f1Drivers = d.drivers||[]; }catch(e){} }
   const nameOf = id => { const d = f1Drivers.find(x=>x.driverId===id); return d ? d.name : (id||'–'); };
 
-  const race = data.race, cfg = data.cfg||{}, locked = data.locked;
+  const race = data.race, locked = data.locked;
   const mine = data.mine || {p1:null,p2:null,p3:null,committed:false};
   const picks = {p1:mine.p1, p2:mine.p2, p3:mine.p3};
-  const deadlineIso = race.date ? (race.date+'T'+(race.time||'00:00:00Z')) : '';
+  const isAdmin = !!(roundById(currentRoundId)||{}).is_admin;
+  const pExact = data.pExact||0, pPartial = data.pPartial||0;
 
   const card = el('<div class="card"></div>');
   card.appendChild(el(`<div class="row" style="margin-bottom:8px"><b>⭐ ${esc(race.raceName)}</b>`
-    + `<span class="pill gold">${cfg.pExact||0} Punkte je exaktem Platz</span>`
-    + `<span class="pill gold">${cfg.pPartial||0} je richtigem Fahrer</span>`
-    + (deadlineIso ? `<span class="meta">Frist ${esc(fmtDate(deadlineIso))}</span>` : '')
+    + (isAdmin ? '' : `<span class="pill gold">${pExact} Punkte je exaktem Platz</span>`
+        + `<span class="pill gold">${pPartial} je richtigem Fahrer</span>`
+        + (data.deadline ? `<span class="meta">Frist ${esc(fmtDate(data.deadline))}</span>` : ''))
     + (race.result ? `<span class="pill gold">Ergebnis: ${race.result.map(r=>'P'+r.position+' '+esc(r.driverName)).join(' · ')}</span>` : '')
     + `</div>`));
-  card.appendChild(el('<div class="meta">Wer wird am Saisonende Meister, Zweiter und Dritter der Fahrerwertung? Getippt wird vor dem ersten Rennen der Saison.</div>'));
+  card.appendChild(el('<div class="meta">Wer wird am Saisonende Meister, Zweiter und Dritter der Fahrerwertung?</div>'));
+
+  if(isAdmin){
+    const adm = el('<div class="row" style="margin-top:8px"></div>');
+    adm.appendChild(mkF1CfgNum('Punkte je exaktem Platz', pExact, 'champExact', renderF1Sonder));
+    adm.appendChild(mkF1CfgNum('Punkte je richtigem Fahrer', pPartial, 'champPartial', renderF1Sonder));
+    const dlW = el('<div class="flexcol" style="align-items:center"></div>');
+    dlW.appendChild(el('<label>Tipp-Frist</label>'));
+    const dl = el(`<input type="datetime-local" value="${esc(data.deadline||'')}">`);
+    dl.onchange = async ()=>{
+      try{ await api_post('f1/config', {round_id: currentRoundId, champDeadline: dl.value}); renderF1Sonder(); }
+      catch(e){ alert('Fehler: '+e.message); }
+    };
+    dlW.appendChild(dl); adm.appendChild(dlW);
+    card.appendChild(adm);
+    card.appendChild(el(`<div class="meta" style="margin-top:4px">Als Runden-Admin legst du Punkte und Frist für diese Sonderwertung fest.${data.deadlineCustom?'':' Solange du keine eigene Frist setzt, gilt der Start des ersten Saisonrennens.'}</div>`));
+  }
 
   const driverOpts = [{v:'',label:'– wählen –'}].concat(f1Drivers.map(d=>({v:d.driverId,label:d.name})));
   const tipRow = el('<div style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px"></div>');
@@ -1961,6 +1996,53 @@ async function renderF1Sonder(){
     box.appendChild(el(`<div class="card"><div class="row" style="margin-bottom:8px"><b>👀 Tipps der Mitspieler</b></div>`
       + `<table><thead><tr><th>Spieler</th><th>Platz 1</th><th>Platz 2</th><th>Platz 3</th><th class="num">Punkte</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
   }
+}
+
+/* Regeln für die Formel-1-Rennen dieser Tipprunde — Punkte und Tipp-Frist, wie beim Fußball-Tab
+   "⚙️ Einstellungen". Die Werte der Meisterschafts-Sonderwertung stehen bewusst dort, wo sie
+   auch gelten (Tab "⭐ Sonderwertungen"), genau wie bei den Fußball-Sonderwertungen. */
+async function renderF1Einstellungen(){
+  const box = document.getElementById('f1mode-f1einstellungen');
+  if(!CONNECTED){ box.innerHTML = '<div class="card"><div class="hint">Formel 1 steht nur im echten WordPress-Betrieb zur Verfügung.</div></div>'; return; }
+  if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde. Das geht in der ⚽ Fußball-Ansicht unter „Runden".</div></div>'; return; }
+  box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
+
+  let cfg;
+  try{ cfg = await api_get(`f1/config?round=${currentRoundId}`); }
+  catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
+
+  box.innerHTML = '';
+  box.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderF1Einstellungen(); }));
+
+  if(!(roundById(currentRoundId)||{}).is_admin){
+    box.appendChild(el(`<div class="card"><div class="hint">Die Formel-1-Regeln legt der Runden-Admin fest.</div>`
+      + `<div class="row" style="margin-top:8px"><span class="pill gold">${cfg.pExact} Punkte je exaktem Platz</span>`
+      + `<span class="pill gold">${cfg.pPartial} je richtigem Fahrer</span>`
+      + `<span class="meta">Tipp-Frist ${cfg.deadlineMin} Min. vor Rennstart</span>`
+      + (cfg.malusOn?`<span class="pill warn">Malus ${cfg.malus}</span>`:'') + `</div></div>`));
+    return;
+  }
+
+  const card = el('<div class="card"></div>');
+  card.appendChild(el('<div class="hint">Regeln für die Formel-1-<b>Rennen</b> dieser Tipprunde. Punkte und Frist der Meisterschaft stellst du im Tab „⭐ Sonderwertungen" ein.</div>'));
+  const row = el('<div class="row" style="margin-top:8px"></div>');
+  row.appendChild(mkF1CfgNum('Punkte je exaktem Platz', cfg.pExact, 'pExact'));
+  row.appendChild(mkF1CfgNum('Punkte je richtigem Fahrer', cfg.pPartial, 'pPartial'));
+  row.appendChild(mkF1CfgNum('Tipp-Frist (Min. vor Start)', cfg.deadlineMin, 'deadlineMin'));
+  card.appendChild(row);
+
+  const row2 = el('<div class="row" style="margin-top:8px"></div>');
+  const mw = el('<div class="flexcol" style="align-items:center"></div>');
+  mw.appendChild(el('<label>Malus, wenn nicht getippt</label>'));
+  const chk = el(`<input type="checkbox" ${cfg.malusOn?'checked':''}>`);
+  chk.onchange = async ()=>{
+    try{ await api_post('f1/config', {round_id: currentRoundId, malusOn: chk.checked?1:0}); renderF1Einstellungen(); }
+    catch(e){ alert('Fehler: '+e.message); }
+  };
+  mw.appendChild(chk); row2.appendChild(mw);
+  row2.appendChild(mkF1CfgNum('Malus-Punkte', cfg.malus, 'malus'));
+  card.appendChild(row2);
+  box.appendChild(card);
 }
 </script>
 </body>
