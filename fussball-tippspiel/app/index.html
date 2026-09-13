@@ -1944,6 +1944,7 @@ async function renderF1Sonder(){
   card.appendChild(el(`<div class="row" style="margin-bottom:8px"><b>⭐ ${esc(race.raceName)}</b>`
     + (isAdmin ? '' : `<span class="pill gold">${pExact} Punkte je exaktem Platz</span>`
         + `<span class="pill gold">${pPartial} je richtigem Fahrer</span>`
+        + (data.pAll3 ? `<span class="pill gold">+${data.pAll3} wenn alle 3 exakt</span>` : '')
         + (data.deadline ? `<span class="meta">Frist ${esc(fmtDate(data.deadline))}</span>` : ''))
     + (race.result ? `<span class="pill gold">Ergebnis: ${race.result.map(r=>'P'+r.position+' '+esc(r.driverName)).join(' · ')}</span>` : '')
     + `</div>`));
@@ -1953,6 +1954,7 @@ async function renderF1Sonder(){
     const adm = el('<div class="row" style="margin-top:8px"></div>');
     adm.appendChild(mkF1CfgNum('Punkte je exaktem Platz', pExact, 'champExact', renderF1Sonder));
     adm.appendChild(mkF1CfgNum('Punkte je richtigem Fahrer', pPartial, 'champPartial', renderF1Sonder));
+    adm.appendChild(mkF1CfgNum('Bonus wenn alle 3 exakt', data.pAll3||0, 'champAll3', renderF1Sonder));
     const dlW = el('<div class="flexcol" style="align-items:center"></div>');
     dlW.appendChild(el('<label>Tipp-Frist</label>'));
     const dl = el(`<input type="datetime-local" value="${esc(data.deadline||'')}">`);
@@ -2018,6 +2020,7 @@ async function renderF1Einstellungen(){
     box.appendChild(el(`<div class="card"><div class="hint">Die Formel-1-Regeln legt der Runden-Admin fest.</div>`
       + `<div class="row" style="margin-top:8px"><span class="pill gold">${cfg.pExact} Punkte je exaktem Platz</span>`
       + `<span class="pill gold">${cfg.pPartial} je richtigem Fahrer</span>`
+      + (cfg.pAll3?`<span class="pill gold">+${cfg.pAll3} wenn alle 3 exakt</span>`:'')
       + `<span class="meta">Tipp-Frist ${cfg.deadlineMin} Min. vor Rennstart</span>`
       + (cfg.malusOn?`<span class="pill warn">Malus ${cfg.malus}</span>`:'') + `</div></div>`));
     return;
@@ -2028,6 +2031,7 @@ async function renderF1Einstellungen(){
   const row = el('<div class="row" style="margin-top:8px"></div>');
   row.appendChild(mkF1CfgNum('Punkte je exaktem Platz', cfg.pExact, 'pExact'));
   row.appendChild(mkF1CfgNum('Punkte je richtigem Fahrer', cfg.pPartial, 'pPartial'));
+  row.appendChild(mkF1CfgNum('Bonus wenn alle 3 exakt', cfg.pAll3, 'pAll3'));
   row.appendChild(mkF1CfgNum('Tipp-Frist (Min. vor Start)', cfg.deadlineMin, 'deadlineMin'));
   card.appendChild(row);
 

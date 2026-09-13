@@ -4,7 +4,7 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.5.0
+Stable tag: 1.6.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -55,6 +55,11 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.6.0 =
+Neuer Bonus bei Formel 1: Wer bei einem Rennen alle drei Podiumsplätze exakt trifft, bekommt zusätzliche
+Punkte obendrauf (zwei von drei reichen nicht). Höhe frei einstellbar, für Rennen und Meisterschaft
+getrennt — auf 0 setzen schaltet den Bonus ab.
 
 = 1.5.0 =
 Bei Formel 1 legt der Runden-Admin jetzt alle Regeln selbst fest: Punkte und Tipp-Frist für die

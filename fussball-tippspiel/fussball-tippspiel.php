@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball (19 Wettbewerbe) und Formel 1 (Podium-Tipp), echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version:           1.5.0
+ * Version:           1.6.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,8 +12,8 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.5.0' );
-define( 'FTIPP_DB_VERSION', '15' );
+define( 'FTIPP_VERSION', '1.6.0' );
+define( 'FTIPP_DB_VERSION', '16' );
 
 /**
  * Automatische Update-Prüfung gegen GitHub-Releases (statt WordPress.org-Verzeichnis) —
@@ -223,8 +223,10 @@ function ftipp_install() {
         malus_on TINYINT NOT NULL DEFAULT 0,
         malus INT NOT NULL DEFAULT 0,
         deadline_min INT NOT NULL DEFAULT 60,
+        p_all3 INT NOT NULL DEFAULT 5,
         champ_p_exact INT NOT NULL DEFAULT 10,
         champ_p_partial INT NOT NULL DEFAULT 4,
+        champ_p_all3 INT NOT NULL DEFAULT 10,
         champ_deadline DATETIME NULL,
         PRIMARY KEY  (round_id)
     ) $charset_collate;" );
@@ -1170,10 +1172,11 @@ add_action( 'ftipp_f1_weekly_fetch', 'ftipp_f1_sync' );
 /** Punkteregeln einer Runde für F1 — legt bei erstem Zugriff eine Default-Zeile an wie ftipp_round_cfg(). */
 function ftipp_f1_default_cfg() {
     return array(
-        'pExact' => 5, 'pPartial' => 2, 'malusOn' => false, 'malus' => 0, 'deadlineMin' => 60,
+        // pAll3: Bonus obendrauf, wenn alle drei Plätze exakt getippt wurden.
+        'pExact' => 5, 'pPartial' => 2, 'pAll3' => 5, 'malusOn' => false, 'malus' => 0, 'deadlineMin' => 60,
         // Die Meisterschaft ist eine Saison-Wette und zählt deshalb standardmäßig doppelt so viel
-        // wie ein einzelnes Rennen — beides kann der Runden-Admin frei ändern.
-        'champExact' => 10, 'champPartial' => 4, 'champDeadline' => null,
+        // wie ein einzelnes Rennen — alles davon kann der Runden-Admin frei ändern.
+        'champExact' => 10, 'champPartial' => 4, 'champAll3' => 10, 'champDeadline' => null,
     );
 }
 function ftipp_f1_round_cfg( $round_id ) {
@@ -1189,8 +1192,10 @@ function ftipp_f1_round_cfg( $round_id ) {
         'deadlineMin' => intval( $row['deadline_min'] ),
         // isset()-Fallbacks: eine Zeile, die noch vor dem Schema-Update (DB v15) angelegt wurde,
         // hat diese Spalten beim ersten Lesen noch nicht.
+        'pAll3'        => isset( $row['p_all3'] ) ? intval( $row['p_all3'] ) : $def['pAll3'],
         'champExact'   => isset( $row['champ_p_exact'] ) ? intval( $row['champ_p_exact'] ) : $def['champExact'],
         'champPartial' => isset( $row['champ_p_partial'] ) ? intval( $row['champ_p_partial'] ) : $def['champPartial'],
+        'champAll3'    => isset( $row['champ_p_all3'] ) ? intval( $row['champ_p_all3'] ) : $def['champAll3'],
         'champDeadline' => isset( $row['champ_deadline'] ) ? $row['champ_deadline'] : null,
     );
 }
@@ -1198,9 +1203,9 @@ function ftipp_f1_round_cfg( $round_id ) {
 /** Punkteregeln für ein einzelnes "Rennen" — die Meisterschaft hat ihre eigenen Werte. */
 function ftipp_f1_points_for( $race, $cfg ) {
     if ( ! empty( $race['is_championship'] ) ) {
-        return array( 'pExact' => $cfg['champExact'], 'pPartial' => $cfg['champPartial'] );
+        return array( 'pExact' => $cfg['champExact'], 'pPartial' => $cfg['champPartial'], 'pAll3' => $cfg['champAll3'] );
     }
-    return array( 'pExact' => $cfg['pExact'], 'pPartial' => $cfg['pPartial'] );
+    return array( 'pExact' => $cfg['pExact'], 'pPartial' => $cfg['pPartial'], 'pAll3' => $cfg['pAll3'] );
 }
 
 /**
@@ -1222,16 +1227,20 @@ function ftipp_f1_score_tip( $result, $tip, $cfg ) {
     $actualByPos = array(); $actualDrivers = array();
     foreach ( $result as $r ) { $actualByPos[ $r['position'] ] = $r['driverId']; $actualDrivers[ $r['driverId'] ] = true; }
     $picks = array( 1 => $tip['p1_driver_id'], 2 => $tip['p2_driver_id'], 3 => $tip['p3_driver_id'] );
-    $pts = 0; $exactDrivers = array();
+    $pts = 0; $exactDrivers = array(); $exactCount = 0;
     foreach ( $picks as $pos => $driverId ) {
         if ( ! $driverId ) { continue; }
-        if ( isset( $actualByPos[ $pos ] ) && $actualByPos[ $pos ] === $driverId ) { $pts += $cfg['pExact']; $exactDrivers[ $driverId ] = true; }
+        if ( isset( $actualByPos[ $pos ] ) && $actualByPos[ $pos ] === $driverId ) {
+            $pts += $cfg['pExact']; $exactDrivers[ $driverId ] = true; $exactCount++;
+        }
     }
     foreach ( $picks as $pos => $driverId ) {
         if ( ! $driverId || isset( $exactDrivers[ $driverId ] ) ) { continue; } // schon exakt gewertet
         if ( isset( $actualDrivers[ $driverId ] ) && $actualByPos[ $pos ] !== $driverId ) { $pts += $cfg['pPartial']; }
     }
-    return array( 'pts' => $pts );
+    // Bonus obendrauf, wenn das komplette Podium exakt sitzt — zwei von drei richtig reicht nicht.
+    if ( 3 === $exactCount && ! empty( $cfg['pAll3'] ) ) { $pts += $cfg['pAll3']; }
+    return array( 'pts' => $pts, 'all3' => ( 3 === $exactCount ) );
 }
 
 /** Rangliste einer Runde für F1 — live berechnet, kein Cache (wie ftipp_compute_leaderboard()). */
@@ -2947,7 +2956,7 @@ add_action( 'rest_api_init', function () {
             ), ARRAY_A );
             $out = array(
                 'race' => $race, 'locked' => (bool) $locked, 'cfg' => $cfg, 'rows' => array(),
-                'pExact' => $pts['pExact'], 'pPartial' => $pts['pPartial'],
+                'pExact' => $pts['pExact'], 'pPartial' => $pts['pPartial'], 'pAll3' => $pts['pAll3'],
                 // Frist im Format des datetime-local-Feldes, damit der Runden-Admin sie direkt bearbeiten kann.
                 'deadline' => $lockTs ? gmdate( 'Y-m-d\TH:i', $lockTs + ( get_option( 'gmt_offset', 0 ) * HOUR_IN_SECONDS ) ) : null,
                 'deadlineCustom' => ! empty( $cfg['champDeadline'] ),
@@ -3015,6 +3024,8 @@ add_action( 'rest_api_init', function () {
             $wpdb->replace( "{$wpdb->prefix}ftipp_f1_round_config", array(
                 'round_id' => $rid,
                 'p_exact' => $num( 'pExact', $cur['pExact'] ), 'p_partial' => $num( 'pPartial', $cur['pPartial'] ),
+                'p_all3' => $num( 'pAll3', $cur['pAll3'] ),
+                'champ_p_all3' => $num( 'champAll3', $cur['champAll3'] ),
                 'malus_on' => ( null !== $req->get_param( 'malusOn' ) )
                     ? ( $req->get_param( 'malusOn' ) ? 1 : 0 ) : ( $cur['malusOn'] ? 1 : 0 ),
                 'malus' => $num( 'malus', $cur['malus'] ),

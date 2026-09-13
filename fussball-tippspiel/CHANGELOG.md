@@ -2192,6 +2192,31 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
   drei neuen Spalten an), dann als Runden-Admin Punkte und Frist setzen und mit einem zweiten Konto
   gegenprüfen.
 
+## v1.6.0 — Formel 1: Bonus für das komplette Podium
+
+- **Anfrage:** "ich hätte auch gerne wenn man das rennen richtig tippt 1. 2. & 3. dass es dafür auch
+  extra Punkte gibt — man kann ja den ersten und den zweiten richtig haben, hat man aber alle 3 gibt es
+  noch mal extra Punkte." Also ein Zusatz-Bonus, der ausdrücklich **nur** fällt, wenn alle drei Plätze
+  exakt sitzen — zwei von drei reichen nicht.
+- **Umgesetzt:** `ftipp_f1_score_tip()` zählt jetzt die exakten Treffer mit und gibt den Bonus nur bei
+  genau drei exakten Positionen obendrauf. Zwei neue Spalten in `ftipp_f1_round_config`: `p_all3`
+  (Rennen, Default 5) und `champ_p_all3` (Meisterschaft, Default 10) — die Meisterschaft hat also auch
+  hier ihren eigenen Wert, passend zu ihren eigenen Punkten seit v1.5.0. `FTIPP_DB_VERSION` 15 → 16.
+  Der Runden-Admin stellt den Bonus an denselben Stellen ein wie die übrigen Punkte: im Tab
+  "⚙️ Einstellungen" für die Rennen, in der Karte im Tab "⭐ Sonderwertungen" für die Meisterschaft.
+  Mitspieler sehen ihn als zusätzliche Pill ("+5 wenn alle 3 exakt"). Bonus auf 0 setzen schaltet ihn ab.
+- Lokal getestet: isolierter Punkte-Test mit 12 Fällen, wobei die Funktion zur Sicherheit direkt aus der
+  ausgelieferten Plugin-Datei ausgeschnitten und ausgeführt wird (kein nachgebauter Klon): alle 3 exakt
+  = 3×5 + Bonus 5 = 20; nur Platz 1+2 exakt = 10 **ohne** Bonus; Platz 3 leer = 10 ohne Bonus; alle drei
+  Fahrer im Podium aber vertauscht = nur Teiltreffer (6) ohne Bonus; Bonus 0 = kein Bonus; altes cfg ganz
+  ohne `pAll3` läuft weiter (Abwärtskompatibilität); Meisterschaft mit 10/4/Bonus 10 = 40 bei komplettem
+  Podium. Browser-Test als Runden-Admin: das neue Feld steht in beiden Tabs, speichert einzeln
+  (`{champAll3:25}` bzw. `{pAll3:7}`), und als normales Mitglied erscheinen die Werte korrekt als Pills
+  ("+7 wenn alle 3 exakt" bei den Rennen, "+25 wenn alle 3 exakt" bei der Meisterschaft) ohne
+  Bearbeitungsfelder.
+- *Noch nicht auf der echten Seite getestet:* Plugin-Update auf v1.6.0 einspielen (legt per `dbDelta` die
+  zwei neuen Spalten an) und den Bonus mit einem echten, bereits gefahrenen Rennen gegenprüfen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
