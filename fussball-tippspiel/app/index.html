@@ -43,6 +43,16 @@
   .hub-tile.is-active::after{content:"";position:absolute;top:0;left:0;right:0;height:3px;border-radius:var(--radius) var(--radius) 0 0;
     background:linear-gradient(90deg,var(--accent),var(--accent-hi))}
   .hub-tile:not(.is-active){opacity:.72;cursor:pointer}
+  #sport-hub .hub-rounds{position:relative;overflow:hidden;display:flex;align-items:center;gap:16px;
+    padding:20px 20px 18px;border-radius:var(--radius);border:1px solid var(--gold-line);
+    background:linear-gradient(160deg,var(--panel2),var(--panel));
+    box-shadow:0 0 0 1px rgba(217,164,65,.15),var(--shadow);cursor:pointer;text-align:left}
+  #sport-hub .hub-rounds::after{content:"";position:absolute;top:0;left:0;right:0;height:3px;
+    background:linear-gradient(90deg,var(--accent),var(--accent-hi))}
+  #sport-hub .hub-rounds .hub-tile-icon{width:50px;height:50px;font-size:26px;flex:none;background:rgba(217,164,65,.16)}
+  #sport-hub .hub-rounds .hub-tile-name{font-size:19px;margin:0 0 4px}
+  #sport-hub .hub-rounds .hub-arrow{color:var(--accent-hi);font-size:22px;flex:none}
+  @media(max-width:560px){ #sport-hub .hub-rounds{flex-wrap:wrap} #sport-hub .hub-rounds .hub-arrow{display:none} }
   .hub-tile-icon{width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:9px;font-size:19px}
   .hub-tile.is-active .hub-tile-icon{background:rgba(217,164,65,.16)}
   .hub-tile:not(.is-active) .hub-tile-icon{background:rgba(255,255,255,.04);filter:grayscale(.5)}
@@ -158,8 +168,17 @@
     <div>
       <h1>Tippstube</h1>
       <p class="hub-tagline">Wähle deine Sportart — deine Tipprunden gelten für alle.</p>
-      <p style="margin:8px 0 0"><button class="hub-switch" onclick="showRounds()">👥 Meine Tipprunden verwalten</button></p>
     </div>
+  </div>
+
+  <div class="hub-label">Deine Tipprunden</div>
+  <div class="hub-rounds" onclick="showRounds()">
+    <div class="hub-tile-icon">👥</div>
+    <div style="flex:1;min-width:200px">
+      <p class="hub-tile-name">Tipprunden verwalten</p>
+      <div class="hub-tile-meta">Runde anlegen oder per Einladungscode beitreten, Mitspieler und Wettbewerbe verwalten — eine Runde gilt für alle Sportarten.</div>
+    </div>
+    <span class="hub-arrow">→</span>
   </div>
 
   <div class="hub-label">Sportarten</div>

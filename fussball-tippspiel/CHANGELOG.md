@@ -2535,6 +2535,22 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
   landet beim Start im Runden-Bereich mit vollständigem Inhalt, und die Hinweise in den anderen
   Sportarten führen per Knopf dorthin — in einem frischen Tab ohne jede Konsolenmeldung.
 
+## v1.14.1 — Tipprunden als richtige Kachel auf dem Hub
+
+- **Anfrage:** "das mit den Tipprunden muss deutlich größer, das sieht man ja gar nicht. Das muss auch
+  schon mit Kachel irgendwie sein." Der Zugang war in v1.14.0 nur ein kleiner Textlink unter der
+  Überschrift und ging neben den großen Sport-Kacheln komplett unter.
+- **Umgesetzt:** Eigene, breite Kachel über den Sportarten, unter der Zwischenüberschrift "Deine
+  Tipprunden" — mit großem Symbol, Titel, erklärendem Text und Pfeil, in derselben Gold-Optik wie eine
+  aktive Sport-Kachel (Goldrahmen, Farbverlauf, Akzentstreifen oben). Bewusst **quer über die volle
+  Breite** statt als eine weitere Kachel im Sportarten-Raster: eine Tipprunde ist keine Sportart,
+  sondern gilt für alle — das soll man auf den ersten Blick sehen. Auf schmalen Bildschirmen bricht sie
+  um und blendet den Pfeil aus. Der kleine Textlink ist entfallen.
+- Lokal getestet: Script-Blöcke geprüft. Im Browser angesehen (schmal und 1280 Breite): Kachel steht
+  gut sichtbar über dem Sportarten-Raster, füllt die volle Breite (gemessen 1008 px), Klick führt in
+  den Runden-Bereich. Im Hub ist kein kleiner Textlink mehr übrig. Reine Oberflächen-Änderung ohne
+  Datenbank-, Schema- oder Schnittstellen-Anpassung.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
