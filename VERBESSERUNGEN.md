@@ -124,11 +124,33 @@ kappt aber jede Liste auf etwa 5 Treffer und ist damit für Spieltage unbrauchba
 **Fallstrick beim späteren Bauen:** `lookup_all_teams.php` ignoriert im Gratis-Zugang die Liga-ID und
 gibt englische Fußballklubs zurück. `search_all_teams.php?l=<Liganame>` nehmen.
 
-### 1.8 Geprüft und verworfen — nicht erneut vorschlagen
+### 1.9 Offizielle Gratis-Quellen, live getestet — BAUREIF
+
+Aufgestöbert über das Verzeichnis `github.com/DanielTomaro13/sportsdata-mcp` (64 Anbieter, 44 davon
+ohne Schlüssel). Selbst nachgemessen am 15.09.2026:
+
+| Quelle | Befund | füllt / ersetzt |
+|---|---|---|
+| **MLB** `statsapi.mlb.com` | ✅ offiziell, ohne Key. 103 Spiele in 8 Tagen, **56 von 56** vergangenen mit Endstand. | MLB-Lücke im US-Sport |
+| **Serie A** `api-sdp.legaseriea.it` | ✅ **380 Partien der Saison in EINER Anfrage** (40 gespielt, 340 kommend), Opta-Daten vom Ligaverband, Teams/Tore/Status/Termine vollständig. Pfad: `/v1/serie-a/football/seasons/{seasonId}/matches`, Saison-Liste über die `competitions/.../seasons`-Route. | ersetzt Serie A bei SportScore (79 % Abweisungen) |
+| NBA `cdn.nba.com` | ⚠️ **HTTP 403 von hier** — vermutlich Sperre für diese Leitung, nicht generell. Vom WordPress-Server aus zu testen. | NBA-Lücke |
+| UFC `ufc.com/jsonapi` | ⚠️ **HTTP 302** von hier (Weiterleitung). Ebenfalls vom Server aus zu testen. | MMA-Kachel |
+
+**Bestätigt nebenbei unsere bestehenden Entscheidungen:** Das Verzeichnis führt EuroLeague
+(`api-live.euroleague.net`), NHL (`api-web.nhle.com`), OpenLigaDB und Squiggle als die empfohlenen
+Gratis-Quellen — genau die, die wir schon nutzen.
+
+**Weitere Spuren aus derselben Liste, noch nicht geprüft:** Premier League (`premierleague.com`),
+LaLiga (`apim.laliga.com`), Cricket Australia (`cricket.com.au`, Big Bash direkt), WTA offiziell
+(`wtatennis.com`), NCAA, Jolpica F1, OpenF1, Football-Data.co.uk. Mehrere davon würden
+SportScore-Ligen ersetzen.
+
+### 1.10 Geprüft und verworfen — nicht erneut vorschlagen
 
 | Quelle | Befund |
 |---|---|
 | **sportdevs.com** | Eigene Domain seit ca. Okt. 2025 ohne DNS-Einträge; lief nur noch über RapidAPI. |
+| **sportsall.com** | **Domain löst nicht auf** (SERVFAIL bei Google und Cloudflare: „Name servers refused query"). Das Verzeichnis `apisports.net` führt sie mit Note 7,0/10 und „Last verified 2026-08-06 ✓ Pricing checked ✓ Coverage checked" — für eine Domain, die nicht antwortet. Verzeichnisse mit Referral-Links taugen als Ideengeber, nicht als Beleg. |
 | **sportscore.com für Cricket** | Nur **55 %** der beendeten Partien mit verwertbarem Ergebnis; Ergebnis als „225/1" statt als Zahl. |
 | **mysportsfeeds.com** | Nur 6 Ligen (NFL, MLB, NBA, NHL, NCAA BB/FB). Abrechnung **pro Liga**: privat je 5 CAD/Monat (Qualifikation nötig), kommerziell 25–49 $. Für unsere drei Lücken ~8 €/Monat — aber ohne DEL und ohne ACB. Crowd-sourced, keine offizielle Ligaquelle. |
 | **thestatsapi.com** | **Nur Fußball**, trotz des Namens. Im Kern eine Wettquoten-API (Bet365, Pinnacle, Betfair; Arbitrage, Closing Line Value). Ab **50 $/Monat**. Wir haben 19 Fußball-Wettbewerbe gratis. |
