@@ -2494,6 +2494,16 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Update einspielen (ersetzt die vier leeren
   Eishockey-Tabellen), einmal „Jetzt abrufen" und im Frontend einen Tipp abgeben.
 
+## v1.13.1 — Liga immer sichtbar
+
+- **Anfrage:** "da wo Runde steht, müsste irgendwo auch NHL hin, weil kommen ja noch andere Ligen dazu."
+- **Umgesetzt:** Die Liga-Auswahl war bei nur einer Liga bewusst ausgeblendet (ein Dropdown mit einem
+  einzigen Eintrag schien überflüssig). Das war falsch gedacht: erstens soll immer erkennbar sein, welche
+  Liga gerade getippt wird, zweitens zeigt Fußball seinen Wettbewerb-Filter ebenfalls immer an — und
+  Fußball ist die Referenz. "Liga" steht jetzt in allen vier Eishockey-Tabs direkt neben "Runde".
+- Lokal getestet: Script-Blöcke geprüft, im Browser mit nur einer Liga alle vier Tabs durchgeklickt —
+  Tippen, Auswertung, Sonderwertungen und Einstellungen zeigen jeweils "Liga: NHL" neben "Runde".
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

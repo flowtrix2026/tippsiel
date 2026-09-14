@@ -2453,10 +2453,11 @@ function nhlGuard(box){
 }
 const nhlDay = iso => { const d=new Date(iso+'T12:00:00Z');
   return d.toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit'}); };
-/* Liga-Auswahl — bei nur einer Liga bringt ein Dropdown nichts, dann bleibt es weg. */
+/* Liga-Auswahl — wird immer angezeigt, auch bei nur einer Liga: so ist stets sichtbar, welche Liga
+   gerade getippt wird, und es bleibt gleich wie der Wettbewerb-Filter beim Fußball. */
 function mkHkLeagueSelect(leagues, onChange){
-  if(!leagues || leagues.length<2) return null;
-  return mkSelect('Liga', leagues.map(l=>({v:l.id,label:l.name})), hkLeague, v=>{ hkLeague=v; hkDate=''; onChange(); });
+  const list = (leagues && leagues.length) ? leagues : [{id:hkLeague, name:hkLeague}];
+  return mkSelect('Liga', list.map(l=>({v:l.id,label:l.name})), hkLeague, v=>{ hkLeague=v; hkDate=''; onChange(); });
 }
 
 async function renderNhlTippen(){
@@ -2486,7 +2487,7 @@ async function renderNhlTippen(){
   head.appendChild(el(`<div class="hint">Runde: <b>${esc(round.name)}</b>. Ergebnis eintragen → <b>„Tipp abgeben"</b>. Die Tipps deiner Mitspieler siehst du erst, sobald die Frist des jeweiligen Spiels abgelaufen ist — nicht schon, sobald du selbst abgegeben hast.</div>`));
   const ctrl = el('<div class="row"></div>');
   ctrl.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderNhlTippen(); }));
-  const ls = mkHkLeagueSelect(leagues, renderNhlTippen); if(ls) ctrl.appendChild(ls);
+  ctrl.appendChild(mkHkLeagueSelect(leagues, renderNhlTippen));
   if(days.length){
     ctrl.appendChild(mkSelect('Spieltag', days.map(d=>({
       v:d.date, label:`${nhlDay(d.date)} — ${d.total} Spiele${d.final?` (${d.final} gespielt)`:''}`})),
@@ -2618,7 +2619,7 @@ async function renderNhlAuswertung(){
   const ctrl = el('<div class="card"><div class="row"></div></div>');
   const row0 = ctrl.querySelector('.row');
   row0.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderNhlAuswertung(); }));
-  const ls = mkHkLeagueSelect((games&&games.leagues)||[], renderNhlAuswertung); if(ls) row0.appendChild(ls);
+  row0.appendChild(mkHkLeagueSelect((games&&games.leagues)||[], renderNhlAuswertung));
   box.appendChild(ctrl);
   if(!data.rows.length){ box.appendChild(el('<div class="card"><div class="hint">Noch keine Mitspieler mit aktivem Eishockey-Tippen in dieser Runde.</div></div>')); return; }
   const rowsHtml = data.rows.map(r=>`<tr><td class="num">${r.rank}</td><td>${esc(r.name)}</td><td class="num">${r.total}</td><td class="num">${r.exact}</td><td class="num">${r.tend}</td><td class="num">${r.special}</td><td class="num">${r.missed}</td></tr>`).join('');
@@ -2642,7 +2643,7 @@ async function renderNhlSonder(){
   const ctrl = el('<div class="card"><div class="row"></div></div>');
   const row0 = ctrl.querySelector('.row');
   row0.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderNhlSonder(); }));
-  const ls = mkHkLeagueSelect((games&&games.leagues)||[], renderNhlSonder); if(ls) row0.appendChild(ls);
+  row0.appendChild(mkHkLeagueSelect((games&&games.leagues)||[], renderNhlSonder));
   box.appendChild(ctrl);
 
   if(!subs.subs || !subs.subs[hkLeague]){
@@ -2747,7 +2748,7 @@ async function renderNhlEinstellungen(){
   const ctrl = el('<div class="card"><div class="row"></div></div>');
   const row0 = ctrl.querySelector('.row');
   row0.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderNhlEinstellungen(); }));
-  const ls = mkHkLeagueSelect((games&&games.leagues)||[], renderNhlEinstellungen); if(ls) row0.appendChild(ls);
+  row0.appendChild(mkHkLeagueSelect((games&&games.leagues)||[], renderNhlEinstellungen));
   box.appendChild(ctrl);
 
   if(!(roundById(currentRoundId)||{}).is_admin){
