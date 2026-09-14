@@ -4,11 +4,11 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.16.1
+Stable tag: 1.17.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Privates Tippspiel für deine Familie oder Freundesrunde — echtes WordPress-Login, eigene Tipprunden, automatischer Datenabruf. Fußball (19 Wettbewerbe), Formel 1, Tennis, US-Sport (NHL) und Rugby (AFL).
+Privates Tippspiel für deine Familie oder Freundesrunde — echtes WordPress-Login, eigene Tipprunden, automatischer Datenabruf. Fußball (19 Wettbewerbe), Formel 1, Tennis, US-Sport (NHL), Rugby (AFL) und Sumo.
 
 == Description ==
 
@@ -21,6 +21,7 @@ Tippstube ist ein WordPress-Plugin für private Fußball-Tippspiele unter Famili
 * **Tennis (neu)**: Sieger-Tipp — wer gewinnt das Match? ATP & WTA Einzel (Hauptfeld), eine Karte je Match, ein Klick genügt; **eigene Rangliste je Turnier**, genau wie jeder Fußball-Wettbewerb seine eigene hat; dazu je Turnier eine Sonderwertung "Turniersieger"
 * **US-Sport (neu)**: NHL — Ergebnis tippen exakt wie beim Fußball, komplette Saison inklusive Playoffs, nach Spieltagen sortiert; jede Liga mit eigener Rangliste (weitere Ligen wie die DEL lassen sich ergänzen); dazu die Sonderwertung "Stanley-Cup-Sieger"
 * **Rugby (neu)**: AFL (Australian Football) — Ergebnis tippen wie beim Fußball, komplette Saison bis zum Grand Final, nach Spielrunden sortiert
+* **Sumo (neu)**: Sieger-Tipp je Kampf in der Makuuchi-Division — eigene Rangliste je Basho, dazu der Yusho-Tipp, der sich automatisch auflöst
 * **Punktesystem**: 1 Punkt für die richtige Tendenz, 3 Punkte fürs exakte Ergebnis, optionaler K.o.-Zusatztipp bei Pokalspielen (Fußball); bei Formel 1 Punkte für exakte Position und für richtigen Fahrer in falscher Position
 * **Zwei Ranglisten-Modi**: Freundschaftlich (geteilter Platz bei Gleichstand) oder Challenge (harter Tie-Break)
 * **Sonderwertungen** je Wettbewerb (Meister, Torschützenkönig etc.), automatische Auflösung per Textvergleich
@@ -36,7 +37,8 @@ Acht Menüpunkte unter "Tippstube" im WordPress-Adminmenü:
     * *Fußball* — Datenabruf der Fußball-Wettbewerbe, API-Football-Key, CSV-Import für Wettbewerbe ohne gute kostenlose Quelle
     * *Formel 1* — eigener, von Fußball unabhängiger Datenabruf (f1api.dev, kostenlos, kein Key nötig)
     * *US-Sport* — Datenabruf der NHL über api-web.nhle.com (kostenlos, ohne Key)
-    * *Rugby* — Datenabruf der AFL über api.squiggle.com.au (kostenlos, ohne Key) (kostenlos, kein Key); erster Abruf lädt die ganze Saison, danach nur noch die laufende Woche
+    * *Rugby* — Datenabruf der AFL über api.squiggle.com.au (kostenlos, ohne Key)
+    * *Sumo* — Datenabruf über sumo-api.com (kostenlos, ohne Key); zeigt das laufende Basho, die Kampftage und den Yusho (kostenlos, kein Key); erster Abruf lädt die ganze Saison, danach nur noch die laufende Woche
     * *Tennis* — eigener Datenabruf über livetennisapi.com mit selbst eingetragenem, kostenlosem API-Key; zeigt das genutzte Tagesbudget und alle geladenen Matches
 * **Design** — Akzentfarbe, Logo und Untertitel jeder Tipprunde zentral einsehbar und bearbeitbar
 * **Cron-Job** — frei einstellbarer Abrufplan, dazu ein optionaler zuverlässiger externer Cron-Dienst (manuell oder automatisch über die cron-job.org-API)
@@ -63,6 +65,11 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.17.0 =
+Sumo ist die sechste Sportart: Sieger-Tipp je Kampf in der Makuuchi-Division, eigene Rangliste je Basho
+(15 Kampftage), dazu die Sonderwertung "Yusho" auf den Turniersieger — die löst sich automatisch auf,
+sobald die Turnierdatenbank den Sieger meldet. Datenquelle sumo-api.com, kostenlos und ohne Key.
 
 = 1.16.1 =
 Rugby hat jetzt einen eigenen Tab im Adminbereich — vorher hing der AFL-Abruf unsichtbar am

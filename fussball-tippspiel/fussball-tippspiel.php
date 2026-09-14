@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       Tippstube
- * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL) und Rugby (AFL), echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version:           1.16.1
+ * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL), Rugby (AFL) und Sumo, echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
+ * Version:           1.17.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,8 +12,8 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.16.1' );
-define( 'FTIPP_DB_VERSION', '20' );
+define( 'FTIPP_VERSION', '1.17.0' );
+define( 'FTIPP_DB_VERSION', '21' );
 
 /**
  * Tennis (livetennisapi.com): Der Gratis-Tarif erlaubt 100 Anfragen pro Tag. Wir deckeln bewusst bei 90,
@@ -311,6 +311,35 @@ function ftipp_install() {
         PRIMARY KEY  (round_id,league,user_id)
     ) $charset_collate;" );
 
+    dbDelta( "CREATE TABLE {$p}ftipp_sumo_tips (
+        user_id BIGINT UNSIGNED NOT NULL,
+        bout_id VARCHAR(64) NOT NULL,
+        pick TINYINT NULL,
+        committed TINYINT NOT NULL DEFAULT 0,
+        updated_at DATETIME NULL,
+        PRIMARY KEY  (user_id,bout_id)
+    ) $charset_collate;" );
+
+    dbDelta( "CREATE TABLE {$p}ftipp_sumo_round_config (
+        round_id BIGINT UNSIGNED NOT NULL,
+        p_win INT NOT NULL DEFAULT 2,
+        malus_on TINYINT NOT NULL DEFAULT 0,
+        malus INT NOT NULL DEFAULT 0,
+        deadline_min INT NOT NULL DEFAULT 60,
+        yusho_points INT NOT NULL DEFAULT 10,
+        PRIMARY KEY  (round_id)
+    ) $charset_collate;" );
+
+    dbDelta( "CREATE TABLE {$p}ftipp_sumo_yusho_tips (
+        round_id BIGINT UNSIGNED NOT NULL,
+        basho VARCHAR(8) NOT NULL,
+        user_id BIGINT UNSIGNED NOT NULL,
+        rikishi_id VARCHAR(16) NULL,
+        committed TINYINT NOT NULL DEFAULT 0,
+        updated_at DATETIME NULL,
+        PRIMARY KEY  (round_id,basho,user_id)
+    ) $charset_collate;" );
+
     dbDelta( "CREATE TABLE {$p}ftipp_tennis_cup (
         round_id BIGINT UNSIGNED NOT NULL,
         tournament_key VARCHAR(64) NOT NULL,
@@ -374,6 +403,7 @@ function ftipp_backup_table_names() {
         'ftipp_f1_tips', 'ftipp_f1_round_config',
         'ftipp_tennis_tips', 'ftipp_tennis_round_config', 'ftipp_tennis_cup', 'ftipp_tennis_cup_tips',
         'ftipp_hockey_tips', 'ftipp_hockey_round_config', 'ftipp_hockey_special', 'ftipp_hockey_special_tips',
+        'ftipp_sumo_tips', 'ftipp_sumo_round_config', 'ftipp_sumo_yusho_tips',
     );
 }
 
@@ -563,6 +593,7 @@ add_filter( 'cron_schedules', function ( $s ) {
 add_filter( 'cron_schedules', function ( $s ) {
     $s['ftipp_tennis_4h'] = array( 'interval' => 4 * HOUR_IN_SECONDS, 'display' => 'Alle 4 Stunden (Tippstube Tennis)' );
     $s['ftipp_nhl_4h']    = array( 'interval' => 4 * HOUR_IN_SECONDS, 'display' => 'Alle 4 Stunden (Tippstube Eishockey)' );
+    $s['ftipp_sumo_4h']   = array( 'interval' => 4 * HOUR_IN_SECONDS, 'display' => 'Alle 4 Stunden (Tippstube Sumo)' );
     return $s;
 } );
 register_activation_hook( __FILE__, function () {
@@ -585,6 +616,9 @@ register_activation_hook( __FILE__, function () {
     if ( ! wp_next_scheduled( 'ftipp_nhl_periodic_fetch' ) ) {
         wp_schedule_event( time() + 210, 'ftipp_nhl_4h', 'ftipp_nhl_periodic_fetch' );
     }
+    if ( ! wp_next_scheduled( 'ftipp_sumo_periodic_fetch' ) ) {
+        wp_schedule_event( time() + 270, 'ftipp_sumo_4h', 'ftipp_sumo_periodic_fetch' );
+    }
     // Automatische Datensicherung ist bewusst opt-in (Standard: aus) — wird erst geplant, wenn der Admin
     // sie auf der Datensicherung-Seite aktiviert, siehe admin_post_ftipp_save_backup_settings.
 } );
@@ -597,6 +631,7 @@ add_action( 'plugins_loaded', function () {
     if ( ! wp_next_scheduled( 'ftipp_f1_weekly_fetch' ) ) { wp_schedule_event( time() + 90, 'weekly', 'ftipp_f1_weekly_fetch' ); }
     if ( ! wp_next_scheduled( 'ftipp_tennis_periodic_fetch' ) ) { wp_schedule_event( time() + 150, 'ftipp_tennis_4h', 'ftipp_tennis_periodic_fetch' ); }
     if ( ! wp_next_scheduled( 'ftipp_nhl_periodic_fetch' ) ) { wp_schedule_event( time() + 210, 'ftipp_nhl_4h', 'ftipp_nhl_periodic_fetch' ); }
+    if ( ! wp_next_scheduled( 'ftipp_sumo_periodic_fetch' ) ) { wp_schedule_event( time() + 270, 'ftipp_sumo_4h', 'ftipp_sumo_periodic_fetch' ); }
     if ( get_option( 'ftipp_backup_enabled' ) && ! wp_next_scheduled( 'ftipp_backup_scheduled' ) ) {
         wp_schedule_event( time() + 240, 'ftipp_backup_custom', 'ftipp_backup_scheduled' );
     }
@@ -609,6 +644,7 @@ register_deactivation_hook( __FILE__, function () {
     wp_clear_scheduled_hook( 'ftipp_f1_weekly_fetch' );
     wp_clear_scheduled_hook( 'ftipp_tennis_periodic_fetch' );
     wp_clear_scheduled_hook( 'ftipp_nhl_periodic_fetch' );
+    wp_clear_scheduled_hook( 'ftipp_sumo_periodic_fetch' );
 } );
 
 /* ============================================================
@@ -1850,6 +1886,310 @@ function ftipp_hockey_special_points_for( $round_id, $league, $user_id ) {
     ), ARRAY_A );
     if ( ! $tip || empty( $tip['committed'] ) ) { return 0; }
     return ( (string) $tip['team'] === (string) $sp['winner'] ) ? intval( $sp['points'] ) : 0;
+}
+
+/* ============================================================
+ * SUMO — Sieger-Tipp je Kampf
+ * Eigenständiges System wie die übrigen Sportarten. Mechanisch wie Tennis (zwei Kämpfer, ein Sieger,
+ * kein Unentschieden), organisatorisch wie ein Turnier-Sport: ein Basho dauert 15 Tage und hat seine
+ * eigene Wertung — genau wie ein Tennis-Turnier.
+ *
+ * Datenquelle: sumo-api.com (kostenlos, kein Key). Zwei Besonderheiten, die den Aufbau bestimmen:
+ *  - Die Paarungen eines Tages werden erst ein bis zwei Tage vorher veröffentlicht. Man kann also nie
+ *    das ganze Basho im Voraus tippen — die Ansicht muss mit "Tag noch nicht angesetzt" umgehen.
+ *  - Der Yusho (Turniersieger) steht nach dem Basho in der API. Anders als bei Tennis und Eishockey
+ *    muss ihn deshalb niemand von Hand eintragen; er löst sich automatisch auf wie die
+ *    Formel-1-Fahrerwertung.
+ * Gewertet wird die Makuuchi-Division (höchste Liga, 20 Kämpfe je Tag).
+ * ============================================================ */
+
+define( 'FTIPP_SUMO_DIVISION', 'Makuuchi' );
+/** Kampfbeginn der Makuuchi-Division: ca. 15:40 Uhr japanischer Zeit = 06:40 UTC. */
+define( 'FTIPP_SUMO_START_UTC', 6 * HOUR_IN_SECONDS );
+
+function ftipp_sumo_fetch( $path ) {
+    $resp = wp_remote_get( 'https://www.sumo-api.com/api' . $path, array( 'timeout' => 20 ) );
+    if ( is_wp_error( $resp ) ) { return array( 'ok' => false, 'error' => $resp->get_error_message() ); }
+    $code = (int) wp_remote_retrieve_response_code( $resp );
+    if ( 200 !== $code ) { return array( 'ok' => false, 'error' => 'HTTP ' . $code ); }
+    $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+    if ( ! is_array( $body ) ) { return array( 'ok' => false, 'error' => 'Unerwartete Antwort' ); }
+    return array( 'ok' => true, 'body' => $body );
+}
+
+/**
+ * Kennung des aktuellen Basho im Format JJJJMM. Turniere finden in den ungeraden Monaten statt
+ * (Januar, März, Mai, Juli, September, November); außerhalb zählt das zuletzt gelaufene.
+ */
+function ftipp_sumo_current_basho() {
+    $fest = trim( (string) get_option( 'ftipp_sumo_basho', '' ) );
+    if ( '' !== $fest ) { return $fest; }
+    $jahr = intval( gmdate( 'Y' ) );
+    $monat = intval( gmdate( 'n' ) );
+    if ( 0 === $monat % 2 ) { $monat--; }          // gerader Monat -> das Turnier davor
+    if ( $monat < 1 ) { $monat = 11; $jahr--; }
+    return sprintf( '%04d%02d', $jahr, $monat );
+}
+
+/** Lesbarer Name eines Basho, z.B. "September 2026". */
+function ftipp_sumo_basho_name( $id ) {
+    $monate = array( 1 => 'Januar', 3 => 'März', 5 => 'Mai', 7 => 'Juli', 9 => 'September', 11 => 'November' );
+    $j = substr( (string) $id, 0, 4 ); $m = intval( substr( (string) $id, 4, 2 ) );
+    return ( isset( $monate[ $m ] ) ? $monate[ $m ] : $m . '.' ) . ' ' . $j;
+}
+
+/** Anpfiff eines Kampftages — die API liefert nur die Basho-Daten, der Tag wird daraus berechnet. */
+function ftipp_sumo_day_ts( $bashoStart, $day ) {
+    $start = strtotime( (string) $bashoStart );
+    if ( ! $start ) { return 0; }
+    return $start + ( intval( $day ) - 1 ) * DAY_IN_SECONDS + FTIPP_SUMO_START_UTC;
+}
+
+/** Einen Kampf auf die Felder eindampfen, die die Tippstube braucht. */
+function ftipp_sumo_shape( $b, $bashoStart ) {
+    $sieger = isset( $b['winnerId'] ) ? intval( $b['winnerId'] ) : 0;
+    $ost = isset( $b['eastId'] ) ? intval( $b['eastId'] ) : 0;
+    $west = isset( $b['westId'] ) ? intval( $b['westId'] ) : 0;
+    $pick = null;
+    if ( $sieger && $sieger === $ost ) { $pick = 1; } elseif ( $sieger && $sieger === $west ) { $pick = 2; }
+    return array(
+        'id'      => (string) $b['id'],
+        'basho'   => (string) $b['bashoId'],
+        'day'     => intval( $b['day'] ),
+        'no'      => isset( $b['matchNo'] ) ? intval( $b['matchNo'] ) : 0,
+        'start'   => gmdate( 'Y-m-d\TH:i:s\Z', ftipp_sumo_day_ts( $bashoStart, $b['day'] ) ),
+        'east'    => array( 'id' => $ost,  'name' => isset( $b['eastShikona'] ) ? $b['eastShikona'] : '?',
+                            'rank' => isset( $b['eastRank'] ) ? $b['eastRank'] : '' ),
+        'west'    => array( 'id' => $west, 'name' => isset( $b['westShikona'] ) ? $b['westShikona'] : '?',
+                            'rank' => isset( $b['westRank'] ) ? $b['westRank'] : '' ),
+        'kimarite'=> isset( $b['kimarite'] ) ? $b['kimarite'] : '',
+        'winner'  => $pick,
+    );
+}
+
+/** Kämpfe und Turnierstand abrufen. */
+function ftipp_sumo_sync( $trigger = 'cron' ) {
+    $out = array( 'ok' => false, 'bouts_merged' => 0, 'results_new' => 0, 'calls' => 0, 'errors' => array() );
+    $bashoId = ftipp_sumo_current_basho();
+
+    $b = ftipp_sumo_fetch( '/basho/' . rawurlencode( $bashoId ) );
+    $out['calls']++;
+    if ( ! $b['ok'] ) { $out['errors'][] = 'Basho: ' . $b['error']; return $out; }
+    $meta = $b['body'];
+    $start = isset( $meta['startDate'] ) ? $meta['startDate'] : null;
+    if ( ! $start ) { $out['errors'][] = 'Basho ohne Startdatum'; return $out; }
+
+    // Yusho der Makuuchi-Division — steht erst nach dem Turnier drin und löst die Sonderwertung auf.
+    $yusho = null;
+    foreach ( ( isset( $meta['yusho'] ) ? $meta['yusho'] : array() ) as $y ) {
+        if ( isset( $y['type'] ) && FTIPP_SUMO_DIVISION === $y['type'] ) {
+            $yusho = array(
+                'id'   => isset( $y['rikishiId'] ) ? (string) $y['rikishiId'] : '',
+                'name' => isset( $y['shikonaEn'] ) ? $y['shikonaEn'] : '',
+            );
+            break;
+        }
+    }
+    $bashos = get_option( 'ftipp_sumo_bashos', array() );
+    if ( ! is_array( $bashos ) ) { $bashos = array(); }
+    $bashos[ $bashoId ] = array(
+        'id' => $bashoId, 'name' => ftipp_sumo_basho_name( $bashoId ),
+        'start' => $start, 'end' => isset( $meta['endDate'] ) ? $meta['endDate'] : null,
+        'yusho' => $yusho,
+    );
+
+    $bouts = get_option( 'ftipp_sumo_bouts', array() );
+    if ( ! is_array( $bouts ) ) { $bouts = array(); }
+    $merged = 0; $resultsNew = 0;
+
+    // Weiter als zwei Tage im Voraus braucht man gar nicht zu fragen: die Paarungen werden erst ein bis
+    // zwei Tage vorher veröffentlicht. Ohne diese Grenze würde jeder Lauf 15 Abrufe machen, von denen
+    // die meisten garantiert leer zurückkommen.
+    $startTs  = strtotime( $start );
+    $heuteTag = $startTs ? (int) floor( ( time() - $startTs ) / DAY_IN_SECONDS ) + 1 : 15;
+    $maxTag   = max( 1, min( 15, $heuteTag + 2 ) );
+
+    for ( $day = 1; $day <= $maxTag; $day++ ) {
+        // Tage, deren Kämpfe alle entschieden sind, müssen nicht erneut geholt werden.
+        $offen = false; $bekannt = false;
+        foreach ( $bouts as $x ) {
+            if ( $x['basho'] === $bashoId && $x['day'] === $day ) {
+                $bekannt = true;
+                if ( null === $x['winner'] ) { $offen = true; break; }
+            }
+        }
+        if ( $bekannt && ! $offen ) { continue; }
+
+        $r = ftipp_sumo_fetch( '/basho/' . rawurlencode( $bashoId ) . '/torikumi/' . FTIPP_SUMO_DIVISION . '/' . $day );
+        $out['calls']++;
+        if ( ! $r['ok'] ) { $out['errors'][] = "Tag $day: " . $r['error']; continue; }
+        $liste = isset( $r['body']['torikumi'] ) ? $r['body']['torikumi'] : array();
+        // Leere Antwort heißt: dieser Kampftag ist noch nicht angesetzt — völlig normal, die Paarungen
+        // werden erst ein bis zwei Tage vorher veröffentlicht.
+        foreach ( $liste as $bo ) {
+            if ( empty( $bo['id'] ) ) { continue; }
+            $sh = ftipp_sumo_shape( $bo, $start );
+            $hatte = isset( $bouts[ $sh['id'] ] ) && null !== $bouts[ $sh['id'] ]['winner'];
+            $bouts[ $sh['id'] ] = $sh;
+            if ( null !== $sh['winner'] && ! $hatte ) { $resultsNew++; }
+            $merged++;
+        }
+    }
+
+    update_option( 'ftipp_sumo_bashos', $bashos, false );
+    update_option( 'ftipp_sumo_bouts', $bouts, false );
+    update_option( 'ftipp_sumo_last_sync', current_time( 'mysql', true ), false );
+
+    $out['ok'] = ( $merged > 0 ) || ! $out['errors'];
+    $out['bouts_merged'] = $merged;
+    $out['results_new']  = $resultsNew;
+
+    ftipp_log_history(
+        'manual' === $trigger ? 'sumo_manual_fetch' : 'sumo_cron_fetch',
+        "Sumo {$bashoId}: {$merged} Kämpfe aktualisiert, {$resultsNew} neue Ergebnisse, {$out['calls']} Abrufe"
+            . ( $yusho ? ', Yusho: ' . $yusho['name'] : '' )
+            . ( $out['errors'] ? ', Fehler bei ' . count( $out['errors'] ) : '' ),
+        'SUMO', wp_json_encode( array( 'errors' => $out['errors'] ) ),
+        'manual' === $trigger ? get_current_user_id() : null
+    );
+    return $out;
+}
+add_action( 'ftipp_sumo_periodic_fetch', 'ftipp_sumo_sync' );
+
+/** Alle bekannten Bashos, neueste zuerst. */
+function ftipp_sumo_bashos() {
+    $b = get_option( 'ftipp_sumo_bashos', array() );
+    if ( ! is_array( $b ) ) { return array(); }
+    krsort( $b );
+    return array_values( $b );
+}
+/** Alle Kämpfe eines Basho. */
+function ftipp_sumo_bouts( $basho ) {
+    $all = get_option( 'ftipp_sumo_bouts', array() );
+    if ( ! is_array( $all ) ) { return array(); }
+    $out = array();
+    foreach ( $all as $id => $x ) { if ( $x['basho'] === $basho ) { $out[ $id ] = $x; } }
+    uasort( $out, function ( $a, $b ) { return ( $a['day'] <=> $b['day'] ) ?: ( $a['no'] <=> $b['no'] ); } );
+    return $out;
+}
+
+function ftipp_sumo_default_cfg() {
+    // Wie bei Tennis: ein Sieger-Tipp mit zwei möglichen Ausgängen. Der Yusho über 15 Tage ist
+    // deutlich schwerer und zählt entsprechend mehr.
+    return array( 'pWin' => 2, 'malusOn' => false, 'malus' => 0, 'deadlineMin' => 60, 'yushoPoints' => 10 );
+}
+function ftipp_sumo_round_cfg( $round_id ) {
+    global $wpdb;
+    $row = $wpdb->get_row( $wpdb->prepare(
+        "SELECT * FROM {$wpdb->prefix}ftipp_sumo_round_config WHERE round_id=%d", $round_id
+    ), ARRAY_A );
+    if ( ! $row ) { return ftipp_sumo_default_cfg(); }
+    return array(
+        'pWin' => intval( $row['p_win'] ),
+        'malusOn' => (bool) intval( $row['malus_on'] ), 'malus' => intval( $row['malus'] ),
+        'deadlineMin' => intval( $row['deadline_min'] ),
+        'yushoPoints' => isset( $row['yusho_points'] ) ? intval( $row['yusho_points'] ) : 10,
+    );
+}
+/** Alle Kämpfe eines Tages sind zum Tagesbeginn gesperrt — Einzelzeiten liefert die API nicht. */
+function ftipp_sumo_lock_ts( $bout, $cfg ) {
+    $ts = ! empty( $bout['start'] ) ? strtotime( $bout['start'] ) : 0;
+    return $ts ? ( $ts - $cfg['deadlineMin'] * 60 ) : 0;
+}
+function ftipp_sumo_score_tip( $bout, $tip, $cfg ) {
+    if ( empty( $bout['winner'] ) || ! $tip || empty( $tip['committed'] ) ) { return 0; }
+    return ( intval( $tip['pick'] ) === intval( $bout['winner'] ) ) ? $cfg['pWin'] : 0;
+}
+
+/** Kämpfer des Basho — Auswahlliste für den Yusho-Tipp. */
+function ftipp_sumo_rikishi( $basho ) {
+    $out = array();
+    foreach ( ftipp_sumo_bouts( $basho ) as $b ) {
+        foreach ( array( 'east', 'west' ) as $seite ) {
+            $r = $b[ $seite ];
+            if ( empty( $r['id'] ) ) { continue; }
+            $id = (string) $r['id'];
+            if ( ! isset( $out[ $id ] ) ) { $out[ $id ] = array( 'id' => $id, 'name' => $r['name'], 'rank' => $r['rank'] ); }
+        }
+    }
+    usort( $out, function ( $a, $b ) { return strcmp( $a['name'], $b['name'] ); } );
+    return array_values( $out );
+}
+/** Tipp-Schluss für den Yusho: Beginn des ersten Kampftages. */
+function ftipp_sumo_yusho_lock_ts( $basho, $cfg ) {
+    foreach ( ftipp_sumo_bashos() as $b ) {
+        if ( $b['id'] === $basho ) { return ftipp_sumo_day_ts( $b['start'], 1 ) - $cfg['deadlineMin'] * 60; }
+    }
+    return 0;
+}
+/** Punkte aus der Yusho-Wette — löst sich automatisch auf, sobald die API den Sieger meldet. */
+function ftipp_sumo_yusho_points_for( $round_id, $basho, $user_id ) {
+    global $wpdb;
+    $sieger = null;
+    foreach ( ftipp_sumo_bashos() as $b ) {
+        if ( $b['id'] === $basho && ! empty( $b['yusho']['id'] ) ) { $sieger = (string) $b['yusho']['id']; break; }
+    }
+    if ( ! $sieger ) { return 0; }
+    $cfg = ftipp_sumo_round_cfg( $round_id );
+    $tip = $wpdb->get_row( $wpdb->prepare(
+        "SELECT rikishi_id,committed FROM {$wpdb->prefix}ftipp_sumo_yusho_tips
+         WHERE round_id=%d AND basho=%s AND user_id=%d", $round_id, $basho, $user_id
+    ), ARRAY_A );
+    if ( ! $tip || empty( $tip['committed'] ) ) { return 0; }
+    return ( (string) $tip['rikishi_id'] === $sieger ) ? intval( $cfg['yushoPoints'] ) : 0;
+}
+
+/** Rangliste einer Runde für ein Basho. */
+function ftipp_sumo_compute_leaderboard( $round_id, $basho ) {
+    global $wpdb;
+    $cfg = ftipp_sumo_round_cfg( $round_id );
+    $members = ftipp_round_members( $round_id );
+    $subRows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT user_id FROM {$wpdb->prefix}ftipp_round_subs WHERE round_id=%d AND comp_id='SUMO' AND active=1", $round_id
+    ), ARRAY_A );
+    $activeIds = array();
+    foreach ( $subRows as $r ) { $activeIds[ intval( $r['user_id'] ) ] = true; }
+    $members = array_values( array_filter( $members, function ( $m ) use ( $activeIds ) { return isset( $activeIds[ $m['id'] ] ); } ) );
+    if ( ! $members ) { return array(); }
+
+    $bouts = ftipp_sumo_bouts( $basho );
+    $now = time();
+    $rows = array();
+    foreach ( $members as $m ) {
+        $tipRows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT bout_id,pick,committed FROM {$wpdb->prefix}ftipp_sumo_tips WHERE user_id=%d", $m['id']
+        ), ARRAY_A );
+        $byBout = array();
+        foreach ( $tipRows as $t ) { $byBout[ $t['bout_id'] ] = $t; }
+
+        $total = 0; $hits = 0; $missed = 0;
+        foreach ( $bouts as $id => $b ) {
+            if ( null === $b['winner'] ) { continue; }
+            $tip = isset( $byBout[ $id ] ) ? $byBout[ $id ] : null;
+            if ( $tip && $tip['committed'] ) {
+                $pts = ftipp_sumo_score_tip( $b, $tip, $cfg );
+                $total += $pts;
+                if ( $pts > 0 ) { $hits++; }
+            } else {
+                $missed++;
+                if ( $cfg['malusOn'] ) {
+                    $lockTs = ftipp_sumo_lock_ts( $b, $cfg );
+                    if ( $lockTs && $lockTs < $now ) { $total += $cfg['malus']; }
+                }
+            }
+        }
+        $yusho = ftipp_sumo_yusho_points_for( $round_id, $basho, $m['id'] );
+        $total += $yusho;
+        $u = get_userdata( $m['id'] );
+        $rows[] = array(
+            'user_id' => $m['id'],
+            'name'    => $u ? ftipp_public_name( $u ) : ( 'Spieler #' . $m['id'] ),
+            'total'   => $total, 'hits' => $hits, 'yusho' => $yusho, 'missed' => $missed,
+        );
+    }
+    usort( $rows, function ( $a, $b ) { return $b['total'] <=> $a['total']; } );
+    foreach ( $rows as $i => $r ) { $rows[ $i ]['rank'] = $i + 1; }
+    return $rows;
 }
 
 /* ============================================================
@@ -4319,6 +4659,228 @@ add_action( 'rest_api_init', function () {
             return ftipp_hockey_special_row( $rid, $league );
         },
     ) );
+    /* ---------------- Sumo ---------------- */
+    register_rest_route( 'ftipp/v1', '/sumo/bouts', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req->get_param( 'round' ) );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $cfg = ftipp_sumo_round_cfg( $rid );
+            $bashos = ftipp_sumo_bashos();
+            $basho = sanitize_text_field( (string) $req->get_param( 'basho' ) );
+            if ( '' === $basho || ! array_filter( $bashos, function ( $b ) use ( $basho ) { return $b['id'] === $basho; } ) ) {
+                $basho = $bashos ? $bashos[0]['id'] : '';
+            }
+            $bouts = $basho ? ftipp_sumo_bouts( $basho ) : array();
+
+            $tage = array();
+            foreach ( $bouts as $b ) {
+                $d = $b['day'];
+                if ( ! isset( $tage[ $d ] ) ) { $tage[ $d ] = array( 'day' => $d, 'total' => 0, 'final' => 0 ); }
+                $tage[ $d ]['total']++;
+                if ( null !== $b['winner'] ) { $tage[ $d ]['final']++; }
+            }
+            ksort( $tage );
+            $tage = array_values( $tage );
+
+            $tag = intval( $req->get_param( 'day' ) );
+            if ( $tag < 1 ) {
+                // Standard: der nächste Tag mit offenen Kämpfen, sonst der zuletzt gekämpfte.
+                foreach ( $tage as $t ) { if ( $t['final'] < $t['total'] ) { $tag = $t['day']; break; } }
+                if ( $tag < 1 && $tage ) { $tag = $tage[ count( $tage ) - 1 ]['day']; }
+            }
+
+            $mine = array();
+            $tipRows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT bout_id,pick,committed FROM {$wpdb->prefix}ftipp_sumo_tips WHERE user_id=%d", $uid
+            ), ARRAY_A );
+            foreach ( $tipRows as $t ) { $mine[ $t['bout_id'] ] = $t; }
+
+            $now = time();
+            $out = array();
+            foreach ( $bouts as $id => $b ) {
+                if ( $b['day'] !== $tag ) { continue; }
+                $lockTs = ftipp_sumo_lock_ts( $b, $cfg );
+                $locked = $lockTs && ( $now >= $lockTs );
+                $row = array(
+                    'bout' => $b, 'locked' => (bool) $locked,
+                    'mine' => isset( $mine[ $id ] ) ? array(
+                        'pick' => intval( $mine[ $id ]['pick'] ), 'committed' => (bool) $mine[ $id ]['committed'],
+                    ) : null,
+                );
+                if ( $locked ) {
+                    $others = $wpdb->get_results( $wpdb->prepare(
+                        "SELECT user_id,pick FROM {$wpdb->prefix}ftipp_sumo_tips WHERE bout_id=%s AND committed=1", $id
+                    ), ARRAY_A );
+                    $named = array();
+                    foreach ( $others as $o ) {
+                        $u = get_userdata( $o['user_id'] );
+                        $named[] = array(
+                            'name' => $u ? ftipp_public_name( $u ) : ( 'Spieler #' . $o['user_id'] ),
+                            'pick' => intval( $o['pick'] ),
+                        );
+                    }
+                    $row['others'] = $named;
+                }
+                $out[] = $row;
+            }
+            return array(
+                'bouts' => $out, 'days' => $tage, 'day' => $tag,
+                'basho' => $basho, 'bashos' => $bashos, 'cfg' => $cfg,
+            );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/sumo/tips', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ), 'bout_id' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $bid = sanitize_text_field( $req['bout_id'] );
+            $all = get_option( 'ftipp_sumo_bouts', array() );
+            if ( ! isset( $all[ $bid ] ) ) { return new WP_Error( 'not_found', 'Kampf nicht gefunden.', array( 'status' => 404 ) ); }
+            $cfg = ftipp_sumo_round_cfg( $rid );
+            $lockTs = ftipp_sumo_lock_ts( $all[ $bid ], $cfg );
+            // Sperre serverseitig neu prüfen — dem Client nie vertrauen.
+            if ( $lockTs && time() >= $lockTs ) {
+                return new WP_Error( 'locked', 'Die Tipp-Frist ist bereits abgelaufen.', array( 'status' => 403 ) );
+            }
+            $pick = intval( $req->get_param( 'pick' ) );
+            if ( 1 !== $pick && 2 !== $pick ) { return new WP_Error( 'bad_pick', 'Ungültiger Tipp.', array( 'status' => 400 ) ); }
+            $wpdb->replace( "{$wpdb->prefix}ftipp_sumo_tips", array(
+                'user_id' => $uid, 'bout_id' => $bid, 'pick' => $pick,
+                'committed' => ! empty( $req['committed'] ) ? 1 : 0,
+                'updated_at' => current_time( 'mysql' ),
+            ) );
+            return array( 'ok' => true );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/sumo/leaderboard', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            $rid = intval( $req->get_param( 'round' ) ); $uid = get_current_user_id();
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $bashos = ftipp_sumo_bashos();
+            $basho = sanitize_text_field( (string) $req->get_param( 'basho' ) );
+            if ( '' === $basho && $bashos ) { $basho = $bashos[0]['id']; }
+            return array( 'rows' => ftipp_sumo_compute_leaderboard( $rid, $basho ), 'basho' => $basho, 'bashos' => $bashos );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/sumo/config', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            $rid = intval( $req->get_param( 'round' ) ); $uid = get_current_user_id();
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            return ftipp_sumo_round_cfg( $rid );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/sumo/config', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_admin( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Nur der Runden-Admin darf die Regeln ändern.', array( 'status' => 403 ) ); }
+            $cur = ftipp_sumo_round_cfg( $rid );
+            $num = function ( $key, $fallback ) use ( $req ) {
+                $v = $req->get_param( $key );
+                return ( null === $v || '' === $v ) ? $fallback : intval( $v );
+            };
+            $wpdb->replace( "{$wpdb->prefix}ftipp_sumo_round_config", array(
+                'round_id' => $rid,
+                'p_win' => $num( 'pWin', $cur['pWin'] ),
+                'malus_on' => ( null !== $req->get_param( 'malusOn' ) )
+                    ? ( $req->get_param( 'malusOn' ) ? 1 : 0 ) : ( $cur['malusOn'] ? 1 : 0 ),
+                'malus' => $num( 'malus', $cur['malus'] ),
+                'deadline_min' => $num( 'deadlineMin', $cur['deadlineMin'] ),
+                'yusho_points' => $num( 'yushoPoints', $cur['yushoPoints'] ),
+            ) );
+            return ftipp_sumo_round_cfg( $rid );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/sumo/subscribe', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ), 'active' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $wpdb->replace( "{$wpdb->prefix}ftipp_round_subs", array(
+                'round_id' => $rid, 'user_id' => $uid, 'comp_id' => 'SUMO', 'active' => $req['active'] ? 1 : 0,
+            ) );
+            return array( 'ok' => true );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/sumo/yusho', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req->get_param( 'round' ) );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $bashos = ftipp_sumo_bashos();
+            $basho = sanitize_text_field( (string) $req->get_param( 'basho' ) );
+            if ( '' === $basho && $bashos ) { $basho = $bashos[0]['id']; }
+            $cfg = ftipp_sumo_round_cfg( $rid );
+            $info = null;
+            foreach ( $bashos as $b ) { if ( $b['id'] === $basho ) { $info = $b; break; } }
+            $lockTs = ftipp_sumo_yusho_lock_ts( $basho, $cfg );
+            $locked = $lockTs && ( time() >= $lockTs );
+            $mine = $wpdb->get_row( $wpdb->prepare(
+                "SELECT rikishi_id,committed FROM {$wpdb->prefix}ftipp_sumo_yusho_tips
+                 WHERE round_id=%d AND basho=%s AND user_id=%d", $rid, $basho, $uid
+            ), ARRAY_A );
+            $out = array(
+                'basho' => $basho, 'bashos' => $bashos, 'info' => $info,
+                'rikishi' => ftipp_sumo_rikishi( $basho ),
+                'points' => $cfg['yushoPoints'],
+                'winner' => ( $info && ! empty( $info['yusho']['id'] ) ) ? $info['yusho'] : null,
+                'locked' => (bool) $locked,
+                'deadline' => $lockTs ? gmdate( 'Y-m-d\TH:i', $lockTs + ( get_option( 'gmt_offset', 0 ) * HOUR_IN_SECONDS ) ) : null,
+                'mine' => $mine ? array( 'rikishi_id' => $mine['rikishi_id'], 'committed' => (bool) $mine['committed'] ) : null,
+                'rows' => array(),
+            );
+            if ( ! $locked ) { return $out; }
+            $subRows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT user_id FROM {$wpdb->prefix}ftipp_round_subs WHERE round_id=%d AND comp_id='SUMO' AND active=1", $rid
+            ), ARRAY_A );
+            $activeIds = array();
+            foreach ( $subRows as $r ) { $activeIds[ intval( $r['user_id'] ) ] = true; }
+            foreach ( ftipp_round_members( $rid ) as $mem ) {
+                if ( ! isset( $activeIds[ $mem['id'] ] ) ) { continue; }
+                $t = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT rikishi_id,committed FROM {$wpdb->prefix}ftipp_sumo_yusho_tips
+                     WHERE round_id=%d AND basho=%s AND user_id=%d", $rid, $basho, $mem['id']
+                ), ARRAY_A );
+                $u = get_userdata( $mem['id'] );
+                $out['rows'][] = array(
+                    'name' => $u ? ftipp_public_name( $u ) : ( 'Spieler #' . $mem['id'] ),
+                    'rikishi_id' => ( $t && $t['committed'] ) ? $t['rikishi_id'] : null,
+                    'pts' => ftipp_sumo_yusho_points_for( $rid, $basho, $mem['id'] ),
+                );
+            }
+            usort( $out['rows'], function ( $a, $b ) { return $b['pts'] <=> $a['pts']; } );
+            return $out;
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/sumo/yusho/tip', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ), 'basho' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $basho = sanitize_text_field( $req['basho'] );
+            $cfg = ftipp_sumo_round_cfg( $rid );
+            $lockTs = ftipp_sumo_yusho_lock_ts( $basho, $cfg );
+            if ( $lockTs && time() >= $lockTs ) {
+                return new WP_Error( 'locked', 'Die Tipp-Frist ist bereits abgelaufen.', array( 'status' => 403 ) );
+            }
+            $r = sanitize_text_field( (string) $req->get_param( 'rikishi_id' ) );
+            $wpdb->replace( "{$wpdb->prefix}ftipp_sumo_yusho_tips", array(
+                'round_id' => $rid, 'basho' => $basho, 'user_id' => $uid,
+                'rikishi_id' => ( '' === $r ) ? null : $r,
+                'committed' => ! empty( $req['committed'] ) ? 1 : 0,
+                'updated_at' => current_time( 'mysql' ),
+            ) );
+            return array( 'ok' => true );
+        },
+    ) );
     /* ---------------- Tennis ---------------- */
     register_rest_route( 'ftipp/v1', '/tennis/matches', array(
         'methods' => 'GET', 'permission_callback' => $auth,
@@ -5285,6 +5847,8 @@ function ftipp_page_history() {
         'tennis_manual_fetch' => '🎾⬇️ Tennis: Manueller Abruf',
         'nhl_cron_fetch' => '🏒⏱️ Eishockey: Automatischer Abruf',
         'nhl_manual_fetch' => '🏒⬇️ Eishockey: Manueller Abruf',
+        'sumo_cron_fetch' => '🤼⏱️ Sumo: Automatischer Abruf',
+        'sumo_manual_fetch' => '🤼⬇️ Sumo: Manueller Abruf',
         'csv_import'    => '📄 CSV-Import',
         'test_fixtures' => '🎲 Test-Spiele',
         'restore'       => '💾 Sicherung wiederhergestellt',
@@ -5701,6 +6265,97 @@ function ftipp_page_team_sport( $sport = 'ussport' ) {
 }
 function ftipp_page_ussport() { ftipp_page_team_sport( 'ussport' ); }
 function ftipp_page_rugby()   { ftipp_page_team_sport( 'rugby' ); }
+function ftipp_page_sumo() {
+    if ( ! current_user_can( 'manage_options' ) ) { return; }
+    $lastSync = get_option( 'ftipp_sumo_last_sync' );
+    $bashos   = ftipp_sumo_bashos();
+    $aktuell  = ftipp_sumo_current_basho();
+    $bouts    = ftipp_sumo_bouts( $aktuell );
+    $entschieden = 0; $tage = array();
+    foreach ( $bouts as $b ) {
+        if ( null !== $b['winner'] ) { $entschieden++; }
+        $tage[ $b['day'] ] = true;
+    }
+    $info = null;
+    foreach ( $bashos as $b ) { if ( $b['id'] === $aktuell ) { $info = $b; break; } }
+    ?>
+    <div class="wrap">
+        <h1>🤼 Sumo</h1>
+        <p>Sieger-Tipp je Kampf — wer gewinnt? Gewertet wird die <strong>Makuuchi-Division</strong>
+           (höchste Liga, 20 Kämpfe je Tag). Ein Basho dauert 15 Tage und hat seine eigene Rangliste.
+           Datenquelle: <a href="https://www.sumo-api.com" target="_blank" rel="noopener">sumo-api.com</a>
+           (kostenlos, kein Key nötig).</p>
+        <p class="description"><strong>Wichtig:</strong> Die Paarungen eines Kampftages werden erst ein bis
+           zwei Tage vorher veröffentlicht — man kann also nie das ganze Basho im Voraus tippen. Der
+           automatische Abruf läuft alle 4 Stunden und fragt nur Tage ab, die schon angesetzt sein können.
+           Der <strong>Yusho</strong> (Turniersieger) kommt direkt aus der API und löst die Sonderwertung
+           automatisch auf — niemand muss ihn eintragen.</p>
+
+        <?php if ( isset( $_GET['ftipp_sumo_done'] ) ) : ?>
+            <div class="notice notice-<?php echo ( 'ok' === $_GET['ftipp_sumo_done'] ) ? 'success' : 'error'; ?> is-dismissible">
+                <p><?php echo ( 'ok' === $_GET['ftipp_sumo_done'] ) ? 'Abruf abgeschlossen.' : 'Abruf fehlgeschlagen — Details unter Tippstube → History.'; ?></p>
+            </div>
+        <?php endif; ?>
+
+        <h2>Status</h2>
+        <p><strong>Aktuelles Basho:</strong> <?php echo esc_html( ftipp_sumo_basho_name( $aktuell ) . ' (' . $aktuell . ')' ); ?>
+           <?php if ( $info ) : ?>
+               &nbsp;·&nbsp; <?php echo esc_html( wp_date( 'd.m.', strtotime( $info['start'] ) ) . ' bis ' . wp_date( 'd.m.Y', strtotime( $info['end'] ) ) ); ?>
+           <?php endif; ?>
+           <br><strong>Kämpfe geladen:</strong> <?php echo count( $bouts ); ?>
+           &nbsp;·&nbsp; <strong>entschieden:</strong> <?php echo esc_html( $entschieden ); ?>
+           &nbsp;·&nbsp; <strong>Kampftage:</strong> <?php echo count( $tage ); ?> von 15
+           <br><strong>Yusho:</strong> <?php echo ( $info && ! empty( $info['yusho']['name'] ) )
+                ? esc_html( $info['yusho']['name'] ) : '— (steht erst nach dem Basho fest)'; ?>
+           &nbsp;·&nbsp; <strong>Letzter Abruf:</strong> <?php echo $lastSync ? esc_html( wp_date( 'd.m.Y H:i', strtotime( $lastSync ) ) ) : '—'; ?></p>
+
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <input type="hidden" name="action" value="ftipp_sumo_fetch" />
+            <?php wp_nonce_field( 'ftipp_sumo_fetch' ); ?>
+            <?php submit_button( '⬇️ Jetzt abrufen', 'primary', 'submit', false ); ?>
+        </form>
+
+        <h2 style="margin-top:30px">Basho festlegen</h2>
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <input type="hidden" name="action" value="ftipp_sumo_save_basho" />
+            <?php wp_nonce_field( 'ftipp_sumo_save_basho' ); ?>
+            <input type="text" name="ftipp_sumo_basho" value="<?php echo esc_attr( get_option( 'ftipp_sumo_basho', '' ) ); ?>"
+                   placeholder="z.B. 202609" style="width:120px" />
+            <p class="description">Normalerweise leer lassen — dann wird das laufende Basho automatisch
+               erkannt (Turniere finden in den ungeraden Monaten statt). Nur zum gezielten Nachladen eines
+               bestimmten Turniers ausfüllen.</p>
+            <?php submit_button( 'Speichern' ); ?>
+        </form>
+
+        <?php if ( $bouts ) : ?>
+        <h2 style="margin-top:30px">Kämpfe</h2>
+        <table class="widefat striped" style="max-width:820px">
+            <thead><tr><th>Tag</th><th>Nr.</th><th>Ost</th><th>West</th><th>Sieger</th></tr></thead>
+            <tbody>
+            <?php foreach ( array_slice( $bouts, 0, 120, true ) as $b ) : ?>
+                <tr>
+                    <td><?php echo esc_html( $b['day'] ); ?></td>
+                    <td><?php echo esc_html( $b['no'] ); ?></td>
+                    <td><?php echo esc_html( $b['east']['name'] ); ?><br><span class="description"><?php echo esc_html( $b['east']['rank'] ); ?></span></td>
+                    <td><?php echo esc_html( $b['west']['name'] ); ?><br><span class="description"><?php echo esc_html( $b['west']['rank'] ); ?></span></td>
+                    <td><?php
+                        if ( null === $b['winner'] ) { echo '—'; }
+                        else {
+                            echo '✅ ' . esc_html( 1 === $b['winner'] ? $b['east']['name'] : $b['west']['name'] );
+                            if ( $b['kimarite'] ) { echo '<br><span class="description">' . esc_html( $b['kimarite'] ) . '</span>'; }
+                        }
+                    ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php else : ?>
+        <p><em>Noch keine Kämpfe geladen — einmal „Jetzt abrufen" klicken.</em></p>
+        <?php endif; ?>
+    </div>
+    <?php
+}
+
 function ftipp_page_tennis() {
     if ( ! current_user_can( 'manage_options' ) ) { return; }
     $key      = ftipp_tennis_api_key();
@@ -6383,6 +7038,21 @@ add_action( 'admin_post_ftipp_nhl_fetch', function () {
     wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'tab' => $tab, 'ftipp_nhl_done' => $res['ok'] ? 'ok' : 'err' ), admin_url( 'admin.php' ) ) );
     exit;
 } );
+add_action( 'admin_post_ftipp_sumo_fetch', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_sumo_fetch' );
+    $res = ftipp_sumo_sync( 'manual' );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'tab' => 'sumo', 'ftipp_sumo_done' => $res['ok'] ? 'ok' : 'err' ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
+add_action( 'admin_post_ftipp_sumo_save_basho', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_sumo_save_basho' );
+    $v = preg_replace( '/[^0-9]/', '', (string) ( $_POST['ftipp_sumo_basho'] ?? '' ) );
+    update_option( 'ftipp_sumo_basho', substr( $v, 0, 6 ) );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'tab' => 'sumo' ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
 add_action( 'admin_post_ftipp_tennis_fetch', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_tennis_fetch' );
@@ -6590,6 +7260,7 @@ function ftipp_page_sports() {
         'nhl'      => array( 'label' => '🏈 US-Sport',  'cb' => 'ftipp_page_ussport' ),
         'rugby'    => array( 'label' => '🏉 Rugby',     'cb' => 'ftipp_page_rugby' ),
         'tennis'   => array( 'label' => '🎾 Tennis',    'cb' => 'ftipp_page_tennis' ),
+        'sumo'     => array( 'label' => '🤼 Sumo',      'cb' => 'ftipp_page_sumo' ),
     );
     $cur = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'fussball';
     if ( ! isset( $tabs[ $cur ] ) ) { $cur = 'fussball'; }

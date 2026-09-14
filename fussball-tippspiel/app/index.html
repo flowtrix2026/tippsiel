@@ -249,6 +249,12 @@
       <div class="hub-tile-meta">UFC &amp; Co. — Kampfkarten &amp; Ergebnisse.</div>
       <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
     </div>
+    <div class="hub-tile is-active" onclick="enterSport('sumo')">
+      <div class="hub-tile-icon">🤼</div>
+      <p class="hub-tile-name">Sumo</p>
+      <div class="hub-tile-meta">Makuuchi — wer gewinnt den Kampf? Eigene Wertung je Basho, dazu der Yusho-Tipp.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-live">Aktiv</span><span style="color:var(--accent-hi)">→</span></div>
+    </div>
     <div class="hub-tile" onclick="enterSport('volleyball')">
       <div class="hub-tile-icon">🏐</div>
       <p class="hub-tile-name">Volleyball</p>
@@ -1841,6 +1847,36 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
   <section id="temode-teeinstellungen" style="display:none"></section>
 </div>
 </div><!-- #tennis-shell -->
+<div id="sumo-shell" style="display:none">
+<header>
+  <h1>
+    <svg width="30" height="33" viewBox="0 0 240 260" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="flex:none">
+      <path d="M20 30 Q20 20 30 20 L210 20 Q220 20 220 30 L220 130 Q220 190 170 220 L120 250 L70 220 Q20 190 20 130 Z" fill="#173a22" stroke="#d9a441" stroke-width="6"/>
+      <circle cx="120" cy="112" r="48" fill="none" stroke="#e3a83f" stroke-width="9"/>
+      <circle cx="98" cy="104" r="15" fill="#e3a83f"/><circle cx="142" cy="104" r="15" fill="#f3ead9"/>
+      <path d="M78 150 Q120 168 162 150" fill="none" stroke="#e3a83f" stroke-width="8" stroke-linecap="round"/>
+    </svg>
+    Tippstube — Sumo
+  </h1>
+  <div class="sub">Sieger-Tipp: Wer gewinnt den Kampf? Makuuchi-Division.
+    <br><button class="hub-switch" onclick="showSportHub()">🤼 Sportart wechseln</button>
+    <button class="hub-switch" onclick="showRounds()">👥 Runden</button>
+  </div>
+</header>
+<div class="wrap">
+  <div class="tabs">
+    <div class="tab active" data-mode="sutippen" onclick="switchSumoMode('sutippen')">📝 Tippen</div>
+    <div class="tab" data-mode="suauswertung" onclick="switchSumoMode('suauswertung')">🏆 Auswertung</div>
+    <div class="tab" data-mode="susonder" onclick="switchSumoMode('susonder')">⭐ Sonderwertungen</div>
+    <div class="tab" data-mode="sueinstellungen" onclick="switchSumoMode('sueinstellungen')">⚙️ Einstellungen</div>
+  </div>
+  <section id="sumode-sutippen"></section>
+  <section id="sumode-suauswertung" style="display:none"></section>
+  <section id="sumode-susonder" style="display:none"></section>
+  <section id="sumode-sueinstellungen" style="display:none"></section>
+</div>
+</div><!-- #sumo-shell -->
+
 <div id="team-shell" style="display:none">
 <header>
   <h1>
@@ -1879,7 +1915,7 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
 const SPORT_SHELLS = {football:'app-shell', f1:'f1-shell', tennis:'tennis-shell',
   // US-Sport und Rugby teilen sich denselben Bereich — die Mechanik (zwei Mannschaften, Ergebnis-Tipp)
   // ist identisch, nur die Ligen dahinter unterscheiden sich.
-  ussport:'team-shell', rugby:'team-shell'};
+  ussport:'team-shell', rugby:'team-shell', sumo:'sumo-shell'};
 const TEAM_SPORTS = {
   ussport:{titel:'US-Sport', wechsel:'🏈', unter:'Ergebnis-Tipp: Wie geht das Spiel aus? Aktuell die NHL, weitere US-Ligen folgen.'},
   rugby:  {titel:'Rugby',    wechsel:'🏉', unter:'Ergebnis-Tipp: Wie geht das Spiel aus? Aktuell die AFL (Australian Football League).'}
@@ -1904,6 +1940,7 @@ function enterSport(sport){
   document.getElementById(SPORT_SHELLS[sport]).style.display='';
   if(sport==='f1') switchF1Mode('f1tippen');
   else if(sport==='tennis') switchTennisMode('tetippen');
+  else if(sport==='sumo') switchSumoMode('sutippen');
   else if(TEAM_SPORTS[sport]){
     if(hkSport!==sport){ hkSport=sport; hkLeague=''; hkDate=''; }
     const m=TEAM_SPORTS[sport];
@@ -2862,6 +2899,263 @@ async function renderNhlEinstellungen(){
   };
   mw.appendChild(chk); row2.appendChild(mw);
   row2.appendChild(mkNhlCfgNum('Malus-Punkte', cfg.malus, 'malus'));
+  card.appendChild(row2);
+  box.appendChild(card);
+}
+
+/* ---------------- Sumo ----------------
+   Sieger-Tipp je Kampf, wie bei Tennis mit zwei anklickbaren Namen. Gruppiert nach Kampftag innerhalb
+   eines Basho; die Wertung läuft je Basho, wie bei Tennis je Turnier. */
+let suBasho = '';
+let suDay = 0;
+
+function switchSumoMode(mode){
+  document.querySelectorAll('#sumo-shell .tab').forEach(t=>t.classList.toggle('active', t.dataset.mode===mode));
+  ['sutippen','suauswertung','susonder','sueinstellungen'].forEach(m=>{
+    document.getElementById('sumode-'+m).style.display = (m===mode) ? '' : 'none';
+  });
+  if(mode==='sutippen') renderSumoTippen();
+  else if(mode==='suauswertung') renderSumoAuswertung();
+  else if(mode==='susonder') renderSumoSonder();
+  else renderSumoEinstellungen();
+}
+function sumoGuard(box){
+  if(!CONNECTED){ box.innerHTML = '<div class="card"><div class="hint">Sumo steht nur im echten WordPress-Betrieb zur Verfügung.</div></div>'; return false; }
+  if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde — sie gilt dann gleich für alle Sportarten.</div><button style="margin-top:10px" onclick="showRounds()">👥 Zu den Tipprunden</button></div>'; return false; }
+  return true;
+}
+function mkBashoSelect(bashos, onChange){
+  const liste = (bashos && bashos.length) ? bashos : [{id:suBasho, name:suBasho||'—'}];
+  return mkSelect('Basho', liste.map(b=>({v:b.id,label:b.name})), suBasho, v=>{ suBasho=v; suDay=0; onChange(); });
+}
+
+async function renderSumoTippen(){
+  const box = document.getElementById('sumode-sutippen');
+  if(!sumoGuard(box)) return;
+  box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
+
+  let subs, data;
+  try{
+    data = await api_get(`sumo/bouts?round=${currentRoundId}&basho=${encodeURIComponent(suBasho)}&day=${suDay||''}`);
+    if(data && data.basho) suBasho = data.basho;
+    subs = await api_get(`rounds/${currentRoundId}/subs`);
+  }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
+
+  box.innerHTML = '';
+  box.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderSumoTippen(); }));
+
+  if(!subs.subs || !subs.subs.SUMO){
+    const card = el('<div class="card"><div class="hint">Sumo-Tippen ist für diese Runde noch nicht aktiviert.</div></div>');
+    const btn = el('<button style="margin-top:10px">🤼 Sumo-Tippen für diese Runde aktivieren</button>');
+    btn.onclick = async ()=>{ try{ await api_post('sumo/subscribe', {round_id: currentRoundId, active:true}); renderSumoTippen(); }catch(e){ alert('Fehler: '+e.message); } };
+    card.appendChild(btn); box.appendChild(card);
+    return;
+  }
+
+  const bashos = data.bashos||[], days = data.days||[], cfg = data.cfg||{};
+  if(!bashos.length){
+    box.appendChild(el('<div class="card"><div class="hint">Noch keine Kämpfe geladen — der Admin muss unter Tippstube → Sportarten → Sumo einmal „Jetzt abrufen" klicken.</div></div>'));
+    return;
+  }
+  suDay = data.day || suDay;
+  const ctrl = el('<div class="card"><div class="row"></div></div>');
+  const row0 = ctrl.querySelector('.row');
+  row0.appendChild(mkBashoSelect(bashos, renderSumoTippen));
+  if(days.length){
+    row0.appendChild(mkSelect('Kampftag', days.map(d=>({
+      v:String(d.day), label:`Tag ${d.day} — ${d.total} Kämpfe${d.final?` (${d.final} entschieden)`:''}`})),
+      String(suDay), v=>{ suDay=parseInt(v)||0; renderSumoTippen(); }));
+    const idx = days.findIndex(d=>d.day===suDay);
+    const nav = el('<div class="flexcol"><label>&nbsp;</label><div class="row" style="gap:6px"></div></div>');
+    const navRow = nav.querySelector('.row');
+    const prev = el(`<button class="mini sec" ${idx<=0?'disabled':''}>◀</button>`);
+    prev.onclick=()=>{ suDay=days[idx-1].day; renderSumoTippen(); };
+    const next = el(`<button class="mini sec" ${idx<0||idx>=days.length-1?'disabled':''}>▶</button>`);
+    next.onclick=()=>{ suDay=days[idx+1].day; renderSumoTippen(); };
+    navRow.appendChild(prev); navRow.appendChild(next);
+    row0.appendChild(nav);
+  }
+  ctrl.appendChild(el(`<div class="meta" style="margin-top:8px">${cfg.pWin||0} Punkte für den richtigen Sieger. Ein Basho dauert 15 Tage — die Paarungen eines Tages stehen erst ein bis zwei Tage vorher fest.</div>`));
+  box.appendChild(ctrl);
+
+  const bouts = data.bouts||[];
+  if(!bouts.length){
+    box.appendChild(el('<div class="card"><div class="hint">Für diesen Kampftag sind noch keine Paarungen veröffentlicht. Schau in ein bis zwei Tagen nochmal rein.</div></div>'));
+    return;
+  }
+  bouts.forEach(row=>{
+    const b = row.bout;
+    const c = el('<div class="card"></div>');
+    c.appendChild(el(`<div class="row" style="margin-bottom:8px">`
+      + `<b>Kampf ${b.no}</b>`
+      + `<span class="meta">Tag ${b.day}</span>`
+      + (row.locked?`<span class="pill warn">🔒 gesperrt</span>`:'')
+      + (b.winner&&b.kimarite?`<span class="pill gold">${esc(b.kimarite)}</span>`:'')
+      + `</div>`));
+    const pickRow = el('<div class="row"></div>');
+    [1,2].forEach(seite=>{
+      const r = seite===1 ? b.east : b.west;
+      const meins = row.mine && row.mine.committed && row.mine.pick===seite;
+      const sieger = b.winner===seite;
+      const btn = el(`<button class="${meins?'':'sec '}mini" style="min-width:170px;text-align:left${sieger?';outline:2px solid var(--accent-hi)':''}">`
+        + `${sieger?'✅ ':''}${meins?'✔️ ':''}${esc(r.name)}<br><span class="meta">${esc(seite===1?'Ost':'West')} · ${esc(r.rank)}</span></button>`);
+      if(row.locked){ btn.disabled = true; }
+      else btn.onclick = async ()=>{
+        try{ await api_post('sumo/tips', {round_id: currentRoundId, bout_id: b.id, pick: seite, committed: true}); renderSumoTippen(); }
+        catch(e){ alert('Fehler: '+e.message); }
+      };
+      pickRow.appendChild(btn);
+    });
+    c.appendChild(pickRow);
+    if(!row.locked){
+      c.appendChild(el('<div class="meta" style="margin-top:6px">🔒 Die Tipps der Mitspieler siehst du erst nach Ablauf der Frist.</div>'));
+    } else if(row.others && row.others.length){
+      const list = row.others.map(o=>`<b>${esc(o.name)}</b> ${esc(o.pick===1?b.east.name:b.west.name)}`).join(' · ');
+      c.appendChild(el(`<div class="meta" style="margin-top:6px">👀 Tipps der Mitspieler: ${list}</div>`));
+    }
+    box.appendChild(c);
+  });
+}
+
+async function renderSumoAuswertung(){
+  const box = document.getElementById('sumode-suauswertung');
+  if(!sumoGuard(box)) return;
+  box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
+  let data;
+  try{ data = await api_get(`sumo/leaderboard?round=${currentRoundId}&basho=${encodeURIComponent(suBasho)}`); }
+  catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
+  if(data && data.basho) suBasho = data.basho;
+  box.innerHTML = '';
+  const ctrl = el('<div class="card"><div class="row"></div></div>');
+  const row0 = ctrl.querySelector('.row');
+  row0.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderSumoAuswertung(); }));
+  row0.appendChild(mkBashoSelect(data.bashos||[], renderSumoAuswertung));
+  box.appendChild(ctrl);
+  if(!data.rows.length){ box.appendChild(el('<div class="card"><div class="hint">Noch keine Mitspieler mit aktivem Sumo-Tippen in dieser Runde.</div></div>')); return; }
+  const rowsHtml = data.rows.map(r=>`<tr><td class="num">${r.rank}</td><td>${esc(r.name)}</td><td class="num">${r.total}</td><td class="num">${r.hits}</td><td class="num">${r.yusho}</td><td class="num">${r.missed}</td></tr>`).join('');
+  box.appendChild(el(`<div class="card"><table><thead><tr><th class="num">#</th><th>Spieler</th><th class="num">Punkte</th><th class="num">Richtige Sieger</th><th class="num">Yusho</th><th class="num">Verpasst</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
+}
+
+/* Sonderwertung "Yusho" — löst sich automatisch auf, sobald die API den Turniersieger meldet. */
+async function renderSumoSonder(){
+  const box = document.getElementById('sumode-susonder');
+  if(!sumoGuard(box)) return;
+  box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
+  let subs, data;
+  try{
+    data = await api_get(`sumo/yusho?round=${currentRoundId}&basho=${encodeURIComponent(suBasho)}`);
+    if(data && data.basho) suBasho = data.basho;
+    subs = await api_get(`rounds/${currentRoundId}/subs`);
+  }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
+
+  box.innerHTML = '';
+  const ctrl = el('<div class="card"><div class="row"></div></div>');
+  const row0 = ctrl.querySelector('.row');
+  row0.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderSumoSonder(); }));
+  row0.appendChild(mkBashoSelect(data.bashos||[], renderSumoSonder));
+  box.appendChild(ctrl);
+
+  if(!subs.subs || !subs.subs.SUMO){
+    box.appendChild(el('<div class="card"><div class="hint">Sumo-Tippen ist für diese Runde noch nicht aktiviert — das geht im Tab „📝 Tippen".</div></div>'));
+    return;
+  }
+  const kaempfer = data.rikishi||[];
+  if(!kaempfer.length){
+    box.appendChild(el('<div class="card"><div class="hint">Noch keine Kämpfer geladen — der Admin muss einmal „Jetzt abrufen" klicken.</div></div>'));
+    return;
+  }
+  const nameOf = id => { const r=kaempfer.find(x=>String(x.id)===String(id)); return r ? r.name : (id||'–'); };
+  const opts = [{v:'',label:'– wählen –'}].concat(kaempfer.map(r=>({v:r.id, label:`${r.name} (${r.rank})`})));
+
+  const card = el('<div class="card"></div>');
+  card.appendChild(el(`<div class="row" style="margin-bottom:8px"><b>⭐ Yusho — ${esc((data.info&&data.info.name)||'')}</b>`
+    + `<span class="pill gold">${data.points} Punkte</span>`
+    + (data.deadline?`<span class="meta">Frist ${esc(fmtDate(data.deadline))}</span>`:'')
+    + (data.winner?`<span class="pill gold">Sieger: ${esc(data.winner.name)}</span>`:'')
+    + `</div>`));
+  card.appendChild(el('<div class="meta">Wer gewinnt das Basho? Getippt wird vor dem ersten Kampftag. Der Sieger wird automatisch aus der Turnierdatenbank übernommen.</div>'));
+
+  const mine = data.mine || {rikishi_id:null, committed:false};
+  let pick = mine.rikishi_id || '';
+  const tipRow = el('<div style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px"></div>');
+  tipRow.appendChild(mkSelect('Mein Tipp', opts, pick, v=>{ pick = v||''; }, data.locked));
+  const statusRow = el('<div class="row" style="margin-top:8px"></div>');
+  if(data.locked){
+    statusRow.appendChild(el('<span class="pill warn">Frist vorbei</span>'));
+  } else {
+    if(mine.committed){ statusRow.appendChild(el('<span class="pill good">✅ abgegeben — bis zur Frist noch änderbar</span>')); }
+    const btn = el('<button class="mini right">✅ Tipp abgeben</button>');
+    btn.onclick = async ()=>{
+      if(!pick){ alert('Bitte erst einen Kämpfer wählen.'); return; }
+      try{ await api_post('sumo/yusho/tip', {round_id:currentRoundId, basho:suBasho, rikishi_id:pick, committed:true}); renderSumoSonder(); }
+      catch(e){ alert('Fehler: '+e.message); }
+    };
+    statusRow.appendChild(btn);
+  }
+  tipRow.appendChild(statusRow);
+  card.appendChild(tipRow);
+  if(!data.locked){
+    card.appendChild(el('<div class="meta" style="margin-top:6px">🔒 Die Tipps der Mitspieler siehst du erst, sobald die Frist abgelaufen ist.</div>'));
+  }
+  box.appendChild(card);
+
+  if(data.locked && data.rows && data.rows.length){
+    const rowsHtml = data.rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc(nameOf(r.rikishi_id))}</td><td class="num">${r.pts}</td></tr>`).join('');
+    box.appendChild(el(`<div class="card"><div class="row" style="margin-bottom:8px"><b>👀 Tipps der Mitspieler</b></div>`
+      + `<table><thead><tr><th>Spieler</th><th>Getippter Sieger</th><th class="num">Punkte</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
+  }
+}
+
+function mkSumoCfgNum(label, value, key, onSaved){
+  const w = el('<div class="flexcol" style="align-items:center"></div>');
+  w.appendChild(el(`<label>${label}</label>`));
+  const inp = el(`<input type="number" class="score" value="${value}" style="width:70px">`);
+  inp.onchange = async ()=>{
+    const v = parseInt(inp.value);
+    const payload = {round_id: currentRoundId}; payload[key] = isNaN(v) ? 0 : v;
+    try{ await api_post('sumo/config', payload); if(onSaved) onSaved(); }
+    catch(e){ alert('Fehler: '+e.message); }
+  };
+  w.appendChild(inp); return w;
+}
+
+async function renderSumoEinstellungen(){
+  const box = document.getElementById('sumode-sueinstellungen');
+  if(!sumoGuard(box)) return;
+  box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
+  let cfg;
+  try{ cfg = await api_get(`sumo/config?round=${currentRoundId}`); }
+  catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
+
+  box.innerHTML = '';
+  box.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderSumoEinstellungen(); }));
+
+  if(!(roundById(currentRoundId)||{}).is_admin){
+    box.appendChild(el(`<div class="card"><div class="hint">Die Sumo-Regeln legt der Runden-Admin fest.</div>`
+      + `<div class="row" style="margin-top:8px"><span class="pill gold">${cfg.pWin} Punkte für den richtigen Sieger</span>`
+      + `<span class="pill gold">${cfg.yushoPoints} für den Yusho</span>`
+      + `<span class="meta">Tipp-Frist ${cfg.deadlineMin} Min. vor Kampftag-Beginn</span>`
+      + (cfg.malusOn?`<span class="pill warn">Malus ${cfg.malus}</span>`:'') + `</div></div>`));
+    return;
+  }
+
+  const card = el('<div class="card"></div>');
+  card.appendChild(el('<div class="hint">Regeln für Sumo in dieser Tipprunde. Alle Kämpfe eines Tages werden zum Tagesbeginn gesperrt — Einzelzeiten je Kampf liefert die Turnierdatenbank nicht.</div>'));
+  const row = el('<div class="row" style="margin-top:8px"></div>');
+  row.appendChild(mkSumoCfgNum('Punkte für richtigen Sieger', cfg.pWin, 'pWin'));
+  row.appendChild(mkSumoCfgNum('Punkte für den Yusho', cfg.yushoPoints, 'yushoPoints'));
+  row.appendChild(mkSumoCfgNum('Tipp-Frist (Min. vor Tagesbeginn)', cfg.deadlineMin, 'deadlineMin'));
+  card.appendChild(row);
+  const row2 = el('<div class="row" style="margin-top:8px"></div>');
+  const mw = el('<div class="flexcol" style="align-items:center"></div>');
+  mw.appendChild(el('<label>Malus, wenn nicht getippt</label>'));
+  const chk = el(`<input type="checkbox" ${cfg.malusOn?'checked':''}>`);
+  chk.onchange = async ()=>{
+    try{ await api_post('sumo/config', {round_id: currentRoundId, malusOn: chk.checked?1:0}); renderSumoEinstellungen(); }
+    catch(e){ alert('Fehler: '+e.message); }
+  };
+  mw.appendChild(chk); row2.appendChild(mw);
+  row2.appendChild(mkSumoCfgNum('Malus-Punkte', cfg.malus, 'malus'));
   card.appendChild(row2);
   box.appendChild(card);
 }

@@ -2634,6 +2634,44 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
   mit gemischten NHL-/AFL-Daten geprüft: US-Sport zeigt genau die zwei NHL-Spiele und keine AFL-Partie,
   Rugby genau die zwei AFL-Spiele und keine NHL-Partie; die Ligen-Zeile stimmt jeweils.
 
+## v1.17.0 — Sumo (sechste Sportart)
+
+- **Anfrage:** "Wir bauen eine neue Sportart dazu... Sumoringen. Hier ist die API
+  https://www.sumo-api.com/" — mit eigener Kachel (per Rückfrage geklärt, statt zu MMA dazu).
+- **Quelle geprüft:** sumo-api.com ist kostenlos und ohne Key. Zwei Eigenheiten bestimmen den Aufbau:
+  1. **Die Paarungen eines Kampftages werden erst ein bis zwei Tage vorher veröffentlicht.** Man kann
+     also nie ein ganzes Basho im Voraus tippen — die Ansicht muss "Tag noch nicht angesetzt" können.
+  2. **Der Yusho (Turniersieger) steht nach dem Basho in der API.** Anders als bei Tennis und Eishockey
+     muss ihn deshalb niemand von Hand eintragen; er löst sich automatisch auf wie die
+     Formel-1-Fahrerwertung.
+- **Umgesetzt:** Eigenständiges System wie die übrigen Sportarten. Mechanisch wie Tennis (zwei Kämpfer,
+  ein Sieger, kein Unentschieden), organisatorisch wie ein Turniersport: ein Basho dauert 15 Tage und
+  hat seine **eigene Rangliste**, genau wie ein Tennis-Turnier. Gewertet wird die Makuuchi-Division
+  (höchste Liga, 20 Kämpfe je Tag). Drei neue Tabellen (`ftipp_sumo_tips`, `ftipp_sumo_round_config`,
+  `ftipp_sumo_yusho_tips`), `FTIPP_DB_VERSION` 20 → 21, acht REST-Routen unter `ftipp/v1/sumo/*`,
+  eigener 4-Stunden-Cron, Admin-Tab "🤼 Sumo", Hub-Kachel mit eigenem Bereich und den gewohnten vier Tabs.
+- **Sperrzeiten:** Die API liefert keine Anstoßzeit je Kampf, nur die Basho-Daten. Deshalb wird der
+  Tagesbeginn berechnet (Basho-Start + Tage, Makuuchi kämpft ab ca. 15:40 Uhr japanischer Zeit = 06:00
+  UTC als Ansatz) und **alle Kämpfe eines Tages werden gemeinsam zum Tagesbeginn gesperrt**. Der
+  Vorlauf ist wie überall vom Runden-Admin einstellbar.
+- **Sparsamer Abruf:** Erst wurde stumpf über alle 15 Tage gefragt — 16 Abrufe, 9,4 s, davon die meisten
+  garantiert leer, weil die Tage noch nicht angesetzt sind. Jetzt wird nur bis zwei Tage über den
+  aktuellen Kampftag hinaus gefragt und ein bereits vollständig entschiedener Tag gar nicht mehr:
+  **5 Abrufe, 2,9 s** beim Erstlauf, 4 beim zweiten.
+- Lokal getestet: `php -l` fehlerfrei, Script-Blöcke geprüft. **Live gegen das laufende September-Basho:**
+  Basho 202609 automatisch erkannt, 40 Kämpfe der Tage 1 und 2 geladen (38 entschieden), 41 Kämpfer,
+  erster Kampf korrekt (Shonannoumi–Dewanoryu, Sieger West per yorikiri), Sperrzeiten je Tag und die
+  Yusho-Frist korrekt berechnet, Punktelogik geprüft (richtig 2, falsch 0, nicht abgegeben 0, Kampf
+  offen 0). Browser: Kachel aktiv, vier Tabs, Basho- und Kampftag-Auswahl mit ◀ ▶, entschiedener Tag
+  zeigt Sieger, Kimarite und Mitspieler-Tipps, offener Kampf lässt sich mit einem Klick tippen
+  (`{bout_id, pick, committed}`), ein noch nicht angesetzter Tag zeigt den passenden Hinweis statt einer
+  leeren Seite, Auswertung mit Punkten/Treffern/Yusho/Verpasst, Yusho-Tipp speichert, Einstellungen
+  vollständig. Regression: alle sechs Sportarten und der Runden-Bereich blenden sich sauber gegenseitig
+  aus, keine Konsolenmeldung.
+- *Noch nicht auf der echten Seite getestet:* Update einspielen (legt drei Tabellen an), unter
+  Sportarten → Sumo einmal "Jetzt abrufen" und im Frontend eine Runde aktivieren. Das September-Basho
+  läuft noch bis zum 27.09.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
