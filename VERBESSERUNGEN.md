@@ -1,6 +1,6 @@
 # Tippstube — offene Baustellen
 
-Was noch verbessert werden muss. Angelegt am **14.09.2026**, Stand **v1.22.0**.
+Was noch verbessert werden muss. Angelegt am **14.09.2026**, zuletzt ergänzt **15.09.2026**, Stand **v1.22.0**.
 
 Diese Datei wird bei jeder Änderung mitgepflegt. Ganz zum Schluss, wenn alle Sportarten drin sind,
 kommt der große Durchgang — dann wird hier abgehakt, was erledigt ist, und ergänzt, was der Scan neu
@@ -41,7 +41,7 @@ der Seite brechen würden. Als Fundament ungeeignet. Der Filter auf unserer Seit
 spanische Primera FEB und die Liga Femenina) — es hakt allein am zähen Abholen.
 
 **Nächster Schritt:** Für die WNBA die NBA-eigene Infrastruktur genauer ansehen. Für die ACB ist der
-realistischste Weg inzwischen TheSportsDB (siehe 1.6).
+realistischste Weg inzwischen TheSportsDB (siehe 1.7).
 
 ### 1.2 Acht Fußball-Wettbewerbe hängen an derselben Quelle — MITTEL
 
@@ -71,12 +71,48 @@ tatsächlich die **zweite** Liga (Harem Spor, Balıkesir, Darüşşafaka). Die e
 **Offen:** Entscheidung des Nutzers, ob eine davon rein soll — und dann besser über eine Quelle, die
 die Ligen korrekt benennt.
 
-### 1.5 api-sports.io — WARTET
+### 1.5 Highlightly — HEISSESTER KANDIDAT, wartet auf Schlüssel
+
+`highlightly.net` — **neun Sportarten unter einem Schlüssel**, gleiche Endpunkt-Struktur für alle
+(`/{sportart}/matches`, `/{sportart}/leagues`, `/{sportart}/standings` …). Eine Anbindung, danach kostet
+jede weitere Sportart fast nichts.
+
+**Tarif BASIC: 0 $/Monat, 100 Anfragen am Tag, ohne Kreditkarte.**
+
+| Sportart | Ligen | genannt |
+|---|---|---|
+| Fußball | 950+ | Premier League, La Liga, Serie A, Bundesliga, CL |
+| Basketball | 340+ | **EuroLeague, ACB** |
+| Eishockey | 170+ | KHL, SHL, Liiga (**DEL nicht genannt — prüfen**) |
+| Volleyball | 230+ | CEV Champions League, Serie A, Superliga |
+| Handball | 180+ | EHF Champions League, **Bundesliga**, Starligue |
+| dazu | | Cricket, Rugby, NBA/NCAAB, NFL/NCAAF, NHL/NCAAH, MLB |
+
+**Direkter Zugang ohne RapidAPI:** Basis-URL `https://sports.highlightly.net`, angetestet (antwortet mit
+403 „Missing mandatory HTTP Headers"). Der Header heißt auch dort `x-rapidapi-key` — das sieht falsch
+aus, ist aber so dokumentiert. Konto direkt auf highlightly.net, kein RapidAPI nötig.
+
+**Würde treffen:** Handball-Kachel, Volleyball-Kachel, Eishockey-Kachel, Liga ACB, WNBA, NBA. Damit
+wären die 9 $ bei TheSportsDB (1.6) und die ~8 $ bei MySportsFeeds (1.7) **beide hinfällig**.
+
+**NICHT ersetzen:** EuroLeague (offizielle Veranstalter-API ist besser — ganze Saison in einer
+Anfrage, echte Spieltage), NHL (offiziell, gratis), Fußball (haben wir gratis), Cricket (gerade auf
+100 % Auflösungsquote gemessen). Ein Sammeldienst für neun Sportarten schlägt selten die Quelle des
+Veranstalters — er ist gut da, wo wir gar nichts haben.
+
+**Vor dem Bauen zu messen (offen, braucht den Schlüssel):**
+1. Sind DEL, Handball-Bundesliga und Volleyball-Bundesliga wirklich drin — oder nur Werbetext?
+2. Kommen Spielpläne nach vorne? Ohne kommende Partien kann man nicht tippen.
+3. Sind die Ergebnisse vollständig? Das ist die Messung, an der SportScore beim Cricket scheiterte
+   (dort fehlten 45 %). Highlightly kommt von Video-Highlights her — die Sorgfalt bei Spieldaten ist
+   unbewiesen.
+
+### 1.6 api-sports.io — WARTET
 
 Zugang noch nicht freigeschaltet, der Nutzer hat mit dem Support geredet. Nicht nachfassen, bis er
 von selbst darauf zurückkommt.
 
-### 1.6 TheSportsDB — ENTSCHEIDUNG OFFEN
+### 1.7 TheSportsDB — ENTSCHEIDUNG OFFEN (evtl. hinfällig, siehe 1.5)
 
 Deckt Eishockey (DEL, DEL 2, SHL, Liiga, National League …), American Football (NFL, NCAA, CFL, GFL,
 European League of Football) **und die Liga ACB** (`Spanish Liga ACB`, ID 4408, Saison 2026-27, erster
@@ -87,6 +123,16 @@ kappt aber jede Liste auf etwa 5 Treffer und ist damit für Spieltage unbrauchba
 
 **Fallstrick beim späteren Bauen:** `lookup_all_teams.php` ignoriert im Gratis-Zugang die Liga-ID und
 gibt englische Fußballklubs zurück. `search_all_teams.php?l=<Liganame>` nehmen.
+
+### 1.8 Geprüft und verworfen — nicht erneut vorschlagen
+
+| Quelle | Befund |
+|---|---|
+| **sportdevs.com** | Eigene Domain seit ca. Okt. 2025 ohne DNS-Einträge; lief nur noch über RapidAPI. |
+| **sportscore.com für Cricket** | Nur **55 %** der beendeten Partien mit verwertbarem Ergebnis; Ergebnis als „225/1" statt als Zahl. |
+| **mysportsfeeds.com** | Nur 6 Ligen (NFL, MLB, NBA, NHL, NCAA BB/FB). Abrechnung **pro Liga**: privat je 5 CAD/Monat (Qualifikation nötig), kommerziell 25–49 $. Für unsere drei Lücken ~8 €/Monat — aber ohne DEL und ohne ACB. Crowd-sourced, keine offizielle Ligaquelle. |
+| **thestatsapi.com** | **Nur Fußball**, trotz des Namens. Im Kern eine Wettquoten-API (Bet365, Pinnacle, Betfair; Arbitrage, Closing Line Value). Ab **50 $/Monat**. Wir haben 19 Fußball-Wettbewerbe gratis. |
+| **isportsapi.com** | Nur Fußball und Basketball. **49 $/Monat für eine einzelne Liga** (z. B. Premier League), 149 $ für die europäischen Top-Ligen. Anbieter für Wettfirmen. |
 
 ---
 
