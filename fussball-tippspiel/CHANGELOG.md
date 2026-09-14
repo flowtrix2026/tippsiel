@@ -2551,6 +2551,31 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
   den Runden-Bereich. Im Hub ist kein kleiner Textlink mehr übrig. Reine Oberflächen-Änderung ohne
   Datenbank-, Schema- oder Schnittstellen-Anpassung.
 
+## v1.15.0 — NHL gehört zu US-Sport, Eishockey bleibt für DEL & Co.
+
+- **Anfrage:** "Im Eishockey ist NHL, das muss aber in US-Sport rein. In Eishockey kommen so deutsche
+  Ligen und sonstige Sachen rein." Die NHL saß seit v1.12.0 in der Kachel "Eishockey" — sie gehört aber
+  zu den vier großen US-Ligen, und die Kachel "US-Sport" stand daneben auf "Bald verfügbar".
+- **Umgesetzt:** Die Liga-Registry bekommt ein Feld `sport`, das eine Liga einem Hub-Bereich zuordnet.
+  Die NHL steht jetzt auf `ussport`; der Bereich "Eishockey" ist wieder frei für DEL und andere
+  europäische Ligen. Damit ist eine neue Liga weiterhin **ein Registry-Eintrag plus eine Abruf-Funktion**
+  — in welchem Bereich sie erscheint, entscheidet allein dieses Feld. Die Liga-Liste, die die Oberfläche
+  bekommt, wird serverseitig nach Bereich gefiltert (`ftipp_hockey_leagues_of()`), sonst stünde später
+  die DEL im US-Sport-Dropdown und umgekehrt. Das Frontend schickt seinen Bereich bei jedem Abruf mit.
+- **Oberfläche:** Hub-Kachel "US-Sport" ist aktiv ("NHL — … NFL, NBA und MLB folgen"), Kachel
+  "Eishockey" wieder "Bald verfügbar" mit dem Hinweis, dass die NHL unter US-Sport zu finden ist.
+  Der Bereich heißt jetzt "Tippstube — US-Sport", im Adminbereich entsprechend der Tab "🏈 US-Sport".
+- **Zur Benennung:** Die PHP-Funktionen und Tabellen heißen intern weiter `ftipp_hockey_*`. Das ist
+  bewusst so gelassen — es ist reine Innensicht, die Maschinerie ist nicht eishockeyspezifisch (sie passt
+  auf jede Sportart mit zwei Mannschaften und Toren), und ein erneutes Umbenennen der Tabellen hätte
+  Datenrisiko ohne sichtbaren Nutzen gebracht. Im Code steht ein Kommentar, der das erklärt.
+- Lokal getestet: `php -l` fehlerfrei, Script-Blöcke geprüft. Die Bereichs-Filterung isoliert mit der
+  echten Funktion geprüft: "ussport" liefert [NHL], "hockey" und ein unbekannter Bereich liefern leer.
+  Browser: US-Sport-Kachel aktiv, Eishockey-Kachel "Bald verfügbar" und meldet beim Klick korrekt
+  "Kommt bald!", Kopfzeile "Tippstube — US-Sport", Liga-Auswahl zeigt NHL, und der Abruf enthält
+  `sport=ussport`. Regression: Fußball, Formel 1, Tennis, US-Sport und der Runden-Bereich blenden sich
+  weiterhin sauber gegenseitig aus. Keine Datenbank-, Schema- oder Schnittstellen-Änderung.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

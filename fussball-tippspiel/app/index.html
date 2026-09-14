@@ -189,11 +189,11 @@
       <div class="hub-tile-meta">19 Wettbewerbe — 1./2./3. Liga, Champions League, Nations League, Premier League, LaLiga, Serie A u.v.m.</div>
       <div class="hub-tile-foot"><span class="hub-pill is-live">Aktiv</span><span style="color:var(--accent-hi)">→</span></div>
     </div>
-    <div class="hub-tile is-active" onclick="enterSport('nhl')">
+    <div class="hub-tile" onclick="enterSport('hockey')">
       <div class="hub-tile-icon">🏒</div>
       <p class="hub-tile-name">Eishockey</p>
-      <div class="hub-tile-meta">NHL — Ergebnis tippen, komplette Saison inklusive Playoffs.</div>
-      <div class="hub-tile-foot"><span class="hub-pill is-live">Aktiv</span><span style="color:var(--accent-hi)">→</span></div>
+      <div class="hub-tile-meta">DEL &amp; Co. — deutsche und europäische Ligen. Die NHL findest du unter US-Sport.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
     </div>
     <div class="hub-tile is-active" onclick="enterSport('f1')">
       <div class="hub-tile-icon">🏎️</div>
@@ -207,11 +207,11 @@
       <div class="hub-tile-meta">Sieger-Tipp: Wer gewinnt das Match? ATP &amp; WTA Einzel — pro Tipprunde aktivierbar.</div>
       <div class="hub-tile-foot"><span class="hub-pill is-live">Aktiv</span><span style="color:var(--accent-hi)">→</span></div>
     </div>
-    <div class="hub-tile" onclick="enterSport('ussport')">
+    <div class="hub-tile is-active" onclick="enterSport('ussport')">
       <div class="hub-tile-icon">🏈</div>
       <p class="hub-tile-name">US-Sport</p>
-      <div class="hub-tile-meta">NFL · NBA · MLB — eigene Runden, eigene Punktesysteme.</div>
-      <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
+      <div class="hub-tile-meta">NHL — Ergebnis tippen, komplette Saison inklusive Playoffs. NFL, NBA und MLB folgen.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-live">Aktiv</span><span style="color:var(--accent-hi)">→</span></div>
     </div>
     <div class="hub-tile" onclick="enterSport('basketball')">
       <div class="hub-tile-icon">🏀</div>
@@ -1841,7 +1841,7 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
   <section id="temode-teeinstellungen" style="display:none"></section>
 </div>
 </div><!-- #tennis-shell -->
-<div id="nhl-shell" style="display:none">
+<div id="ussport-shell" style="display:none">
 <header>
   <h1>
     <svg width="30" height="33" viewBox="0 0 240 260" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="flex:none">
@@ -1850,10 +1850,10 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
       <path d="M74 150 L74 132 Q74 116 120 116 Q166 116 166 132 L166 150" fill="none" stroke="#e3a83f" stroke-width="10"/>
       <path d="M150 70 L120 122" stroke="#f3ead9" stroke-width="9" stroke-linecap="round"/>
     </svg>
-    Tippstube — Eishockey
+    Tippstube — US-Sport
   </h1>
-  <div class="sub">Ergebnis-Tipp: Wie geht das Spiel aus?
-    <br><button class="hub-switch" onclick="showSportHub()">🏒 Sportart wechseln</button>
+  <div class="sub">Ergebnis-Tipp: Wie geht das Spiel aus? Aktuell die NHL, weitere US-Ligen folgen.
+    <br><button class="hub-switch" onclick="showSportHub()">🏈 Sportart wechseln</button>
     <button class="hub-switch" onclick="showRounds()">👥 Runden</button>
   </div>
 </header>
@@ -1869,14 +1869,14 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
   <section id="nhmode-nhsonder" style="display:none"></section>
   <section id="nhmode-nheinstellungen" style="display:none"></section>
 </div>
-</div><!-- #nhl-shell -->
+</div><!-- #ussport-shell -->
 
 
 <script>
 /* ---------------- Sportarten-Hub ---------------- */
 // Nur Fußball und Formel 1 sind echt angebunden — alle anderen Kacheln sind bewusst nur eine Vorschau
 // (siehe Journal). Wer eine Sportart einmal gewählt hat, landet beim nächsten Besuch direkt wieder dort.
-const SPORT_SHELLS = {football:'app-shell', f1:'f1-shell', tennis:'tennis-shell', nhl:'nhl-shell'};
+const SPORT_SHELLS = {football:'app-shell', f1:'f1-shell', tennis:'tennis-shell', ussport:'ussport-shell'};
 /* Tipprunden sind keine Sportart, sondern gelten für alle — deshalb ein eigener Bereich neben den
    Sportarten statt eines Tabs innerhalb von Fußball. */
 const ROUNDS_SHELL = 'rounds-shell';
@@ -1897,7 +1897,7 @@ function enterSport(sport){
   document.getElementById(SPORT_SHELLS[sport]).style.display='';
   if(sport==='f1') switchF1Mode('f1tippen');
   else if(sport==='tennis') switchTennisMode('tetippen');
-  else if(sport==='nhl') switchNhlMode('nhtippen');
+  else if(sport==='ussport') switchNhlMode('nhtippen');
 }
 function showSportHub(){
   try{ localStorage.removeItem('ftipp_sport'); }catch(e){}
@@ -2493,9 +2493,12 @@ async function renderTennisEinstellungen(){
    wird fast täglich gespielt. */
 let hkLeague = 'NHL';
 let hkDate = '';
+/* Hub-Bereich dieses Shells. Die Liga-Liste vom Server wird danach gefiltert, damit später die DEL
+   im Eishockey-Bereich auftaucht und nicht hier bei den US-Ligen. */
+const HK_SPORT = 'ussport';
 
 function switchNhlMode(mode){
-  document.querySelectorAll('#nhl-shell .tab').forEach(t=>t.classList.toggle('active', t.dataset.mode===mode));
+  document.querySelectorAll('#ussport-shell .tab').forEach(t=>t.classList.toggle('active', t.dataset.mode===mode));
   ['nhtippen','nhauswertung','nhsonder','nheinstellungen'].forEach(m=>{
     document.getElementById('nhmode-'+m).style.display = (m===mode) ? '' : 'none';
   });
@@ -2528,9 +2531,9 @@ async function renderNhlTippen(){
   try{
     subs = await api_get(`rounds/${currentRoundId}/subs`);
     if(subs.subs && subs.subs[hkLeague]){
-      data = await api_get(`nhl/games?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}&date=${encodeURIComponent(hkDate)}`);
+      data = await api_get(`nhl/games?round=${currentRoundId}&sport=${HK_SPORT}&league=${encodeURIComponent(hkLeague)}&date=${encodeURIComponent(hkDate)}`);
     } else {
-      data = await api_get(`nhl/games?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}`);
+      data = await api_get(`nhl/games?round=${currentRoundId}&sport=${HK_SPORT}&league=${encodeURIComponent(hkLeague)}`);
     }
   }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
 
@@ -2672,7 +2675,7 @@ async function renderNhlAuswertung(){
   let data, games;
   try{
     data = await api_get(`nhl/leaderboard?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}`);
-    games = await api_get(`nhl/games?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}`);
+    games = await api_get(`nhl/games?round=${currentRoundId}&sport=${HK_SPORT}&league=${encodeURIComponent(hkLeague)}`);
   }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
   box.innerHTML = '';
   const ctrl = el('<div class="card"><div class="row"></div></div>');
@@ -2695,7 +2698,7 @@ async function renderNhlSonder(){
   try{
     subs = await api_get(`rounds/${currentRoundId}/subs`);
     data = await api_get(`nhl/special?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}`);
-    games = await api_get(`nhl/games?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}`);
+    games = await api_get(`nhl/games?round=${currentRoundId}&sport=${HK_SPORT}&league=${encodeURIComponent(hkLeague)}`);
   }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
 
   box.innerHTML = '';
@@ -2800,7 +2803,7 @@ async function renderNhlEinstellungen(){
   let cfg, games;
   try{
     cfg = await api_get(`nhl/config?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}`);
-    games = await api_get(`nhl/games?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}`);
+    games = await api_get(`nhl/games?round=${currentRoundId}&sport=${HK_SPORT}&league=${encodeURIComponent(hkLeague)}`);
   }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
 
   box.innerHTML = '';

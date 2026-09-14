@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       Tippstube
- * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis und Eishockey, echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version:           1.14.1
+ * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis und US-Sport (NHL), echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
+ * Version:           1.15.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.14.1' );
+define( 'FTIPP_VERSION', '1.15.0' );
 define( 'FTIPP_DB_VERSION', '20' );
 
 /**
@@ -1421,13 +1421,32 @@ function ftipp_f1_compute_leaderboard( $round_id ) {
  * Spieltag-Logik hängt.
  * ============================================================ */
 
-/** Unterstützte Eishockey-Ligen: interne ID => [Name, Region, Abruf-Quelle]. */
+/**
+ * Unterstützte Ligen dieser Zwei-Team-Maschinerie: interne ID => [Name, Bereich, Abruf-Quelle].
+ *
+ * `sport` ordnet die Liga einem Bereich im Sportarten-Hub zu — die NHL steht bewusst unter **US-Sport**
+ * (dort kommen NFL, NBA und MLB dazu), während der Bereich **Eishockey** für die DEL und andere
+ * europäische Ligen gedacht ist. Eine neue Liga ist damit ein Eintrag hier plus eine Abruf-Funktion;
+ * in welchem Bereich sie auftaucht, entscheidet allein dieses Feld.
+ *
+ * Hinweis zur Benennung: die Funktionen und Tabellen heißen aus der Entstehung heraus noch
+ * `ftipp_hockey_*`. Das ist reine Innensicht — die Maschinerie ist nicht eishockeyspezifisch, sie passt
+ * auf jede Sportart mit zwei Mannschaften und Toren/Punkten.
+ */
 function ftipp_hockey_leagues() {
     return array(
-        'NHL' => array( 'name' => 'NHL', 'region' => 'Nordamerika', 'source' => 'nhle' ),
+        'NHL' => array( 'name' => 'NHL', 'sport' => 'ussport', 'region' => 'Nordamerika', 'source' => 'nhle' ),
     );
 }
 function ftipp_hockey_league_ids() { return array_keys( ftipp_hockey_leagues() ); }
+/** Alle Ligen eines Hub-Bereichs ('ussport', später 'hockey'). */
+function ftipp_hockey_leagues_of( $sport ) {
+    $out = array();
+    foreach ( ftipp_hockey_leagues() as $id => $l ) {
+        if ( ( isset( $l['sport'] ) ? $l['sport'] : 'ussport' ) === $sport ) { $out[ $id ] = $l; }
+    }
+    return $out;
+}
 function ftipp_hockey_league_name( $league ) {
     $all = ftipp_hockey_leagues();
     return isset( $all[ $league ] ) ? $all[ $league ]['name'] : $league;
@@ -4006,10 +4025,14 @@ add_action( 'rest_api_init', function () {
             usort( $out, function ( $a, $b ) { return strcmp( (string) $a['game']['start'], (string) $b['game']['start'] ); } );
             return array(
                 'games' => $out, 'days' => $days, 'date' => $wanted, 'cfg' => $cfg,
-                'league' => $league, 'leagues' => array_map(
+                'league' => $league, 'leagues' => array_values( array_map(
                     function ( $id ) { return array( 'id' => $id, 'name' => ftipp_hockey_league_name( $id ) ); },
-                    ftipp_hockey_league_ids()
-                ),
+                    // Nur die Ligen des angefragten Hub-Bereichs — sonst stünde später die DEL im
+                    // US-Sport-Dropdown und umgekehrt.
+                    array_keys( ftipp_hockey_leagues_of(
+                        sanitize_key( (string) ( $req->get_param( 'sport' ) ?: 'ussport' ) )
+                    ) )
+                ) ),
             );
         },
     ) );
@@ -5485,8 +5508,9 @@ function ftipp_page_nhl() {
     uasort( $games, function ( $a, $b ) { return strcmp( (string) $a['start'], (string) $b['start'] ); } );
     ?>
     <div class="wrap">
-        <h1>🏒 Eishockey</h1>
+        <h1>🏈 US-Sport</h1>
         <p>Ergebnis-Tipp für NHL-Spiele — läuft komplett unabhängig von den anderen Sportarten.
+           Der Hub-Bereich „Eishockey" bleibt für die DEL und andere europäische Ligen frei.
            Datenquelle: <a href="https://api-web.nhle.com" target="_blank" rel="noopener">api-web.nhle.com</a>
            (kostenlos, kein Key nötig). Mitspieler aktivieren Eishockey pro Tipprunde selbst in der App.
            Geladen werden Hauptrunde und Playoffs, keine Vorbereitungsspiele.</p>
@@ -6426,7 +6450,7 @@ function ftipp_page_sports() {
     $tabs = array(
         'fussball' => array( 'label' => '⚽ Fußball',   'cb' => 'ftipp_settings_page' ),
         'f1'       => array( 'label' => '🏁 Formel 1',  'cb' => 'ftipp_page_f1' ),
-        'nhl'      => array( 'label' => '🏒 Eishockey', 'cb' => 'ftipp_page_nhl' ),
+        'nhl'      => array( 'label' => '🏈 US-Sport',  'cb' => 'ftipp_page_nhl' ),
         'tennis'   => array( 'label' => '🎾 Tennis',    'cb' => 'ftipp_page_tennis' ),
     );
     $cur = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'fussball';
