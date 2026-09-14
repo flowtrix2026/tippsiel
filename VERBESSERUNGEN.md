@@ -34,8 +34,14 @@ gescheiterte Tage, Fortschrittsanzeige im Adminbereich.
 | `stats.wnba.com` | nicht erreichbar |
 | `acb.com` (vermutete Endpunkte) | HTTP 301, leitet um |
 
-**Nächster Schritt:** Für die WNBA die NBA-eigene Infrastruktur genauer ansehen; für die ACB die
-offizielle Seite auf echte Feeds abklopfen, statt Endpunkte zu raten.
+**Liga ACB, am 14.09.2026 geprüft:** `acb.com` ist inzwischen eine Next.js-Anwendung ohne öffentliche
+JSON-Schnittstelle — die Daten stecken in internen Render-Paketen (`?_rsc=…`), die beim nächsten Umbau
+der Seite brechen würden. Als Fundament ungeeignet. Der Filter auf unserer Seite stimmt nachweislich
+(„Liga Asociación de Clubs de Baloncesto" trifft, sauber abgegrenzt gegen die mexikanische LNBP, die
+spanische Primera FEB und die Liga Femenina) — es hakt allein am zähen Abholen.
+
+**Nächster Schritt:** Für die WNBA die NBA-eigene Infrastruktur genauer ansehen. Für die ACB ist der
+realistischste Weg inzwischen TheSportsDB (siehe 1.6).
 
 ### 1.2 Acht Fußball-Wettbewerbe hängen an derselben Quelle — MITTEL
 
@@ -72,8 +78,10 @@ von selbst darauf zurückkommt.
 
 ### 1.6 TheSportsDB — ENTSCHEIDUNG OFFEN
 
-Deckt Eishockey (DEL, DEL 2, SHL, Liiga, National League …) und American Football (NFL, NCAA, CFL,
-GFL, European League of Football) ab, und zwar mit echten, tagesaktuellen Daten. Der Gratis-Zugang
+Deckt Eishockey (DEL, DEL 2, SHL, Liiga, National League …), American Football (NFL, NCAA, CFL, GFL,
+European League of Football) **und die Liga ACB** (`Spanish Liga ACB`, ID 4408, Saison 2026-27, erster
+Spieltag 26.09. korrekt) ab, und zwar mit echten, tagesaktuellen Daten. **Damit zeigen drei offene
+Punkte dieser Liste auf dasselbe Abo.** Der Gratis-Zugang
 kappt aber jede Liste auf etwa 5 Treffer und ist damit für Spieltage unbrauchbar. Voller Zugriff:
 **9 $/Monat**, ein Abo deckt alle Sportarten ab.
 

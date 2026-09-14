@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL), Rugby (AFL) und Sumo, echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version: 1.21.0
+ * Version: 1.21.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.21.0' );
+define( 'FTIPP_VERSION', '1.21.1' );
 define( 'FTIPP_DB_VERSION', '21' );
 
 /**
@@ -1760,6 +1760,10 @@ if ( ! defined( 'FTIPP_BASKET_BACK_DAYS' ) )   { define( 'FTIPP_BASKET_BACK_DAYS
 // was nicht mehr reinpasst, wird beim nächsten Lauf zuerst nachgeholt.
 if ( ! defined( 'FTIPP_BASKET_TRIES' ) )       { define( 'FTIPP_BASKET_TRIES', 8 ); }
 if ( ! defined( 'FTIPP_BASKET_TIME_BUDGET' ) ) { define( 'FTIPP_BASKET_TIME_BUDGET', 15 ); }
+// Beim Klick auf "Jetzt abrufen" darf es länger dauern: da wartet jemand bewusst vor dem Bildschirm
+// und will Fortschritt sehen, statt fünfmal zu klicken. Der automatische Lauf bleibt kurz, damit er
+// sich nicht mit anderen Abrufen im selben Cron-Durchgang ins Gehege kommt.
+if ( ! defined( 'FTIPP_BASKET_TIME_BUDGET_MANUAL' ) ) { define( 'FTIPP_BASKET_TIME_BUDGET_MANUAL', 25 ); }
 
 /** Alle Ligen dieser Maschinerie, die von SportScore.com kommen. */
 function ftipp_basket_leagues() {
@@ -2059,7 +2063,7 @@ function ftipp_hockey_sync( $trigger = 'cron' ) {
     if ( $basketLigen ) {
         $compMap  = ftipp_basket_comp_map();
         $ligaIds  = array_keys( $basketLigen );
-        $deadline = microtime( true ) + FTIPP_BASKET_TIME_BUDGET;
+        $deadline = microtime( true ) + ( 'manual' === $trigger ? FTIPP_BASKET_TIME_BUDGET_MANUAL : FTIPP_BASKET_TIME_BUDGET );
 
         $retry = get_option( 'ftipp_basket_retry', array() );
         if ( ! is_array( $retry ) ) { $retry = array(); }

@@ -2986,6 +2986,35 @@ Beide bleiben vorerst bei SportScore.com. Wird dort etwas gefunden, gilt dieselb
 `BB-<hash>`) — bereits abgegebene EuroLeague-Tipps gäbe es dadurch nicht mehr. Da bisher **kein
 einziges** EuroLeague-Spiel geladen werden konnte, kann es auch keine Tipps darauf geben.
 
+## v1.21.1 — Manueller Abruf darf länger arbeiten
+
+- **Meldung:** „EuroLeague geht, Liga ACB nicht." Die EuroLeague läuft seit v1.21.0 über die offizielle
+  API und ist nach einem Klick komplett da; die Liga ACB hängt weiter an sportscore.com und arbeitet
+  sich nur langsam vor.
+- **Erst geprüft, ob es ein echter Fehler ist.** Der Verdacht: unser Filter vergleicht den Liganamen
+  auf exakte Übereinstimmung — benennt die Quelle die Liga um, verschwände alles lautlos. Gegentest an
+  drei Spieltagen: „Liga Asociación de Clubs de Baloncesto" trifft nach wie vor, die Spiele sind da
+  (26.09.: Bilbao–Manresa, Andorra–Obradoiro, Barcelona–Coruña). Sauber abgegrenzt gegen die ähnlich
+  benannten, aber fremden Wettbewerbe derselben Quelle: „Liga Nacional de Baloncesto Profesional"
+  (Mexiko), „Spain Primera FEB" (zweite spanische Liga) und „Liga Femenina de Baloncesto".
+  **Also kein Fehler — nur zu langsam.**
+- **Geändert:** Beim Klick auf „Jetzt abrufen" gilt jetzt ein Zeitbudget von 25 Sekunden statt 15. Da
+  wartet jemand bewusst vor dem Bildschirm und will Fortschritt sehen, statt fünfmal zu klicken. Der
+  automatische Lauf bleibt bei 15 Sekunden, damit er sich im selben Cron-Durchgang nicht mit den
+  übrigen Abrufen ins Gehege kommt.
+
+### Was für die Liga ACB gesucht und nicht gefunden wurde
+
+- **acb.com** ist inzwischen eine Next.js-Anwendung ohne öffentliche JSON-Schnittstelle. Die Daten
+  stecken in internen Render-Paketen (`?_rsc=…`). Die ließen sich auslesen, brächen aber beim nächsten
+  Umbau der Seite — als Fundament ungeeignet.
+- **TheSportsDB** führt die Liga sauber (`Spanish Liga ACB`, ID 4408, Saison 2026-27, erster Spieltag
+  26.09. korrekt). Der Gratis-Zugang kappt aber auf fünf Treffer je Abfrage. Voller Zugriff kostet
+  9 $/Monat — dasselbe Abo, das auch DEL/DEL 2 für die noch leere Eishockey-Kachel und NFL/NCAA/CFL/
+  GFL/ELF freischalten würde. **Damit zeigen jetzt drei offene Punkte auf dieselben 9 $.**
+
+Festgehalten in `VERBESSERUNGEN.md`.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
