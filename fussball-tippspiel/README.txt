@@ -4,7 +4,7 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.20.0
+Stable tag: 1.21.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -21,7 +21,7 @@ Tippstube ist ein WordPress-Plugin für private Fußball-Tippspiele unter Famili
 * **Tennis (neu)**: Sieger-Tipp — wer gewinnt das Match? ATP & WTA Einzel (Hauptfeld), eine Karte je Match, ein Klick genügt; **eigene Rangliste je Turnier**, genau wie jeder Fußball-Wettbewerb seine eigene hat; dazu je Turnier eine Sonderwertung "Turniersieger"
 * **US-Sport (neu)**: NHL und WNBA — Ergebnis tippen exakt wie beim Fußball, komplette Saison inklusive Playoffs, nach Spieltagen sortiert; jede Liga mit eigener Rangliste (weitere Ligen wie die DEL lassen sich ergänzen); dazu die Sonderwertung "Stanley-Cup-Sieger"
 * **Rugby (neu)**: AFL (Australian Football) — Ergebnis tippen wie beim Fußball, komplette Saison bis zum Grand Final, nach Spielrunden sortiert
-* **Basketball (neu)**: Ergebnis-Tipp für EuroLeague und Liga ACB (Spanien); die WNBA liegt unter US-Sport — alle drei über sportscore.com, kostenlos und ohne Key
+* **Basketball (neu)**: Ergebnis-Tipp für EuroLeague und Liga ACB (Spanien); die WNBA liegt unter US-Sport. Die EuroLeague kommt von der offiziellen API des Veranstalters — ein Abruf lädt die komplette Saison mit echten Spieltagen („Runde 1" statt Kalendertag); ACB und WNBA über sportscore.com. Alles kostenlos und ohne Key
 * **Tabelle (neu)** in US-Sport, Rugby und Basketball: Spiele, Siege, Niederlagen, Punkte und Differenz je Liga, sortiert nach Siegquote — berechnet aus den geladenen Spielen, mit ehrlichem Hinweis, dass es nicht der amtliche Ligastand ist
 * **Sumo**: Sieger-Tipp je Kampf in der Makuuchi-Division — eigene Rangliste je Basho, dazu der Yusho-Tipp, der sich automatisch auflöst
 * **Punktesystem**: 1 Punkt für die richtige Tendenz, 3 Punkte fürs exakte Ergebnis, optionaler K.o.-Zusatztipp bei Pokalspielen (Fußball); bei Formel 1 Punkte für exakte Position und für richtigen Fahrer in falscher Position
@@ -40,7 +40,7 @@ Sieben Menüpunkte unter "Tippstube" im WordPress-Adminmenü:
     * *Formel 1* — eigener, von Fußball unabhängiger Datenabruf (f1api.dev, kostenlos, kein Key nötig)
     * *US-Sport* — Datenabruf der NHL über api-web.nhle.com und der WNBA über sportscore.com (beides kostenlos, ohne Key)
     * *Rugby* — Datenabruf der AFL über api.squiggle.com.au (kostenlos, ohne Key)
-    * *Basketball* — Datenabruf der EuroLeague und der Liga ACB über sportscore.com (kostenlos, ohne Key); abgerufen wird tageweise in einem rollenden Fenster, gescheiterte Tage werden automatisch nachgeholt
+    * *Basketball* — EuroLeague über api-live.euroleague.net (offiziell, ein Abruf lädt die ganze Saison), Liga ACB über sportscore.com (tageweise in einem rollenden Fenster, gescheiterte Tage werden automatisch nachgeholt); beides kostenlos und ohne Key
     * *Sumo* — Datenabruf über sumo-api.com (kostenlos, ohne Key); zeigt das laufende Basho, die Kampftage und den Yusho (kostenlos, kein Key); erster Abruf lädt die ganze Saison, danach nur noch die laufende Woche
     * *Tennis* — eigener Datenabruf über livetennisapi.com mit selbst eingetragenem, kostenlosem API-Key; zeigt das genutzte Tagesbudget und alle geladenen Matches
 * **Design** — Akzentfarbe, Logo und Untertitel jeder Tipprunde zentral einsehbar und bearbeitbar

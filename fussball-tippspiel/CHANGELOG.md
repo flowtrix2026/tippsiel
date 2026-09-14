@@ -2924,6 +2924,68 @@ Ohne den Browser-Test wäre das erst beim Nutzer aufgefallen.
 
 `FTIPP_DB_VERSION` bleibt **21**.
 
+## v1.21.0 — EuroLeague auf die offizielle API des Veranstalters; Rückwärts-Nachlauf
+
+- **Auslöser:** Der Nutzer hat als Dauerregel gesetzt: „Wenn wir was Besseres finden, dann musst du
+  Bescheid sagen … dann schmeißen wir das andere sofort einfach raus." Bei der Suche nach einer
+  besseren EuroLeague-Quelle kam dabei die offizielle API heraus.
+
+### Die Gegenüberstellung, live gemessen
+
+| | SportScore.com (bisher) | api-live.euroleague.net (jetzt) |
+|---|---|---|
+| Saison laden | ~200 Anfragen, ein Kalendertag pro Anfrage | **1 Anfrage, 0,2 Sekunden** |
+| Abweisungsquote | 79 % (HTTP 503) | 0 % |
+| Spieltage | nur Kalendertage | **echte Runden 1-38** |
+| Ergebnisse | Endstand | Endstand **plus Viertel-Stände** |
+| Phasen | keine | Regular Season / Playoffs / Final Four |
+
+Nachgeprüft: 380 Spiele der Saison 2026/27, keine doppelten IDs, erste Partie 24.09.2026 18:00 Uhr
+(Hapoel Tel Aviv – FC Bayern München). Vorsaison als Gegenprobe: 402 Spiele, alle 402 mit Ergebnis;
+die daraus berechnete Tabelle besteht alle Prüfsummen (Siege = Niederlagen = 402, Summe aller
+Differenzen = 0) und hat Olympiacos Piraeus vorn — den tatsächlichen Titelträger.
+
+### Umgesetzt
+
+- `ftipp_euroleague_fetch()` / `ftipp_euroleague_shape()`, angebunden über `'source' => 'euroleague'`
+  in der Liga-Registry. Ein Aufruf je Wettbewerb lädt die ganze Saison — dieselbe Bauweise wie bei der
+  AFL, ohne jede Nachlauf-Mechanik.
+- **Echte Spieltage im Frontend:** `group` ist die Rundennummer (nullgepolstert, damit Runde 2 nicht
+  hinter Runde 19 einsortiert), `group_label` die Beschriftung. In K.-o.-Phasen steht die Phase davor
+  („Playoffs — Runde 40"), weil die nackte Nummer dort nichts sagt. Die Umschaltung im Tippen-Tab zeigt
+  damit „Runde 1" statt „So., 20.09." — genau der Punkt, den der Nutzer angesprochen hatte.
+- Beim Abruf wird die Liga **komplett ersetzt**, weil ein Aufruf die vollständige Saison liefert.
+  Dabei ein Fehler von mir selbst gefunden und behoben: erst löschen, dann „hatte das Spiel vorher schon
+  ein Ergebnis?" zu prüfen, hätte bei jedem Lauf die ganze Saison als „neue Ergebnisse" gemeldet. Jetzt
+  wird der Stand vor dem Löschen gemerkt.
+- **Der EuroCup läuft über dieselbe API** (Wettbewerbs-Code `U`, 224 Spiele geprüft) — und die
+  Frauen-Teams, wegen denen wir ihn in v1.19.0 verworfen hatten, sind dort nicht enthalten. Der Grund
+  für den Rauswurf ist damit weg; eingebaut ist er noch nicht, das entscheidet der Nutzer.
+
+### Ebenfalls neu: Rückwärts-Nachlauf für die SportScore-Ligen
+
+Die Tabelle der WNBA blieb leer, obwohl die Liga seit Mai spielt und offiziell 40 Spieltage absolviert
+hat: unser Fenster begann erst zwei Tage in der Vergangenheit, und die Spiele darin waren noch nicht
+gespielt. `ftipp_basket_plan()` läuft jetzt zusätzlich **rückwärts** bis zu 200 Tage durch die schon
+gespielte Saison — mit der niedrigsten Priorität, also erst kommende Spiele, dann fehlende Ergebnisse,
+dann die Vergangenheit. Fortschritt und Restweg stehen im Adminbereich.
+
+**Ehrlich zum Tempo:** Acht Läufe brachten 44 gewertete WNBA-Spiele und den Zeiger zurück bis zum
+11.08. Eine ganze Saison braucht rund 30 Läufe. Das ist die Quelle, nicht der Code — genau deshalb ist
+der Wechsel bei der EuroLeague so viel wert.
+
+### Was NICHT gefunden wurde
+
+Für **Liga ACB** und **WNBA** gibt es bisher nichts Besseres: die offiziellen WNBA-Schnittstellen
+antworten mit HTTP 403 oder liefern HTML statt Daten, `acb.com` leitet die vermuteten Endpunkte um.
+Beide bleiben vorerst bei SportScore.com. Wird dort etwas gefunden, gilt dieselbe Regel wie hier.
+
+### Keine Schema-Änderung
+
+`FTIPP_DB_VERSION` bleibt **21**. Die EuroLeague-Spiele bekommen neue IDs (`EL-E2026_379` statt
+`BB-<hash>`) — bereits abgegebene EuroLeague-Tipps gäbe es dadurch nicht mehr. Da bisher **kein
+einziges** EuroLeague-Spiel geladen werden konnte, kann es auch keine Tipps darauf geben.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

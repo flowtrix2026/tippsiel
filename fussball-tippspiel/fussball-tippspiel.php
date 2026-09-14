@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL), Rugby (AFL) und Sumo, echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version: 1.20.0
+ * Version: 1.21.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.20.0' );
+define( 'FTIPP_VERSION', '1.21.0' );
 define( 'FTIPP_DB_VERSION', '21' );
 
 /**
@@ -1510,15 +1510,18 @@ function ftipp_hockey_leagues() {
         // gefragt (siehe ftipp_basket_fetch_day), nicht einmal pro Liga.
         'WNBA' => array(
             'name' => 'WNBA', 'sport' => 'ussport', 'region' => 'Nordamerika',
-            'source' => 'sportscore', 'comp' => "Women's National Basketball Association",
+            'source' => 'sportscore', 'comp' => "Women's National Basketball Association", 'einheit' => 'Punkte',
         ),
+        // Die EuroLeague kommt seit v1.21.0 von der offiziellen API des Veranstalters statt von
+        // SportScore.com: eine Anfrage lädt die komplette Saison mit Ergebnissen und echten Spieltagen,
+        // statt ~200 tageweiser Anfragen, von denen die Quelle 79 % abweist (siehe Journal).
         'EL' => array(
             'name' => 'EuroLeague', 'sport' => 'basketball', 'region' => 'Europa',
-            'source' => 'sportscore', 'comp' => 'EuroLeague',
+            'source' => 'euroleague', 'comp_code' => 'E', 'einheit' => 'Punkte',
         ),
         'ACB' => array(
             'name' => 'Liga ACB', 'sport' => 'basketball', 'region' => 'Spanien',
-            'source' => 'sportscore', 'comp' => 'Liga Asociación de Clubs de Baloncesto',
+            'source' => 'sportscore', 'comp' => 'Liga Asociación de Clubs de Baloncesto', 'einheit' => 'Punkte',
         ),
     );
 }
@@ -1662,6 +1665,74 @@ function ftipp_afl_season() {
 }
 
 /* ------------------------------------------------------------------------------------------------
+ * EuroLeague und EuroCup über die offizielle API des Veranstalters (api-live.euroleague.net)
+ *
+ * Ein einziger Aufruf liefert die komplette Saison — Spielplan, Ergebnisse, Viertel-Stände, echte
+ * Spieltags-Nummern und die Phase (Regular Season / Playoffs / Final Four). Damit entfällt für diese
+ * Wettbewerbe die ganze tageweise Nachlauf-Mechanik von SportScore.com.
+ * Live gemessen: 380 Spiele der Saison 2026/27 in einer Anfrage, Vorsaison 402 Spiele mit 402
+ * Ergebnissen. Keine einzige abgewiesene Anfrage.
+ * ---------------------------------------------------------------------------------------------- */
+
+/** Saison-Kennung, z.B. 'E2026' für die Spielzeit 2026/27. Die Saison beginnt laut API am 1. Juli. */
+function ftipp_euroleague_season_code( $compCode ) {
+    $jahr = intval( gmdate( 'Y' ) );
+    if ( intval( gmdate( 'n' ) ) < 7 ) { $jahr--; }
+    return $compCode . $jahr;
+}
+
+/** Komplette Saison eines Wettbewerbs ('E' = EuroLeague, 'U' = EuroCup). */
+function ftipp_euroleague_fetch( $compCode ) {
+    $saison = ftipp_euroleague_season_code( $compCode );
+    $url    = sprintf( 'https://api-live.euroleague.net/v2/competitions/%s/seasons/%s/games', rawurlencode( $compCode ), rawurlencode( $saison ) );
+    $resp   = wp_remote_get( $url, array( 'timeout' => 25 ) );
+    if ( is_wp_error( $resp ) ) { return array( 'ok' => false, 'error' => $resp->get_error_message(), 'games' => array() ); }
+    $code = (int) wp_remote_retrieve_response_code( $resp );
+    $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+    if ( 200 !== $code || ! isset( $body['data'] ) || ! is_array( $body['data'] ) ) {
+        return array( 'ok' => false, 'error' => 'HTTP ' . $code, 'games' => array() );
+    }
+    return array( 'ok' => true, 'error' => '', 'games' => $body['data'], 'saison' => $saison );
+}
+
+/** Einen EuroLeague-Datensatz in die Form bringen, die diese Maschinerie überall nutzt. */
+function ftipp_euroleague_shape( $g, $leagueId ) {
+    $seite = function ( $s ) {
+        $club = isset( $s['club'] ) ? $s['club'] : array();
+        return array(
+            'abbrev' => isset( $club['tvCode'] ) ? $club['tvCode'] : ( isset( $club['code'] ) ? $club['code'] : '' ),
+            'name'   => isset( $club['name'] ) ? $club['name'] : '',
+            'score'  => isset( $s['score'] ) && null !== $s['score'] ? intval( $s['score'] ) : null,
+        );
+    };
+    $final = ! empty( $g['played'] );
+    $utc   = isset( $g['utcDate'] ) ? (string) $g['utcDate'] : '';
+    $runde = isset( $g['round'] ) ? intval( $g['round'] ) : 0;
+    $phase = isset( $g['phaseType']['name'] ) ? (string) $g['phaseType']['name'] : '';
+    $pcode = isset( $g['phaseType']['code'] ) ? (string) $g['phaseType']['code'] : '';
+    // In der Hauptrunde reicht "Runde N"; in K.-o.-Phasen sagt die Phase mehr aus als die Rundennummer.
+    $label = ( 'RS' === $pcode || '' === $phase ) ? ( 'Runde ' . $runde ) : trim( $phase . ' — Runde ' . $runde );
+    $extra = isset( $g['local']['partials']['extraPeriods'] ) ? $g['local']['partials']['extraPeriods'] : array();
+    return array(
+        'id'     => $leagueId . '-' . ( isset( $g['identifier'] ) ? $g['identifier'] : ( 'g' . $runde . '-' . substr( md5( wp_json_encode( $g ) ), 0, 8 ) ) ),
+        'league' => $leagueId,
+        'start'  => $utc ? $utc : null,
+        'date'   => $utc ? substr( $utc, 0, 10 ) : null,
+        'state'  => $final ? 'OFF' : 'FUT',
+        'type'   => ( 'RS' === $pcode ) ? 2 : 3,
+        'round'  => $label,
+        // Echte Spieltage statt Kalendertage — die liefert diese Quelle mit, anders als SportScore.com.
+        // Der Schlüssel bleibt stabil, die Beschriftung ist das, was der Nutzer liest.
+        'group'  => 'R' . str_pad( (string) $runde, 3, '0', STR_PAD_LEFT ),
+        'group_label' => $label,
+        'home'   => $seite( isset( $g['local'] ) ? $g['local'] : array() ),
+        'away'   => $seite( isset( $g['road'] ) ? $g['road'] : array() ),
+        'ot'     => ! empty( $extra ),
+        'final'  => $final,
+    );
+}
+
+/* ------------------------------------------------------------------------------------------------
  * Basketball über SportScore.com
  *
  * Anders als NHL (eine Woche pro Aufruf) und AFL (ganze Saison pro Aufruf) liefert SportScore.com nur
@@ -1677,6 +1748,11 @@ if ( ! defined( 'FTIPP_BASKET_HOT_BACK' ) )     { define( 'FTIPP_BASKET_HOT_BACK
 if ( ! defined( 'FTIPP_BASKET_HOT_FWD' ) )      { define( 'FTIPP_BASKET_HOT_FWD', 2 ); }
 if ( ! defined( 'FTIPP_BASKET_COLD_DAYS' ) )    { define( 'FTIPP_BASKET_COLD_DAYS', 28 ); }
 if ( ! defined( 'FTIPP_BASKET_DAYS_PER_RUN' ) ) { define( 'FTIPP_BASKET_DAYS_PER_RUN', 12 ); }
+// Wie weit rückwärts die bereits gespielte Saison nachgeladen wird. Ohne das bliebe die Tabelle bei
+// einer laufenden Saison praktisch leer: beim Einbau der WNBA im September waren dort längst 40
+// Spieltage gespielt, unser Fenster begann aber erst vorgestern. 200 Tage decken jede dieser Ligen ab
+// (WNBA Mai-September, EuroLeague und Liga ACB September-Juni).
+if ( ! defined( 'FTIPP_BASKET_BACK_DAYS' ) )   { define( 'FTIPP_BASKET_BACK_DAYS', 200 ); }
 // Live gemessen (14.09.2026): sportscore.com weist rund 75-80 % aller Anfragen mit HTTP 503 ab — egal
 // ob mit oder ohne Liga-Filter, egal wie langsam man fragt. Ein einziger Versuch pro Tag holt deshalb
 // so gut wie nichts. Mit Wiederholungen lagen 6 Tage in 16 Sekunden vollständig vor, kein Tag ging
@@ -1807,7 +1883,29 @@ function ftipp_basket_plan( $games, $ligaIds ) {
         $neu[] = $d;
         $d = gmdate( 'Y-m-d', strtotime( $d . ' +1 day' ) );
     }
-    return array( 'nachtragen' => array_keys( $nachtragen ), 'neu' => $neu, 'cursor' => $d );
+
+    // Rückwärts durch die bereits gespielte Saison — sonst bleibt die Tabelle einer laufenden Liga leer.
+    // Läuft mit dem, was vom Zeitbudget übrig bleibt, hat also immer die niedrigste Priorität: erst die
+    // kommenden Spiele (darauf wird getippt), dann fehlende Ergebnisse, dann die Vergangenheit.
+    $rueckEnde = gmdate( 'Y-m-d', $jetzt - FTIPP_BASKET_BACK_DAYS * DAY_IN_SECONDS );
+    $bc = (string) get_option( 'ftipp_basket_back_cursor', '' );
+    if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $bc ) ) {
+        $bc = gmdate( 'Y-m-d', $jetzt - ( FTIPP_BASKET_HOT_BACK + 1 ) * DAY_IN_SECONDS );
+    }
+    $rueck = array();
+    $rd    = $bc;
+    for ( $i = 0; $i < FTIPP_BASKET_DAYS_PER_RUN && strtotime( $rd ) >= strtotime( $rueckEnde ); $i++ ) {
+        $rueck[] = $rd;
+        $rd = gmdate( 'Y-m-d', strtotime( $rd . ' -1 day' ) );
+    }
+
+    return array(
+        'nachtragen' => array_keys( $nachtragen ),
+        'neu'        => $neu,
+        'cursor'     => $d,
+        'rueck'      => $rueck,
+        'rueck_ende' => $rueckEnde,
+    );
 }
 
 /**
@@ -1923,6 +2021,37 @@ function ftipp_hockey_sync( $trigger = 'cron' ) {
         }
     }
 
+    // EuroLeague-Familie: ein Aufruf je Wettbewerb lädt die komplette Saison, deshalb keine
+    // Nachlauf-Mechanik nötig (wie bei der AFL).
+    foreach ( ftipp_hockey_leagues() as $lid => $liga ) {
+        if ( ! isset( $liga['source'] ) || 'euroleague' !== $liga['source'] ) { continue; }
+        $e = ftipp_euroleague_fetch( isset( $liga['comp_code'] ) ? $liga['comp_code'] : 'E' );
+        $out['calls']++;
+        if ( ! $e['ok'] ) {
+            $out['errors'][] = $liga['name'] . ': ' . $e['error'];
+            continue;
+        }
+        // Alles dieser Liga verwerfen und neu setzen — ein Aufruf liefert die vollständige Saison,
+        // abgesagte oder verlegte Spiele können so keine Karteileichen hinterlassen. Vorher merken,
+        // welche Spiele schon ein Ergebnis hatten: sonst zählte jeder Lauf die ganze Saison erneut als
+        // "neue Ergebnisse" und die Verlaufsmeldung wäre wertlos.
+        $vorher = array();
+        foreach ( $games as $gid => $g ) {
+            if ( $g['league'] === $lid ) {
+                if ( ! empty( $g['final'] ) ) { $vorher[ $gid ] = true; }
+                unset( $games[ $gid ] );
+            }
+        }
+        foreach ( $e['games'] as $g ) {
+            $sh = ftipp_euroleague_shape( $g, $lid );
+            if ( empty( $sh['start'] ) || '' === $sh['home']['name'] || '' === $sh['away']['name'] ) { continue; }
+            $hatteErgebnis = isset( $vorher[ $sh['id'] ] );
+            $games[ $sh['id'] ] = $sh;
+            if ( $sh['final'] && ! $hatteErgebnis ) { $resultsNew++; }
+            $merged++;
+        }
+    }
+
     // Basketball über SportScore.com — ein Abruf je Kalendertag für alle Ligen zusammen,
     // siehe die Kommentarblöcke bei ftipp_basket_fetch_day() und ftipp_basket_plan().
     $basketLigen = ftipp_basket_leagues();
@@ -1939,19 +2068,14 @@ function ftipp_hockey_sync( $trigger = 'cron' ) {
         // werden beim nächsten Lauf zuerst geholt (gleiche Technik wie beim Fußball-Backfill).
         update_option( 'ftipp_basket_cursor', $plan['cursor'], false );
 
-        $tage = array_values( array_unique( array_merge( array_keys( $retry ), $plan['nachtragen'], $plan['neu'] ) ) );
-        foreach ( $tage as $nr => $tag ) {
-            if ( microtime( true ) >= $deadline ) {
-                foreach ( array_slice( $tage, $nr ) as $rest ) { $retry[ $rest ] = true; }
-                $out['errors'][] = sprintf( 'Basketball: Zeitlimit erreicht, %d Tage auf den nächsten Lauf verschoben.', count( $tage ) - $nr );
-                break;
-            }
+        // Einen Kalendertag holen und einsortieren. Gibt false zurück, wenn der Tag nicht durchkam.
+        $tagHolen = function ( $tag ) use ( &$games, &$retry, &$out, &$merged, &$resultsNew, $compMap, $ligaIds, $deadline ) {
             $r = ftipp_basket_fetch_day( $tag, $deadline );
             $out['calls'] += max( 1, intval( isset( $r['tries'] ) ? $r['tries'] : 1 ) );
             if ( ! $r['ok'] ) {
                 $retry[ $tag ] = true;
                 $out['errors'][] = 'Basketball ' . $tag . ': ' . $r['error'];
-                continue;
+                return false;
             }
             unset( $retry[ $tag ] );
             // Alte Einträge dieses Tages verwerfen, damit abgesagte oder verlegte Spiele nicht als
@@ -1971,6 +2095,26 @@ function ftipp_hockey_sync( $trigger = 'cron' ) {
                 if ( $sh['final'] && ! $hatteErgebnis ) { $resultsNew++; }
                 $merged++;
             }
+            return true;
+        };
+
+        $tage = array_values( array_unique( array_merge( array_keys( $retry ), $plan['nachtragen'], $plan['neu'] ) ) );
+        foreach ( $tage as $nr => $tag ) {
+            if ( microtime( true ) >= $deadline ) {
+                foreach ( array_slice( $tage, $nr ) as $rest ) { $retry[ $rest ] = true; }
+                $out['errors'][] = sprintf( 'Basketball: Zeitlimit erreicht, %d Tage auf den nächsten Lauf verschoben.', count( $tage ) - $nr );
+                break;
+            }
+            $tagHolen( $tag );
+        }
+
+        // Mit der Restzeit rückwärts durch die schon gespielte Saison. Der Zeiger rückt nur für Tage
+        // weiter, die wirklich versucht wurden — reicht die Zeit nicht, geht es dort beim nächsten Lauf
+        // weiter, statt Tage zu überspringen.
+        foreach ( $plan['rueck'] as $tag ) {
+            if ( microtime( true ) >= $deadline ) { break; }
+            $tagHolen( $tag );
+            update_option( 'ftipp_basket_back_cursor', gmdate( 'Y-m-d', strtotime( $tag . ' -1 day' ) ), false );
         }
         // Die Retry-Liste deckeln, damit sie bei längerem Serverausfall nicht unbegrenzt wächst.
         if ( count( $retry ) > 60 ) { $retry = array_slice( $retry, 0, 60, true ); }
@@ -6537,8 +6681,8 @@ function ftipp_page_team_sport( $sport = 'ussport' ) {
         ),
         'basketball' => array(
             'titel'  => '🏀 Basketball',
-            'text'   => 'Ergebnis-Tipp für EuroLeague und Liga ACB (Spanien). Datenquelle: <a href="https://sportscore.com" target="_blank" rel="noopener">sportscore.com</a> (kostenlos, kein Key nötig) — dieselbe Quelle, die beim Fußball schon für mehrere Ligen läuft. Die WNBA hängt an derselben Mechanik, liegt aber im Bereich US-Sport.',
-            'hinweis'=> 'SportScore.com liefert immer nur einen Kalendertag pro Anfrage. Deshalb werden bei jedem Lauf die Tage von gestern bis übermorgen aufgefrischt und zusätzlich ein rotierender Ausschnitt des Vorlaufs — nach etwa einem Tag ist das komplette Fenster von vier Wochen einmal durch. Einzelne Tage antworten dort gelegentlich mit HTTP 503; die werden beim nächsten Lauf automatisch zuerst nachgeholt.',
+            'text'   => 'Ergebnis-Tipp für EuroLeague und Liga ACB (Spanien). <strong>EuroLeague</strong>: offizielle API des Veranstalters (<a href="https://api-live.euroleague.net" target="_blank" rel="noopener">api-live.euroleague.net</a>) — ein Abruf lädt die komplette Saison mit echten Spieltagen. <strong>Liga ACB</strong>: <a href="https://sportscore.com" target="_blank" rel="noopener">sportscore.com</a>, dieselbe Quelle wie bei mehreren Fußball-Ligen. Beides kostenlos und ohne Key. Die WNBA hängt ebenfalls an SportScore, liegt aber im Bereich US-Sport.',
+            'hinweis'=> 'SportScore.com liefert immer nur einen Kalendertag pro Anfrage und weist zeitweise die meisten Anfragen mit HTTP 503 ab. Deshalb arbeitet sich der Abruf dort Stück für Stück vor und holt gescheiterte Tage beim nächsten Lauf zuerst nach — mehrfaches Klicken auf „Jetzt abrufen" beschleunigt das. Die EuroLeague ist davon nicht betroffen: die ist nach einem Klick vollständig da.',
         ),
     );
     $m = isset( $meta[ $sport ] ) ? $meta[ $sport ] : $meta['ussport'];
@@ -6580,6 +6724,35 @@ function ftipp_page_team_sport( $sport = 'ussport' ) {
            &nbsp;·&nbsp; <strong>gespielt:</strong> <?php echo esc_html( $final ); ?>
            &nbsp;·&nbsp; <strong>Spieltage/Runden:</strong> <?php echo count( $gruppen ); ?>
            <br><strong>Letzter Abruf:</strong> <?php echo $lastSync ? esc_html( wp_date( 'd.m.Y H:i', strtotime( $lastSync ) ) ) : '—'; ?></p>
+        <?php
+        // Fortschritt des Rückwärts-Nachlaufs, aber nur für Bereiche, die tatsächlich eine
+        // SportScore-Liga enthalten — NHL und AFL laden ihre Saison am Stück und brauchen ihn nicht.
+        $hatSportscore = false;
+        foreach ( $ligen as $l ) { if ( isset( $l['source'] ) && 'sportscore' === $l['source'] ) { $hatSportscore = true; break; } }
+        if ( $hatSportscore ) :
+            $bc    = (string) get_option( 'ftipp_basket_back_cursor', '' );
+            $ziel  = gmdate( 'Y-m-d', time() - FTIPP_BASKET_BACK_DAYS * DAY_IN_SECONDS );
+            $start = gmdate( 'Y-m-d', time() - ( FTIPP_BASKET_HOT_BACK + 1 ) * DAY_IN_SECONDS );
+            if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $bc ) ) { $bc = $start; }
+            $fertig  = strtotime( $bc ) < strtotime( $ziel );
+            $gesamt  = max( 1, (int) round( ( strtotime( $start ) - strtotime( $ziel ) ) / DAY_IN_SECONDS ) );
+            $offen   = max( 0, (int) round( ( strtotime( $bc ) - strtotime( $ziel ) ) / DAY_IN_SECONDS ) );
+            $erledigt = $gesamt - $offen;
+            $offeneRetry = count( (array) get_option( 'ftipp_basket_retry', array() ) );
+        ?>
+        <p><strong>Nachlauf der bereits gespielten Saison:</strong>
+            <?php if ( $fertig ) : ?>
+                abgeschlossen — die Tabelle ist vollständig.
+            <?php else : ?>
+                <?php echo esc_html( sprintf( '%d von %d Tagen geladen, zurück bis %s.', $erledigt, $gesamt, wp_date( 'd.m.Y', strtotime( $bc ) ) ) ); ?>
+                <br><span class="description">Solange der Nachlauf läuft, zeigt die Tabelle in der App nur die schon geladenen Spiele.
+                Jeder Klick auf „Jetzt abrufen" holt ein Stück nach; der automatische Abruf erledigt den Rest von selbst.</span>
+            <?php endif; ?>
+            <?php if ( $offeneRetry ) : ?>
+                <br><span class="description"><?php echo esc_html( sprintf( '%d Tage warten auf einen erneuten Versuch (die Quelle weist zeitweise viele Anfragen ab).', $offeneRetry ) ); ?></span>
+            <?php endif; ?>
+        </p>
+        <?php endif; ?>
         <p class="description"><?php echo esc_html( $m['hinweis'] ); ?>
            Ein Abruf holt immer alle Ligen dieser Maschinerie auf einmal — egal, von welchem Tab aus du ihn startest.</p>
 
