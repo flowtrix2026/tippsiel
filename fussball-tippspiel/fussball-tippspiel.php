@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL) und Rugby (AFL), echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version:           1.16.0
+ * Version:           1.16.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.16.0' );
+define( 'FTIPP_VERSION', '1.16.1' );
 define( 'FTIPP_DB_VERSION', '20' );
 
 /**
@@ -5601,26 +5601,48 @@ function ftipp_page_cron() {
     <?php
 }
 
-function ftipp_page_nhl() {
+/**
+ * Adminseite für die Zwei-Team-Bereiche. Ein Bereich je Tab (US-Sport, Rugby) — die Seite zeigt nur
+ * die Ligen des jeweiligen Bereichs, sonst stünden NHL- und AFL-Spiele in derselben Tabelle.
+ */
+function ftipp_page_team_sport( $sport = 'ussport' ) {
     if ( ! current_user_can( 'manage_options' ) ) { return; }
+    $meta = array(
+        'ussport' => array(
+            'titel'  => '🏈 US-Sport',
+            'text'   => 'Ergebnis-Tipp für NHL-Spiele. Datenquelle: <a href="https://api-web.nhle.com" target="_blank" rel="noopener">api-web.nhle.com</a> (kostenlos, kein Key nötig). Geladen werden Hauptrunde und Playoffs, keine Vorbereitungsspiele. Der Hub-Bereich „Eishockey" bleibt für die DEL und andere europäische Ligen frei.',
+            'hinweis'=> 'Der erste Abruf lädt die komplette NHL-Saison (rund 30 Anfragen, etwa 10 Sekunden). Danach frischt der automatische Abruf alle 4 Stunden nur noch die laufende Woche und die Vorwoche auf.',
+        ),
+        'rugby' => array(
+            'titel'  => '🏉 Rugby',
+            'text'   => 'Ergebnis-Tipp für die AFL (Australian Football League). Datenquelle: <a href="https://api.squiggle.com.au" target="_blank" rel="noopener">api.squiggle.com.au</a> (kostenlos, kein Key nötig — verlangt aber eine Absender-Kennung, die das Plugin automatisch mitschickt). Ein Abruf lädt die komplette Saison.',
+            'hinweis'=> 'Abgerufen wird zusammen mit den übrigen Ligen dieser Maschinerie, alle 4 Stunden automatisch.',
+        ),
+    );
+    $m = isset( $meta[ $sport ] ) ? $meta[ $sport ] : $meta['ussport'];
+
     $lastSync = get_option( 'ftipp_hockey_last_sync' );
-    $season   = (string) get_option( 'ftipp_nhl_season', '' );
-    $games    = get_option( 'ftipp_hockey_games', array() );
-    if ( ! is_array( $games ) ) { $games = array(); }
-    $final = 0; $offen = 0; $tage = array();
+    $ligen    = ftipp_hockey_leagues_of( $sport );
+    $alle     = get_option( 'ftipp_hockey_games', array() );
+    if ( ! is_array( $alle ) ) { $alle = array(); }
+    // Nur die Spiele der Ligen dieses Bereichs.
+    $games = array();
+    foreach ( $alle as $id => $g ) {
+        if ( isset( $ligen[ $g['league'] ] ) ) { $games[ $id ] = $g; }
+    }
+    $final = 0; $offen = 0; $gruppen = array(); $proLiga = array();
     foreach ( $games as $g ) {
         if ( ! empty( $g['final'] ) ) { $final++; } else { $offen++; }
-        if ( ! empty( $g['date'] ) ) { $tage[ $g['date'] ] = true; }
+        $key = ! empty( $g['group'] ) ? $g['group'] : ( ! empty( $g['date'] ) ? $g['date'] : '' );
+        if ( '' !== $key ) { $gruppen[ $key ] = true; }
+        $proLiga[ $g['league'] ] = ( isset( $proLiga[ $g['league'] ] ) ? $proLiga[ $g['league'] ] : 0 ) + 1;
     }
     uasort( $games, function ( $a, $b ) { return strcmp( (string) $a['start'], (string) $b['start'] ); } );
     ?>
     <div class="wrap">
-        <h1>🏈 US-Sport</h1>
-        <p>Ergebnis-Tipp für NHL-Spiele — läuft komplett unabhängig von den anderen Sportarten.
-           Der Hub-Bereich „Eishockey" bleibt für die DEL und andere europäische Ligen frei.
-           Datenquelle: <a href="https://api-web.nhle.com" target="_blank" rel="noopener">api-web.nhle.com</a>
-           (kostenlos, kein Key nötig). Mitspieler aktivieren Eishockey pro Tipprunde selbst in der App.
-           Geladen werden Hauptrunde und Playoffs, keine Vorbereitungsspiele.</p>
+        <h1><?php echo esc_html( $m['titel'] ); ?></h1>
+        <p><?php echo wp_kses_post( $m['text'] ); ?>
+           Mitspieler aktivieren den Bereich pro Tipprunde selbst in der App.</p>
 
         <?php if ( isset( $_GET['ftipp_nhl_done'] ) ) : ?>
             <div class="notice notice-<?php echo ( 'ok' === $_GET['ftipp_nhl_done'] ) ? 'success' : 'error'; ?> is-dismissible">
@@ -5629,30 +5651,33 @@ function ftipp_page_nhl() {
         <?php endif; ?>
 
         <h2>Status</h2>
-        <p><strong>Spiele geladen:</strong> <?php echo count( $games ); ?>
+        <p><strong>Ligen:</strong> <?php echo $proLiga ? esc_html( implode( ', ', array_map(
+                function ( $l, $n ) { return "$l ($n)"; }, array_keys( $proLiga ), $proLiga ) ) ) : '—'; ?>
+           <br><strong>Spiele geladen:</strong> <?php echo count( $games ); ?>
            &nbsp;·&nbsp; <strong>offen:</strong> <?php echo esc_html( $offen ); ?>
            &nbsp;·&nbsp; <strong>gespielt:</strong> <?php echo esc_html( $final ); ?>
-           &nbsp;·&nbsp; <strong>Spieltage:</strong> <?php echo count( $tage ); ?>
-           <br><strong>Saison:</strong> <?php echo $season ? esc_html( str_replace( '/', ' bis ', $season ) ) : '—'; ?>
-           &nbsp;·&nbsp; <strong>Letzter Abruf:</strong> <?php echo $lastSync ? esc_html( wp_date( 'd.m.Y H:i', strtotime( $lastSync ) ) ) : '—'; ?></p>
-        <p class="description">Der erste Abruf lädt die komplette Saison (rund 30 Anfragen, etwa 10 Sekunden).
-           Danach frischt der automatische Abruf alle 4 Stunden nur noch die laufende Woche und die Vorwoche
-           auf — das sind zwei Anfragen.</p>
+           &nbsp;·&nbsp; <strong>Spieltage/Runden:</strong> <?php echo count( $gruppen ); ?>
+           <br><strong>Letzter Abruf:</strong> <?php echo $lastSync ? esc_html( wp_date( 'd.m.Y H:i', strtotime( $lastSync ) ) ) : '—'; ?></p>
+        <p class="description"><?php echo esc_html( $m['hinweis'] ); ?>
+           Ein Abruf holt immer alle Ligen dieser Maschinerie auf einmal — egal, von welchem Tab aus du ihn startest.</p>
 
         <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
             <input type="hidden" name="action" value="ftipp_nhl_fetch" />
+            <input type="hidden" name="sport" value="<?php echo esc_attr( $sport ); ?>" />
             <?php wp_nonce_field( 'ftipp_nhl_fetch' ); ?>
             <?php submit_button( '⬇️ Jetzt abrufen', 'primary', 'submit', false ); ?>
         </form>
 
         <?php if ( $games ) : ?>
         <h2 style="margin-top:30px">Spielplan</h2>
-        <table class="widefat striped" style="max-width:760px">
-            <thead><tr><th>Zeit</th><th>Begegnung</th><th>Ergebnis</th></tr></thead>
+        <table class="widefat striped" style="max-width:860px">
+            <thead><tr><th>Zeit</th><th>Liga</th><th>Spieltag/Runde</th><th>Begegnung</th><th>Ergebnis</th></tr></thead>
             <tbody>
             <?php foreach ( array_slice( $games, 0, 100, true ) as $g ) : ?>
                 <tr>
                     <td><?php echo $g['start'] ? esc_html( wp_date( 'd.m. H:i', strtotime( $g['start'] ) ) ) : '—'; ?></td>
+                    <td><?php echo esc_html( $g['league'] ); ?></td>
+                    <td><?php echo esc_html( ! empty( $g['group_label'] ) ? $g['group_label'] : ( ! empty( $g['group'] ) ? $g['group'] : '' ) ); ?></td>
                     <td><?php echo esc_html( $g['away']['name'] . ' @ ' . $g['home']['name'] ); ?></td>
                     <td><?php
                         if ( empty( $g['final'] ) ) { echo '—'; }
@@ -5668,11 +5693,14 @@ function ftipp_page_nhl() {
         <?php if ( count( $games ) > 100 ) : ?>
             <p class="description">Zeigt die ersten 100 von <?php echo count( $games ); ?> Spielen.</p>
         <?php endif; ?>
+        <?php else : ?>
+        <p><em>Noch keine Spiele geladen — einmal „Jetzt abrufen" klicken.</em></p>
         <?php endif; ?>
     </div>
     <?php
 }
-
+function ftipp_page_ussport() { ftipp_page_team_sport( 'ussport' ); }
+function ftipp_page_rugby()   { ftipp_page_team_sport( 'rugby' ); }
 function ftipp_page_tennis() {
     if ( ! current_user_can( 'manage_options' ) ) { return; }
     $key      = ftipp_tennis_api_key();
@@ -6350,7 +6378,9 @@ add_action( 'admin_post_ftipp_nhl_fetch', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_nhl_fetch' );
     $res = ftipp_hockey_sync( 'manual' );
-    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'tab' => 'nhl', 'ftipp_nhl_done' => $res['ok'] ? 'ok' : 'err' ), admin_url( 'admin.php' ) ) );
+    // Zurück auf den Tab, von dem aus abgerufen wurde — sonst landet man nach dem Rugby-Abruf bei US-Sport.
+    $tab = ( 'rugby' === sanitize_key( wp_unslash( $_POST['sport'] ?? '' ) ) ) ? 'rugby' : 'nhl';
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'tab' => $tab, 'ftipp_nhl_done' => $res['ok'] ? 'ok' : 'err' ), admin_url( 'admin.php' ) ) );
     exit;
 } );
 add_action( 'admin_post_ftipp_tennis_fetch', function () {
@@ -6557,7 +6587,8 @@ function ftipp_page_sports() {
     $tabs = array(
         'fussball' => array( 'label' => '⚽ Fußball',   'cb' => 'ftipp_settings_page' ),
         'f1'       => array( 'label' => '🏁 Formel 1',  'cb' => 'ftipp_page_f1' ),
-        'nhl'      => array( 'label' => '🏈 US-Sport',  'cb' => 'ftipp_page_nhl' ),
+        'nhl'      => array( 'label' => '🏈 US-Sport',  'cb' => 'ftipp_page_ussport' ),
+        'rugby'    => array( 'label' => '🏉 Rugby',     'cb' => 'ftipp_page_rugby' ),
         'tennis'   => array( 'label' => '🎾 Tennis',    'cb' => 'ftipp_page_tennis' ),
     );
     $cur = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'fussball';

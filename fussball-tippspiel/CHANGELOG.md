@@ -2613,6 +2613,27 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Update einspielen, unter Sportarten → US-Sport einmal
   "Jetzt abrufen" (holt jetzt auch die AFL) und im Frontend die Rugby-Kachel öffnen.
 
+## v1.16.1 — Eigener Rugby-Tab im Adminbereich
+
+- **Anfrage:** "Sollte da nicht auch Rugby oben drin stehen? Weil ich kann die Sachen Rugby gar nicht
+  laden." Berechtigt — das war ein Fehler aus v1.16.0.
+- **Zwei Fehler, beide behoben:**
+  1. **Rugby hatte im Adminbereich gar keinen Tab.** Der AFL-Abruf hing mit am US-Sport-Tab, weil beide
+     Bereiche dieselbe Abruf-Funktion nutzen. Das stand zwar in den Release-Notes, war in der Oberfläche
+     aber nicht zu erkennen — es sah aus, als gäbe es Rugby im Adminbereich überhaupt nicht.
+  2. **Der US-Sport-Tab zeigte auch AFL-Spiele.** Die Seite las stumpf alle Spiele der Maschinerie,
+     ohne nach Bereich zu filtern. Seit der AFL dazukam, standen NHL und AFL in derselben Tabelle.
+- **Umgesetzt:** Aus `ftipp_page_nhl()` wurde `ftipp_page_team_sport( $sport )` — eine Seite, die nur die
+  Ligen ihres Bereichs zeigt, mit eigener Überschrift, eigenem Quellen-Hinweis und einer zusätzlichen
+  Spalte "Liga" sowie "Spieltag/Runde" in der Tabelle. Dazu zwei dünne Aufrufer (`ftipp_page_ussport()`,
+  `ftipp_page_rugby()`) und der neue Tab "🏉 Rugby". Der Abruf-Knopf merkt sich jetzt, von welchem Tab
+  er gestartet wurde, und springt dorthin zurück statt immer auf US-Sport. In der Statuszeile steht,
+  welche Ligen mit wie vielen Spielen geladen sind. Der Hinweis sagt außerdem klar, dass ein Abruf
+  immer alle Ligen dieser Maschinerie auf einmal holt — egal von welchem Tab aus.
+- Lokal getestet: `php -l` fehlerfrei. Beide Tabs mit gestubbten WordPress-Funktionen echt gerendert und
+  mit gemischten NHL-/AFL-Daten geprüft: US-Sport zeigt genau die zwei NHL-Spiele und keine AFL-Partie,
+  Rugby genau die zwei AFL-Spiele und keine NHL-Partie; die Ligen-Zeile stimmt jeweils.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

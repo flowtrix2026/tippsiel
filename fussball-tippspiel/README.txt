@@ -4,7 +4,7 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.16.0
+Stable tag: 1.16.1
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -35,7 +35,8 @@ Acht Menüpunkte unter "Tippstube" im WordPress-Adminmenü:
 * **Sportarten** — ein Menüpunkt mit einem Tab je Sportart:
     * *Fußball* — Datenabruf der Fußball-Wettbewerbe, API-Football-Key, CSV-Import für Wettbewerbe ohne gute kostenlose Quelle
     * *Formel 1* — eigener, von Fußball unabhängiger Datenabruf (f1api.dev, kostenlos, kein Key nötig)
-    * *US-Sport / Rugby* — Datenabruf über api-web.nhle.com (NHL) und api.squiggle.com.au (AFL), beide kostenlos und ohne Key (kostenlos, kein Key); erster Abruf lädt die ganze Saison, danach nur noch die laufende Woche
+    * *US-Sport* — Datenabruf der NHL über api-web.nhle.com (kostenlos, ohne Key)
+    * *Rugby* — Datenabruf der AFL über api.squiggle.com.au (kostenlos, ohne Key) (kostenlos, kein Key); erster Abruf lädt die ganze Saison, danach nur noch die laufende Woche
     * *Tennis* — eigener Datenabruf über livetennisapi.com mit selbst eingetragenem, kostenlosem API-Key; zeigt das genutzte Tagesbudget und alle geladenen Matches
 * **Design** — Akzentfarbe, Logo und Untertitel jeder Tipprunde zentral einsehbar und bearbeitbar
 * **Cron-Job** — frei einstellbarer Abrufplan, dazu ein optionaler zuverlässiger externer Cron-Dienst (manuell oder automatisch über die cron-job.org-API)
@@ -62,6 +63,11 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.16.1 =
+Rugby hat jetzt einen eigenen Tab im Adminbereich — vorher hing der AFL-Abruf unsichtbar am
+US-Sport-Tab. Außerdem zeigte der US-Sport-Tab fälschlich auch die AFL-Spiele; jetzt zeigt jeder Tab
+nur die Ligen seines Bereichs.
 
 = 1.16.0 =
 Neu: AFL (Australian Football) in der Kachel "Rugby" — Ergebnis tippen wie beim Fußball, komplette
