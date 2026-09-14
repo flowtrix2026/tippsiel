@@ -4,11 +4,11 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.21.1
+Stable tag: 1.22.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Privates Tippspiel für deine Familie oder Freundesrunde — echtes WordPress-Login, eigene Tipprunden, automatischer Datenabruf. Fußball (19 Wettbewerbe), Formel 1, Tennis, US-Sport (NHL, WNBA), Basketball (EuroLeague, Liga ACB), Rugby (AFL) und Sumo.
+Privates Tippspiel für deine Familie oder Freundesrunde — echtes WordPress-Login, eigene Tipprunden, automatischer Datenabruf. Fußball (19 Wettbewerbe), Formel 1, Tennis, US-Sport (NHL, WNBA), Basketball (EuroLeague, Liga ACB), Rugby (AFL), Sumo und Cricket.
 
 == Description ==
 
@@ -23,6 +23,7 @@ Tippstube ist ein WordPress-Plugin für private Fußball-Tippspiele unter Famili
 * **Rugby (neu)**: AFL (Australian Football) — Ergebnis tippen wie beim Fußball, komplette Saison bis zum Grand Final, nach Spielrunden sortiert
 * **Basketball (neu)**: Ergebnis-Tipp für EuroLeague und Liga ACB (Spanien); die WNBA liegt unter US-Sport. Die EuroLeague kommt von der offiziellen API des Veranstalters — ein Abruf lädt die komplette Saison mit echten Spieltagen („Runde 1" statt Kalendertag); ACB und WNBA über sportscore.com. Alles kostenlos und ohne Key
 * **Tabelle (neu)** in US-Sport, Rugby und Basketball: Spiele, Siege, Niederlagen, Punkte und Differenz je Liga, sortiert nach Siegquote — berechnet aus den geladenen Spielen, mit ehrlichem Hinweis, dass es nicht der amtliche Ligastand ist
+* **Cricket (neu)**: Sieger-Tipp je Partie — Länderspiele der bekannten Nationen sowie IPL, Big Bash League, The Hundred und Caribbean Premier League, jeweils ODI und T20 (keine Test-Partien). Eigener kostenloser API-Key von cricketdata.org, Tagesbudget mit harter Kappung
 * **Sumo**: Sieger-Tipp je Kampf in der Makuuchi-Division — eigene Rangliste je Basho, dazu der Yusho-Tipp, der sich automatisch auflöst
 * **Punktesystem**: 1 Punkt für die richtige Tendenz, 3 Punkte fürs exakte Ergebnis, optionaler K.o.-Zusatztipp bei Pokalspielen (Fußball); bei Formel 1 Punkte für exakte Position und für richtigen Fahrer in falscher Position
 * **Zwei Ranglisten-Modi**: Freundschaftlich (geteilter Platz bei Gleichstand) oder Challenge (harter Tie-Break)
@@ -42,6 +43,7 @@ Sieben Menüpunkte unter "Tippstube" im WordPress-Adminmenü:
     * *Rugby* — Datenabruf der AFL über api.squiggle.com.au (kostenlos, ohne Key)
     * *Basketball* — EuroLeague über api-live.euroleague.net (offiziell, ein Abruf lädt die ganze Saison), Liga ACB über sportscore.com (tageweise in einem rollenden Fenster, gescheiterte Tage werden automatisch nachgeholt); beides kostenlos und ohne Key
     * *Sumo* — Datenabruf über sumo-api.com (kostenlos, ohne Key); zeigt das laufende Basho, die Kampftage und den Yusho (kostenlos, kein Key); erster Abruf lädt die ganze Saison, danach nur noch die laufende Woche
+    * *Cricket* — Datenabruf über cricketdata.org mit selbst eingetragenem, kostenlosem API-Key; zeigt das genutzte Tagesbudget, die beobachteten Serien und alle geladenen Partien
     * *Tennis* — eigener Datenabruf über livetennisapi.com mit selbst eingetragenem, kostenlosem API-Key; zeigt das genutzte Tagesbudget und alle geladenen Matches
 * **Design** — Akzentfarbe, Logo und Untertitel jeder Tipprunde zentral einsehbar und bearbeitbar
 * **Cron-Job** — frei einstellbarer Abrufplan, dazu ein optionaler zuverlässiger externer Cron-Dienst (manuell oder automatisch über die cron-job.org-API)

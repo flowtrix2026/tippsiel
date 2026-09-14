@@ -243,6 +243,12 @@
       <div class="hub-tile-meta">Feldhockey-Bundesliga &amp; internationale Turniere.</div>
       <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
     </div>
+    <div class="hub-tile is-active" onclick="enterSport('cricket')">
+      <div class="hub-tile-icon">🏏</div>
+      <p class="hub-tile-name">Cricket</p>
+      <div class="hub-tile-meta">Sieger-Tipp: Wer gewinnt? Länderspiele, IPL, Big Bash, The Hundred und CPL — ODI und T20.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-live">Aktiv</span><span style="color:var(--accent-hi)">→</span></div>
+    </div>
     <div class="hub-tile" onclick="enterSport('mma')">
       <div class="hub-tile-icon">🥊</div>
       <p class="hub-tile-name">MMA</p>
@@ -1847,6 +1853,35 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
   <section id="temode-teeinstellungen" style="display:none"></section>
 </div>
 </div><!-- #tennis-shell -->
+<div id="cricket-shell" style="display:none">
+<header>
+  <h1>
+    <svg width="30" height="33" viewBox="0 0 240 260" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="flex:none">
+      <path d="M20 30 Q20 20 30 20 L210 20 Q220 20 220 30 L220 130 Q220 190 170 220 L120 250 L70 220 Q20 190 20 130 Z" fill="#173a22" stroke="#d9a441" stroke-width="6"/>
+      <circle cx="152" cy="86" r="20" fill="#e3a83f"/>
+      <path d="M62 178 L128 112" stroke="#e3a83f" stroke-width="14" stroke-linecap="round"/>
+      <path d="M56 184 L74 166" stroke="#f3ead9" stroke-width="16" stroke-linecap="round"/>
+    </svg>
+    Tippstube — Cricket
+  </h1>
+  <div class="sub">Sieger-Tipp: Wer gewinnt die Partie? ODI und T20.
+    <br><button class="hub-switch" onclick="showSportHub()">🏏 Sportart wechseln</button>
+    <button class="hub-switch" onclick="showRounds()">👥 Runden</button>
+  </div>
+</header>
+<div class="wrap">
+  <div class="tabs">
+    <div class="tab active" data-mode="crtippen" onclick="switchCricketMode('crtippen')">📝 Tippen</div>
+    <div class="tab" data-mode="crauswertung" onclick="switchCricketMode('crauswertung')">🏆 Auswertung</div>
+    <div class="tab" data-mode="crsonder" onclick="switchCricketMode('crsonder')">⭐ Sonderwertungen</div>
+    <div class="tab" data-mode="creinstellungen" onclick="switchCricketMode('creinstellungen')">⚙️ Einstellungen</div>
+  </div>
+  <section id="crmode-crtippen"></section>
+  <section id="crmode-crauswertung" style="display:none"></section>
+  <section id="crmode-crsonder" style="display:none"></section>
+  <section id="crmode-creinstellungen" style="display:none"></section>
+</div>
+</div><!-- #cricket-shell -->
 <div id="sumo-shell" style="display:none">
 <header>
   <h1>
@@ -1917,7 +1952,8 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
 const SPORT_SHELLS = {football:'app-shell', f1:'f1-shell', tennis:'tennis-shell',
   // US-Sport und Rugby teilen sich denselben Bereich — die Mechanik (zwei Mannschaften, Ergebnis-Tipp)
   // ist identisch, nur die Ligen dahinter unterscheiden sich.
-  ussport:'team-shell', rugby:'team-shell', basketball:'team-shell', sumo:'sumo-shell'};
+  ussport:'team-shell', rugby:'team-shell', basketball:'team-shell', sumo:'sumo-shell',
+  cricket:'cricket-shell'};
 const TEAM_SPORTS = {
   ussport:{titel:'US-Sport', wechsel:'🏈', unter:'Ergebnis-Tipp: Wie geht das Spiel aus? NHL und WNBA, weitere US-Ligen folgen.'},
   rugby:  {titel:'Rugby',    wechsel:'🏉', unter:'Ergebnis-Tipp: Wie geht das Spiel aus? Aktuell die AFL (Australian Football League).'},
@@ -1944,6 +1980,7 @@ function enterSport(sport){
   if(sport==='f1') switchF1Mode('f1tippen');
   else if(sport==='tennis') switchTennisMode('tetippen');
   else if(sport==='sumo') switchSumoMode('sutippen');
+  else if(sport==='cricket') switchCricketMode('crtippen');
   else if(TEAM_SPORTS[sport]){
     if(hkSport!==sport){ hkSport=sport; hkLeague=''; hkDate=''; }
     const m=TEAM_SPORTS[sport];
@@ -2971,6 +3008,209 @@ async function renderNhlEinstellungen(){
   box.appendChild(card);
 }
 
+/* ---------------- Cricket: Sieger-Tipp ----------------
+   Gleiche Bausteine wie die übrigen Sportarten (BOOT/api_get/api_post/el/esc/mkSelect, ROUNDS,
+   currentRoundId). Getippt wird wie beim Tennis mit einem Klick auf die Mannschaft — bei nur zwei
+   möglichen Ausgängen wäre ein Formular mit Speichern-Knopf unnötig umständlich. */
+let crLeague = 'INT';
+
+function switchCricketMode(mode){
+  document.querySelectorAll('#cricket-shell .tab').forEach(t=>t.classList.toggle('active', t.dataset.mode===mode));
+  ['crtippen','crauswertung','crsonder','creinstellungen'].forEach(m=>{
+    document.getElementById('crmode-'+m).style.display = (m===mode) ? '' : 'none';
+  });
+  if(mode==='crtippen') renderCricketTippen();
+  else if(mode==='crauswertung') renderCricketAuswertung();
+  else if(mode==='crsonder') renderCricketSonder();
+  else renderCricketEinstellungen();
+}
+
+function cricketGuard(box){
+  if(!CONNECTED){ box.innerHTML = '<div class="card"><div class="hint">Cricket steht nur im echten WordPress-Betrieb zur Verfügung.</div></div>'; return false; }
+  if(!ROUNDS || !ROUNDS.length){
+    box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde — sie gilt dann gleich für alle Sportarten.</div><button style="margin-top:10px" onclick="showRounds()">👥 Zu den Tipprunden</button></div>';
+    return false;
+  }
+  if(!currentRoundId) currentRoundId = ROUNDS[0].id;
+  return true;
+}
+
+function mkCrLeagueSelect(leagues, onChange){
+  const list = (leagues && leagues.length) ? leagues : [{id:crLeague, name:crLeague}];
+  return mkSelect('Wettbewerb', list.map(l=>({v:l.id,label:l.name})), crLeague, v=>{ crLeague=v; onChange(); });
+}
+function crName(leagues){ const l=(leagues||[]).find(x=>x.id===crLeague); return l?l.name:'Cricket'; }
+function crZeit(iso){ if(!iso) return ''; return new Date(iso).toLocaleString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }
+
+/* Eine Partie als Karte: Kopf mit Wettbewerb/Format/Zeit, darunter die beiden Mannschaften zum Antippen. */
+function mkCrMatchCard(row){
+  const m = row.match;
+  const mine = row.mine || {pick:0, committed:false};
+  const card = el('<div class="card"></div>');
+  const kopf = `${esc(m.format)} · ${esc(crZeit(m.start))}${m.venue?' · '+esc(m.venue):''}`;
+  card.appendChild(el(`<div class="meta">${kopf}</div>`));
+
+  const wahl = el('<div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap"></div>');
+  [1,2].forEach(nr=>{
+    const team = nr===1 ? m.t1 : m.t2;
+    const gewaehlt = mine.committed && mine.pick===nr;
+    const gewonnen = m.winner===nr;
+    let cls = 'hub-switch';
+    if(gewonnen) cls += ' rank1';
+    const b = el(`<button class="${cls}" style="flex:1;min-width:140px${gewaehlt?';outline:2px solid var(--accent-hi)':''}">${gewonnen?'🏆 ':''}${esc(team.name)}${gewaehlt?' ✅':''}</button>`);
+    if(!row.locked){
+      b.onclick = async ()=>{
+        try{ await api_post('cricket/tips', {round_id: currentRoundId, match_id: m.id, pick: nr, committed: true}); renderCricketTippen(); }
+        catch(e){ alert('Fehler: '+e.message); }
+      };
+    } else { b.disabled = true; }
+    wahl.appendChild(b);
+  });
+  card.appendChild(wahl);
+
+  if(m.winner===0){
+    card.appendChild(el(`<div class="warnbox" style="margin-top:8px">Kein Sieger — ${esc(m.status)}. Diese Partie gibt niemandem Punkte.</div>`));
+  } else if(m.winner!==null && m.status){
+    card.appendChild(el(`<div class="hint" style="margin-top:8px">${esc(m.status)}</div>`));
+  }
+
+  if(!row.locked){
+    card.appendChild(el(`<div class="hint" style="margin-top:8px">${mine.committed?'✅ abgegeben — bis zum Fristende noch änderbar.':'Mannschaft antippen, der Tipp ist sofort abgegeben.'}</div>`));
+  } else if(row.others){
+    if(row.others.length){
+      const t = row.others.map(o=>`${esc(o.name)}: ${esc(o.pick===1?m.t1.name:m.t2.name)}`).join(' · ');
+      card.appendChild(el(`<div class="hint" style="margin-top:8px">Tipps der Mitspieler — ${t}</div>`));
+    } else {
+      card.appendChild(el('<div class="hint" style="margin-top:8px">Kein Mitspieler hat auf diese Partie getippt.</div>'));
+    }
+  }
+  return card;
+}
+
+async function renderCricketTippen(){
+  const box = $('#crmode-crtippen'); box.innerHTML='';
+  if(!cricketGuard(box)) return;
+  let data, subs;
+  try{
+    data = await api_get(`cricket/matches?round=${currentRoundId}&league=${encodeURIComponent(crLeague)}`);
+    if(data && data.league) crLeague = data.league;
+    subs = await api_get(`rounds/${currentRoundId}/subs`);
+  }catch(e){ box.appendChild(el(`<div class="card"><div class="warnbox">⚠️ ${esc(e.message)}</div></div>`)); return; }
+
+  const round = roundById(currentRoundId);
+  const head = el('<div class="card"></div>');
+  head.appendChild(el(`<div class="hint">Runde: <b>${esc(round.name)}</b>. Mannschaft antippen → Tipp ist abgegeben. Die Tipps deiner Mitspieler siehst du erst, sobald die Frist der jeweiligen Partie abgelaufen ist.</div>`));
+  const ctrl = el('<div class="row"></div>');
+  ctrl.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderCricketTippen(); }));
+  ctrl.appendChild(mkCrLeagueSelect(data.leagues, renderCricketTippen));
+  head.appendChild(ctrl);
+  box.appendChild(head);
+
+  const subKey = 'CR_'+crLeague;
+  if(!subs.subs || !subs.subs[subKey]){
+    const card = el('<div class="card"></div>');
+    card.appendChild(el(`<div class="hint">${esc(crName(data.leagues))} ist für diese Runde noch nicht aktiviert.</div>`));
+    const btn = el(`<button style="margin-top:10px">🏏 ${esc(crName(data.leagues))} für diese Runde aktivieren</button>`);
+    btn.onclick = async ()=>{ try{ await api_post('cricket/subscribe', {round_id: currentRoundId, league: crLeague, active:true}); renderCricketTippen(); }catch(e){ alert('Fehler: '+e.message); } };
+    card.appendChild(btn); box.appendChild(card);
+    return;
+  }
+  if(!data.matches.length){
+    box.appendChild(el('<div class="card"><div class="hint">Für diesen Wettbewerb sind noch keine Partien geladen — der Admin muss unter Tippstube → Cricket einmal „Jetzt abrufen" klicken. Läuft gerade keine Saison, ist das völlig normal.</div></div>'));
+    return;
+  }
+  data.matches.forEach(row=> box.appendChild(mkCrMatchCard(row)));
+  if(data.cfg && data.cfg.malusOn){
+    box.appendChild(el(`<div class="warnbox">⚠️ Verpasste Partien geben <b>${data.cfg.malus} Punkt(e)</b> (Regel dieser Runde).</div>`));
+  }
+}
+
+async function renderCricketAuswertung(){
+  const box = $('#crmode-crauswertung'); box.innerHTML='';
+  if(!cricketGuard(box)) return;
+  let data, matches;
+  try{
+    matches = await api_get(`cricket/matches?round=${currentRoundId}&league=${encodeURIComponent(crLeague)}`);
+    if(matches && matches.league) crLeague = matches.league;
+    data = await api_get(`cricket/leaderboard?round=${currentRoundId}&league=${encodeURIComponent(crLeague)}`);
+  }catch(e){ box.appendChild(el(`<div class="card"><div class="warnbox">⚠️ ${esc(e.message)}</div></div>`)); return; }
+
+  const ctrl = el('<div class="card"><div class="row"></div></div>');
+  const row0 = ctrl.querySelector('.row');
+  row0.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderCricketAuswertung(); }));
+  row0.appendChild(mkCrLeagueSelect(matches && matches.leagues, renderCricketAuswertung));
+  box.appendChild(ctrl);
+
+  if(!data.rows.length){
+    box.appendChild(el(`<div class="card"><div class="hint">Noch kein Mitspieler mit aktivem ${esc(data.name)}-Tippen in dieser Runde.</div></div>`));
+    return;
+  }
+  let html = `<div class="phase-h" style="margin-top:0">🏆 ${esc(data.name)}</div>`;
+  html += '<table><thead><tr><th class="num">#</th><th>Mitspieler</th><th class="num">Tipps</th><th class="num">Treffer</th><th class="num">Punkte</th></tr></thead><tbody>';
+  data.rows.forEach(r=>{
+    const c1 = r.rank===1 ? 'rank1' : '';
+    html += `<tr><td class="num ${c1}">${r.rank}</td><td class="${c1}">${esc(r.name)}</td><td class="num">${r.tips}</td><td class="num">${r.hits}</td><td class="num"><b>${r.total}</b></td></tr>`;
+  });
+  html += '</tbody></table>';
+  const karte = el('<div class="card"></div>'); karte.innerHTML = html;
+  box.appendChild(karte);
+}
+
+async function renderCricketSonder(){
+  const box = $('#crmode-crsonder'); box.innerHTML='';
+  if(!cricketGuard(box)) return;
+  let matches;
+  try{ matches = await api_get(`cricket/matches?round=${currentRoundId}&league=${encodeURIComponent(crLeague)}`); if(matches&&matches.league) crLeague=matches.league; }
+  catch(e){ box.appendChild(el(`<div class="card"><div class="warnbox">⚠️ ${esc(e.message)}</div></div>`)); return; }
+  const ctrl = el('<div class="card"><div class="row"></div></div>');
+  ctrl.querySelector('.row').appendChild(mkCrLeagueSelect(matches && matches.leagues, renderCricketSonder));
+  box.appendChild(ctrl);
+  // Cricket hat keine eingebaute Wertung — deshalb ohne Titel, der Baustein formuliert dann anders.
+  await renderEigeneSonder(box, 'CR_'+crLeague, null);
+}
+
+async function renderCricketEinstellungen(){
+  const box = $('#crmode-creinstellungen'); box.innerHTML='';
+  if(!cricketGuard(box)) return;
+  let cfg, matches;
+  try{
+    matches = await api_get(`cricket/matches?round=${currentRoundId}&league=${encodeURIComponent(crLeague)}`);
+    if(matches && matches.league) crLeague = matches.league;
+    cfg = matches.cfg;
+  }catch(e){ box.appendChild(el(`<div class="card"><div class="warnbox">⚠️ ${esc(e.message)}</div></div>`)); return; }
+
+  const ctrl = el('<div class="card"><div class="row"></div></div>');
+  ctrl.querySelector('.row').appendChild(mkCrLeagueSelect(matches && matches.leagues, renderCricketEinstellungen));
+  box.appendChild(ctrl);
+
+  const round = roundById(currentRoundId);
+  if(!round || !round.is_admin){
+    box.appendChild(el(`<div class="card"><div class="hint">Die Cricket-Regeln legt der Runden-Admin fest.</div>
+      <div class="meta" style="margin-top:8px">Richtiger Sieger: <b>${cfg.pWin}</b> Punkt(e) · Tipp-Frist: <b>${cfg.deadlineMin}</b> Minuten vor Anwurf${cfg.malusOn?` · Malus: <b>${cfg.malus}</b>`:''}</div></div>`));
+    return;
+  }
+  const card = el('<div class="card"></div>');
+  card.appendChild(el(`<div class="phase-h" style="margin-top:0">Regeln für ${esc(crName(matches.leagues))}</div>`));
+  const speichern = async (feld, wert)=>{
+    try{ await api_post('cricket/config', {round_id: currentRoundId, league: crLeague, [feld]: wert}); }
+    catch(e){ alert('Fehler: '+e.message); }
+  };
+  const zeile = el('<div class="row"></div>');
+  const p = el(`<label>Punkte für den richtigen Sieger<br><input type="number" min="0" value="${cfg.pWin}" style="width:90px"></label>`);
+  p.querySelector('input').onchange = e=> speichern('pWin', parseInt(e.target.value)||0);
+  const d = el(`<label>Tipp-Frist (Minuten vor Anwurf)<br><input type="number" min="0" value="${cfg.deadlineMin}" style="width:110px"></label>`);
+  d.querySelector('input').onchange = e=> speichern('deadlineMin', parseInt(e.target.value)||0);
+  zeile.appendChild(p); zeile.appendChild(d);
+  card.appendChild(zeile);
+
+  const mz = el(`<div class="row" style="margin-top:10px"><label><input type="checkbox" ${cfg.malusOn?'checked':''}> Malus für nicht abgegebene Tipps</label><label>Malus-Punkte<br><input type="number" value="${cfg.malus}" style="width:90px"></label></div>`);
+  mz.querySelector('input[type=checkbox]').onchange = e=> speichern('malusOn', e.target.checked ? 1 : 0);
+  mz.querySelector('input[type=number]').onchange = e=> speichern('malus', parseInt(e.target.value)||0);
+  card.appendChild(mz);
+  card.appendChild(el('<div class="hint" style="margin-top:10px">Partien ohne Sieger (Unentschieden, Tie, Abbruch bei Regen) geben niemandem Punkte — und auch keinen Malus. Dafür kann niemand etwas.</div>'));
+  box.appendChild(card);
+}
+
 /* ---------------- Sumo ----------------
    Sieger-Tipp je Kampf, wie bei Tennis mit zwei anklickbaren Namen. Gruppiert nach Kampftag innerhalb
    eines Basho; die Wertung läuft je Basho, wie bei Tennis je Turnier. */
@@ -3236,10 +3476,15 @@ async function renderSumoEinstellungen(){
    beliebig viele selbst angelegte — genau wie Fußball. Das läuft über dieselben /special-Routen; die
    prüfen comp_id nicht gegen die Fußball-Registry, die Sportart gibt einfach ihre Kennung mit
    ('F1', 'TENNIS', 'NHL', 'AFL', 'SUMO'). Ein Baustein für alle, statt fünf Kopien. */
+/* titel = Name der eingebauten Wertung dieser Sportart. Sportarten ohne eingebaute Wertung (Cricket)
+   übergeben null — dann wird der Satz entsprechend anders formuliert statt „Zusätzlich zur …". */
 async function renderEigeneSonder(box, compId, titel){
   const wrap = el('<div class="card"></div>');
   wrap.appendChild(el(`<div class="row" style="margin-bottom:6px"><b>➕ Eigene Sonderwertungen</b></div>`));
-  wrap.appendChild(el(`<div class="meta">Zusätzlich zur ${esc(titel)} könnt ihr eigene Wetten anlegen — etwa „Bester Spieler", „Überraschung der Saison" oder was euch einfällt. Name, Punkte und Frist bestimmt der Runden-Admin, er trägt am Ende auch das Ergebnis ein.</div>`));
+  const einleitung = titel
+    ? `Zusätzlich zur ${esc(titel)} könnt ihr eigene Wetten anlegen`
+    : 'Hier könnt ihr eigene Wetten anlegen';
+  wrap.appendChild(el(`<div class="meta">${einleitung} — etwa „Bester Spieler", „Überraschung der Saison" oder was euch einfällt. Name, Punkte und Frist bestimmt der Runden-Admin, er trägt am Ende auch das Ergebnis ein.</div>`));
   box.appendChild(wrap);
 
   const liste = el('<div></div>');

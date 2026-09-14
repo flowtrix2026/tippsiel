@@ -1,6 +1,6 @@
 # Tippstube — offene Baustellen
 
-Was noch verbessert werden muss. Angelegt am **14.09.2026**, Stand **v1.21.0**.
+Was noch verbessert werden muss. Angelegt am **14.09.2026**, Stand **v1.22.0**.
 
 Diese Datei wird bei jeder Änderung mitgepflegt. Ganz zum Schluss, wenn alle Sportarten drin sind,
 kommt der große Durchgang — dann wird hier abgehakt, was erledigt ist, und ergänzt, was der Scan neu
@@ -97,6 +97,7 @@ gibt englische Fußballklubs zurück. `search_all_teams.php?l=<Liganame>` nehmen
 | **Eishockey** | Kachel ist da, aber **leer** — DEL und europäische Ligen fehlen. Wartet auf eine Quelle (TheSportsDB hätte sie). |
 | **EuroCup** | Läuft über dieselbe offizielle API wie die EuroLeague, 224 Spiele geprüft, ohne Frauen-Teams. Wäre ein Einzeiler in der Liga-Registry. Auf Wunsch des Nutzers zurückgestellt. |
 | **US-Sport** | NFL, MLB, NBA fehlen. |
+| **Cricket** | Drin seit v1.22.0 — aber nur **ODI und T20**. Test-Partien bewusst ausgelassen (fünf Tage Spieldauer, häufige Unentschieden). Falls doch gewünscht, wäre ein eigener Wettbewerbs-Eintrag nötig. |
 | Baseball, Handball, Feldhockey, MMA, Volleyball | Kacheln im Hub vorhanden, noch nicht angebunden. |
 
 ---
@@ -129,10 +130,23 @@ ganze Saison vor.
 Die Tabelle hat sieben Spalten, die Fußball-Tabelle neun. Auf einem schmalen Handy wird rechts
 abgeschnitten. Betrifft beide gleichermaßen; eine seitlich scrollbare Hülle wäre die Lösung.
 
-### 3.5 Cron-Takt fest verdrahtet — NIEDRIG
+### 3.5 Cricket: Wettbewerbe werden über Textbausteine erkannt — NIEDRIG
+
+`ftipp_cricket_leagues()` ordnet eine Partie ihrem Wettbewerb über Textbausteine im Namen zu
+(„caribbean premier league"), weil die Quelle die Saison im Namen führt. Benennt die Quelle einen
+Wettbewerb um, fällt er still heraus. Dasselbe Risiko wie beim ACB-Filter — im Adminbereich sieht man
+es daran, dass die Zahl der Partien je Wettbewerb auf 0 fällt.
+
+### 3.6 Cricket-Ergebnisse hängen an einem Klartext-Satz — NIEDRIG
+
+Der Sieger wird aus `status` gelesen („England won by 8 wkts"). Formuliert die Quelle das anders,
+bleibt die Partie ohne Sieger stehen. Abgesichert ist es durch die Vorprüfung (nur Partien, die sich
+auswerten lassen, werden überhaupt angeboten) und durch die drei-Tage-Regel für überfällige Partien.
+
+### 3.7 Cron-Takt fest verdrahtet — NIEDRIG
 
 Für Formel 1, Tennis, die Zwei-Mannschaften-Ligen und Sumo steht der automatische Abruf fest auf vier
-Stunden. Nur beim Fußball ist er einstellbar.
+Stunden, für Cricket auf sechs. Nur beim Fußball ist er einstellbar.
 
 ---
 
@@ -155,5 +169,8 @@ Stunden. Nur beim Fußball ist er einstellbar.
   API lief nur noch über RapidAPI. Nicht wieder vorschlagen.
 - **EuroLeague** — seit v1.21.0 auf der offiziellen API des Veranstalters: eine Anfrage statt rund 200,
   echte Spieltage, Ergebnisse inklusive Viertel-Stände.
+- **Cricket über sportscore.com** — verworfen. Dort hatten nur **55 %** der beendeten Partien ein
+  verwertbares Ergebnis, und das Ergebnis kommt als „225/1" statt als Zahl. Stattdessen
+  cricketdata.org mit eigenem Schlüssel.
 - **Tabelle** — seit v1.20.0 in US-Sport, Rugby und Basketball, berechnet aus den geladenen Spielen und
   ehrlich als „nicht der amtliche Ligastand" beschriftet.

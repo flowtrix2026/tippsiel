@@ -3015,6 +3015,84 @@ einziges** EuroLeague-Spiel geladen werden konnte, kann es auch keine Tipps dara
 
 Festgehalten in `VERBESSERUNGEN.md`.
 
+## v1.22.0 — Cricket als siebte Sportart
+
+- **Anfrage:** „können wir cricket dazu bauen" (zunächst mit Blick auf sportscore.com).
+- **Entscheidungen des Nutzers:** Sieger-Tipp statt Ergebnis-Tipp; alle vorgeschlagenen Wettbewerbe
+  **außer Test-Partien**; nur Männer; bei Länderspielen nur die bekannten Nationen.
+
+### Warum NICHT sportscore.com
+
+Erst gemessen, dann entschieden. 302 Partien über zwölf Stichtage:
+
+- 258 als **beendet** markiert, aber nur **142 mit verwertbarem Ergebnis — 55 %.** Bei fast jeder
+  zweiten Partie stand `- : -`. Ein Tippspiel, bei dem die Hälfte nie ausgewertet werden kann, ist
+  kaputt.
+- Das Ergebnis heißt dort **„225/1"** (Runs/Wickets) — keine Zahl, die in unsere Ergebnis-Maschinerie
+  passt. Dazu Status-Werte wie `Abnormal` (35), `Cut in half` (6, regenverkürzt nach Duckworth-Lewis)
+  und `To be determined`.
+
+Der Nutzer hat daraufhin einen kostenlosen Schlüssel bei **cricketdata.org (api.cricapi.com)** besorgt.
+
+### Die Datenquelle — und zwei Fallen, die sie stellt
+
+Dort nennt `status` den Sieger im Klartext („England won by 8 wkts"), Spielplan **und** Ergebnis
+stecken im selben Abruf. Ein Nachfassen je Partie wie beim Tennis entfällt damit.
+
+**Falle 1 — 20 % der Ergebnisse ließen sich zunächst nicht auflösen.** Die Ausfälle waren aber keine
+Cricket-Eigenheiten, sondern kaputte Datensätze aus Randwettbewerben: `teams=['Hong Kong']` (nur EIN
+Team eingetragen) oder `status=""` bei beendeter Partie. Mit der Vorprüfung in
+`ftipp_cricket_is_relevant()` — genau zwei Mannschaften, gefüllter Status — waren es **49 von 49,
+also 100 %**. Was sich nicht auswerten ließe, wird gar nicht erst zum Tippen angeboten.
+
+**Falle 2 — `matchType` ist nicht verlässlich gefüllt.** Im Detail-Abruf der Serie „England tour of
+Australia 2026" stand bei allen drei ODI-Partien `null`, obwohl der Name sie klar als „1st ODI"
+ausweist (bei den T20-Partien derselben Serie war das Feld gefüllt). Ohne
+`ftipp_cricket_format()`, das notfalls aus dem Namen ableitet, wären **sämtliche ODI-Länderspiele
+stillschweigend verschwunden** — der Gegentest zeigt jetzt 8 von 8 übernommenen Partien dieser Serie.
+
+Dazu zwei kleinere Fundstücke: Platzhalter-Paarungen (**„Tbc vs Tbc"** bei noch nicht ausgespielten
+Finals) werden aussortiert, und Partien ohne Ergebnis, deren Anwurf **mehr als drei Tage** zurückliegt,
+werden ausgeblendet — live gesehen standen ODI-Partien vom 03.06.2026 im September immer noch ohne
+Ergebnis in der Quelle und hätten sonst für immer in der Tippliste gehangen.
+
+### Gebaut — nach dem Vorbild Tennis
+
+- Eigene Tabellen `ftipp_cricket_tips` und `ftipp_cricket_round_config` (je Runde **und** Wettbewerb,
+  wie beim Eishockey). `FTIPP_DB_VERSION` 21 → **22**.
+- **Eigener API-Key des Nutzers**, eingetragen im Adminbereich — **nicht** im Programmcode, damit er
+  nicht im öffentlichen Repository landet. Dazu ein hartes **Tagesbudget von 80** (das Gratis-Kontingent
+  liegt bei 100; die Reserve fängt manuelle Klicks ab). Der Zähler wird wie beim Tennis **vor** dem
+  Auswerten der Antwort hochgesetzt, damit ein Timeout das Budget nie unterschätzt.
+- **Zweistufiger Abruf:** die Serienliste höchstens einmal am Tag, danach je Lauf acht Serien im Detail,
+  rotierend. Gemessen: erster Lauf 12 Abrufe, jeder weitere 8.
+- Fünf Wettbewerbe: **Länderspiele** (ODI/T20 zwischen den zwölf Test-Nationen), **IPL**, **Big Bash
+  League**, **The Hundred**, **Caribbean Premier League**. Zugeordnet über Textbausteine im Namen, weil
+  die Quelle die Saison im Namen führt („Caribbean Premier League 2026") — ein fester Name bräche jedes
+  Jahr.
+- **Partien ohne Sieger** (Unentschieden, Tie, Regenabbruch) geben niemandem Punkte — aber auch keinen
+  Malus. Dafür kann kein Tippender etwas.
+- Cron alle **6 Stunden** (nicht 4 wie die übrigen Sportarten), passend zum Tagesbudget.
+- Eigene Kachel 🏏, eigener Bereich mit den vier gewohnten Tabs, eigener Admin-Tab mit Schlüsselfeld,
+  Budgetanzeige und Partienliste.
+- **Sonderwertungen** nach dem Grundsatz: Cricket hat keine eingebaute Wertung, deshalb dort nur der
+  Bereich für **frei anlegbare**. Der gemeinsame Baustein formuliert die Einleitung jetzt abhängig
+  davon, ob es eine eingebaute Wertung gibt („Zusätzlich zur …" bzw. „Hier könnt ihr …") — vorher stand
+  dort das falsche „Zusätzlich zur Länderspiele".
+
+### Geprüft
+
+- `php -l` sauber, alle Inline-Skriptblöcke syntaktisch geprüft.
+- Isolierter Test der Punktelogik: 20 Fälle, darunter richtig/falsch/nicht abgegeben, Malus an und aus,
+  Partie noch offen, kein Sieger (mit und ohne Malus), Fristgrenze exakt erreicht, sowie sieben
+  Status-Varianten inklusive „Match drawn", „Match tied", „No result" und „(DLS method)". Alle bestanden.
+- **Zwei vollständige Sync-Läufe gegen die echte API** mit dem Schlüssel des Nutzers: 31 Serien erkannt,
+  35 Partien geladen, Ergebnisse korrekt aufgelöst (u.a. „Afghanistan won by 6 wkts", „Match abandoned
+  due to rain without toss" → kein Sieger).
+- Browser-Test aller vier Tabs.
+
+**Erster echter Tipp-Termin:** die ODI-Serie **Indien gegen West Indies ab 27.09.2026**.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL), Rugby (AFL) und Sumo, echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version: 1.21.1
+ * Version: 1.22.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,8 +12,8 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.21.1' );
-define( 'FTIPP_DB_VERSION', '21' );
+define( 'FTIPP_VERSION', '1.22.0' );
+define( 'FTIPP_DB_VERSION', '22' );
 
 /**
  * Tennis (livetennisapi.com): Der Gratis-Tarif erlaubt 100 Anfragen pro Tag. Wir deckeln bewusst bei 90,
@@ -368,6 +368,25 @@ function ftipp_install() {
         PRIMARY KEY  (round_id)
     ) $charset_collate;" );
 
+    dbDelta( "CREATE TABLE {$p}ftipp_cricket_tips (
+        user_id BIGINT UNSIGNED NOT NULL,
+        match_id VARCHAR(64) NOT NULL,
+        pick TINYINT NULL,
+        committed TINYINT NOT NULL DEFAULT 0,
+        updated_at DATETIME NULL,
+        PRIMARY KEY  (user_id,match_id)
+    ) $charset_collate;" );
+
+    dbDelta( "CREATE TABLE {$p}ftipp_cricket_round_config (
+        round_id BIGINT UNSIGNED NOT NULL,
+        league VARCHAR(16) NOT NULL DEFAULT 'INT',
+        p_win INT NOT NULL DEFAULT 2,
+        malus_on TINYINT NOT NULL DEFAULT 0,
+        malus INT NOT NULL DEFAULT 0,
+        deadline_min INT NOT NULL DEFAULT 60,
+        PRIMARY KEY  (round_id,league)
+    ) $charset_collate;" );
+
     update_option( 'ftipp_db_version', FTIPP_DB_VERSION );
     ftipp_migrate_round_subs();
     ftipp_reset_nl_group_specials();
@@ -404,6 +423,7 @@ function ftipp_backup_table_names() {
         'ftipp_tennis_tips', 'ftipp_tennis_round_config', 'ftipp_tennis_cup', 'ftipp_tennis_cup_tips',
         'ftipp_hockey_tips', 'ftipp_hockey_round_config', 'ftipp_hockey_special', 'ftipp_hockey_special_tips',
         'ftipp_sumo_tips', 'ftipp_sumo_round_config', 'ftipp_sumo_yusho_tips',
+        'ftipp_cricket_tips', 'ftipp_cricket_round_config',
     );
 }
 
@@ -592,6 +612,7 @@ add_filter( 'cron_schedules', function ( $s ) {
  */
 add_filter( 'cron_schedules', function ( $s ) {
     $s['ftipp_tennis_4h'] = array( 'interval' => 4 * HOUR_IN_SECONDS, 'display' => 'Alle 4 Stunden (Tippstube Tennis)' );
+    $s['ftipp_cricket_6h'] = array( 'interval' => 6 * HOUR_IN_SECONDS, 'display' => 'Alle 6 Stunden (Tippstube Cricket)' );
     $s['ftipp_nhl_4h']    = array( 'interval' => 4 * HOUR_IN_SECONDS, 'display' => 'Alle 4 Stunden (Tippstube Eishockey)' );
     $s['ftipp_sumo_4h']   = array( 'interval' => 4 * HOUR_IN_SECONDS, 'display' => 'Alle 4 Stunden (Tippstube Sumo)' );
     return $s;
@@ -619,6 +640,11 @@ register_activation_hook( __FILE__, function () {
     if ( ! wp_next_scheduled( 'ftipp_sumo_periodic_fetch' ) ) {
         wp_schedule_event( time() + 270, 'ftipp_sumo_4h', 'ftipp_sumo_periodic_fetch' );
     }
+    // Cricket bewusst nur alle 6 Stunden: das Gratis-Kontingent liegt bei 100 Abrufen am Tag, und ein
+    // Lauf verbraucht bis zu 12 davon (siehe ftipp_cricket_sync).
+    if ( ! wp_next_scheduled( 'ftipp_cricket_periodic_fetch' ) ) {
+        wp_schedule_event( time() + 330, 'ftipp_cricket_6h', 'ftipp_cricket_periodic_fetch' );
+    }
     // Automatische Datensicherung ist bewusst opt-in (Standard: aus) — wird erst geplant, wenn der Admin
     // sie auf der Datensicherung-Seite aktiviert, siehe admin_post_ftipp_save_backup_settings.
 } );
@@ -632,6 +658,7 @@ add_action( 'plugins_loaded', function () {
     if ( ! wp_next_scheduled( 'ftipp_tennis_periodic_fetch' ) ) { wp_schedule_event( time() + 150, 'ftipp_tennis_4h', 'ftipp_tennis_periodic_fetch' ); }
     if ( ! wp_next_scheduled( 'ftipp_nhl_periodic_fetch' ) ) { wp_schedule_event( time() + 210, 'ftipp_nhl_4h', 'ftipp_nhl_periodic_fetch' ); }
     if ( ! wp_next_scheduled( 'ftipp_sumo_periodic_fetch' ) ) { wp_schedule_event( time() + 270, 'ftipp_sumo_4h', 'ftipp_sumo_periodic_fetch' ); }
+    if ( ! wp_next_scheduled( 'ftipp_cricket_periodic_fetch' ) ) { wp_schedule_event( time() + 330, 'ftipp_cricket_6h', 'ftipp_cricket_periodic_fetch' ); }
     if ( get_option( 'ftipp_backup_enabled' ) && ! wp_next_scheduled( 'ftipp_backup_scheduled' ) ) {
         wp_schedule_event( time() + 240, 'ftipp_backup_custom', 'ftipp_backup_scheduled' );
     }
@@ -645,6 +672,7 @@ register_deactivation_hook( __FILE__, function () {
     wp_clear_scheduled_hook( 'ftipp_tennis_periodic_fetch' );
     wp_clear_scheduled_hook( 'ftipp_nhl_periodic_fetch' );
     wp_clear_scheduled_hook( 'ftipp_sumo_periodic_fetch' );
+    wp_clear_scheduled_hook( 'ftipp_cricket_periodic_fetch' );
 } );
 
 /* ============================================================
@@ -3109,6 +3137,493 @@ function ftipp_tennis_compute_leaderboard( $round_id, $tournament = '' ) {
     return $rows;
 }
 
+/* ================================================================================================
+ * CRICKET — Sieger-Tipp über cricketdata.org (api.cricapi.com)
+ *
+ * Aufbau bewusst nach dem Vorbild von Tennis: eigener API-Key des Nutzers, hartes Tagesbudget,
+ * Sieger-Tipp statt Ergebnis-Tipp, Wertung je Wettbewerb. Zwei Unterschiede zu Tennis:
+ *   - Spielplan UND Ergebnis stehen im selben Abruf (`status` nennt den Sieger im Klartext),
+ *     ein Nachfassen je Partie wie bei Tennis entfällt also.
+ *   - Cricket kennt Ausgänge ohne Sieger: Unentschieden (Test), Tie und "No result" bei Regen.
+ *     Die werden ausdrücklich behandelt, nicht als Sieg gewertet.
+ *
+ * Live gemessen am 14.09.2026: von 61 beendeten Partien war der Sieger zunächst nur bei 80 %
+ * ableitbar. Die Ausfälle waren durchweg kaputte Datensätze aus Randwettbewerben (nur EIN Team
+ * eingetragen, oder `status` leer). Mit der Vorprüfung in ftipp_cricket_is_relevant() — genau zwei
+ * Mannschaften und gefüllter Status — waren es 49 von 49, also 100 %. Partien, die wir nicht
+ * auswerten könnten, tauchen deshalb gar nicht erst zum Tippen auf.
+ * ============================================================================================= */
+
+if ( ! defined( 'FTIPP_CRICKET_DAILY_BUDGET' ) ) { define( 'FTIPP_CRICKET_DAILY_BUDGET', 80 ); }
+if ( ! defined( 'FTIPP_CRICKET_SERIES_PAGES' ) )   { define( 'FTIPP_CRICKET_SERIES_PAGES', 4 ); }
+if ( ! defined( 'FTIPP_CRICKET_SERIES_PER_RUN' ) ) { define( 'FTIPP_CRICKET_SERIES_PER_RUN', 8 ); }
+if ( ! defined( 'FTIPP_CRICKET_RETENTION_DAYS' ) ) { define( 'FTIPP_CRICKET_RETENTION_DAYS', 365 ); }
+
+function ftipp_cricket_api_key() { return trim( (string) get_option( 'ftipp_cricket_api_key', '' ) ); }
+
+/**
+ * Wettbewerbe, die getippt werden. Zugeordnet wird über Textbausteine im Partie-Namen, weil die
+ * Quelle die Saison im Namen führt ("Caribbean Premier League 2026") — ein fester Name würde
+ * jedes Jahr brechen.
+ * Entscheidung des Nutzers: keine Tests, nur Männer, bei Länderspielen nur die bekannten Nationen.
+ */
+function ftipp_cricket_leagues() {
+    return array(
+        'INT' => array( 'name' => 'Länderspiele',             'match' => array(),                            'region' => 'International' ),
+        'IPL' => array( 'name' => 'Indian Premier League',    'match' => array( 'indian premier league' ),   'region' => 'Indien' ),
+        'BBL' => array( 'name' => 'Big Bash League',          'match' => array( 'big bash league' ),         'region' => 'Australien' ),
+        'HUN' => array( 'name' => 'The Hundred',              'match' => array( 'the hundred' ),             'region' => 'England' ),
+        'CPL' => array( 'name' => 'Caribbean Premier League', 'match' => array( 'caribbean premier league' ),'region' => 'Karibik' ),
+    );
+}
+function ftipp_cricket_league_ids() { return array_keys( ftipp_cricket_leagues() ); }
+function ftipp_cricket_league_name( $id ) {
+    $all = ftipp_cricket_leagues();
+    return isset( $all[ $id ]['name'] ) ? $all[ $id ]['name'] : $id;
+}
+function ftipp_cricket_valid_league( $league ) {
+    $ids = ftipp_cricket_league_ids();
+    $league = (string) $league;
+    return in_array( $league, $ids, true ) ? $league : $ids[0];
+}
+
+/**
+ * Nationalmannschaften, die als "bekannt" gelten — die zwölf Test-Nationen. Damit fallen die
+ * ICC-Kleinstturniere (Gibraltar gegen Norwegen, Rumänien gegen Serbien) heraus, die in der
+ * Stichprobe über die Hälfte aller Partien ausmachten.
+ */
+function ftipp_cricket_nations() {
+    return array(
+        'england', 'australia', 'india', 'pakistan', 'south africa', 'new zealand',
+        'sri lanka', 'bangladesh', 'west indies', 'afghanistan', 'zimbabwe', 'ireland',
+    );
+}
+
+/**
+ * Format der Partie: ODI, T20 oder TEST.
+ * Das Feld `matchType` ist NICHT verlässlich gefüllt — live geprüft: im `series_info`-Abruf der Serie
+ * "England tour of Australia 2026" stand bei allen drei ODI-Partien `null`, obwohl der Name sie klar
+ * als "1st ODI" ausweist (bei den T20-Partien derselben Serie war es gefüllt). Ohne diese Ableitung
+ * aus dem Namen wären sämtliche ODI-Länderspiele stillschweigend verschwunden.
+ */
+function ftipp_cricket_format( $m ) {
+    $typ = strtoupper( trim( (string) ( isset( $m['matchType'] ) ? $m['matchType'] : '' ) ) );
+    if ( in_array( $typ, array( 'ODI', 'T20', 'TEST' ), true ) ) { return $typ; }
+    $name = strtolower( (string) ( isset( $m['name'] ) ? $m['name'] : '' ) );
+    if ( preg_match( '/\bt20i?\b/', $name ) ) { return 'T20'; }
+    if ( preg_match( '/\bodi\b/', $name ) )   { return 'ODI'; }
+    if ( preg_match( '/\btest\b/', $name ) )  { return 'TEST'; }
+    return '';
+}
+
+/** Noch nicht feststehende Paarungen ("Tbc vs Tbc" bei Finals) sind nicht tippbar. */
+function ftipp_cricket_is_platzhalter( $name ) {
+    $n = strtolower( trim( (string) $name ) );
+    return ( '' === $n || in_array( $n, array( 'tbc', 'tba', 'tbd' ), true ) );
+}
+
+/** Frauen-, Jugend- und A-Mannschaften erkennen — die sollen laut Entscheidung des Nutzers raus. */
+function ftipp_cricket_is_mens_team( $name ) {
+    $n = ' ' . strtolower( trim( (string) $name ) ) . ' ';
+    foreach ( array( ' women ', ' womens ', " women's ", ' w ', ' u19 ', ' u23 ', ' a ', ' xi ', ' emerging ', ' legends ' ) as $wort ) {
+        if ( false !== strpos( $n, $wort ) ) { return false; }
+    }
+    return true;
+}
+
+/**
+ * Zu welcher unserer Ligen gehört die Partie — oder zu keiner?
+ * Gibt die Liga-Kennung zurück oder '' (dann wird die Partie ignoriert).
+ */
+function ftipp_cricket_league_of( $m ) {
+    if ( ! in_array( ftipp_cricket_format( $m ), array( 'ODI', 'T20' ), true ) ) { return ''; }   // keine Tests
+    $name  = strtolower( (string) ( isset( $m['name'] ) ? $m['name'] : '' ) );
+    $teams = isset( $m['teams'] ) && is_array( $m['teams'] ) ? $m['teams'] : array();
+    if ( 2 !== count( $teams ) ) { return ''; }
+    foreach ( $teams as $t ) {
+        if ( ftipp_cricket_is_platzhalter( $t ) ) { return ''; }
+        if ( ! ftipp_cricket_is_mens_team( $t ) ) { return ''; }
+    }
+    if ( false !== strpos( $name, ' women' ) || false !== strpos( $name, 'u19' ) ) { return ''; }
+
+    foreach ( ftipp_cricket_leagues() as $id => $l ) {
+        foreach ( $l['match'] as $teil ) {
+            if ( false !== strpos( $name, $teil ) ) { return $id; }
+        }
+    }
+    // Länderspiel: beide Mannschaften müssen bekannte Nationen sein.
+    $nat = ftipp_cricket_nations();
+    $treffer = 0;
+    foreach ( $teams as $t ) {
+        if ( in_array( strtolower( trim( (string) $t ) ), $nat, true ) ) { $treffer++; }
+    }
+    return ( 2 === $treffer ) ? 'INT' : '';
+}
+
+/**
+ * Taugt die Partie zum Tippen? Nur wenn sie sich später auch auswerten lässt.
+ * Genau diese Vorprüfung hob die Auflösungsquote in der Messung von 80 % auf 100 %.
+ */
+function ftipp_cricket_is_relevant( $m ) {
+    if ( empty( $m['id'] ) || empty( $m['dateTimeGMT'] ) ) { return false; }
+    if ( '' === ftipp_cricket_league_of( $m ) ) { return false; }
+    // Beendet, aber ohne Status: daraus liesse sich nie ein Sieger ableiten.
+    if ( ! empty( $m['matchEnded'] ) && '' === trim( (string) ( isset( $m['status'] ) ? $m['status'] : '' ) ) ) { return false; }
+    return true;
+}
+
+/**
+ * Sieger aus dem Klartext-Status ableiten.
+ * Rückgabe: 1 oder 2 (Mannschaft), 0 für "kein Sieger" (Unentschieden/Tie/No result), null wenn
+ * noch offen oder nicht deutbar.
+ */
+function ftipp_cricket_winner( $m ) {
+    if ( empty( $m['matchEnded'] ) ) { return null; }
+    $s = strtolower( trim( (string) ( isset( $m['status'] ) ? $m['status'] : '' ) ) );
+    if ( '' === $s ) { return null; }
+    foreach ( array( 'no result', 'abandon', 'match drawn', 'drawn', 'tied', 'tie' ) as $wort ) {
+        if ( false !== strpos( $s, $wort ) ) { return 0; }
+    }
+    $teams = isset( $m['teams'] ) && is_array( $m['teams'] ) ? $m['teams'] : array();
+    foreach ( $teams as $i => $t ) {
+        $t = strtolower( trim( (string) $t ) );
+        if ( '' !== $t && 0 === strpos( $s, $t . ' won' ) ) { return $i + 1; }
+    }
+    // Ersatzweise über die Kurznamen, falls der Status anders schreibt als das Teams-Feld.
+    foreach ( ( isset( $m['teamInfo'] ) && is_array( $m['teamInfo'] ) ? $m['teamInfo'] : array() ) as $ti ) {
+        foreach ( array( 'name', 'shortname' ) as $feld ) {
+            $n = strtolower( trim( (string) ( isset( $ti[ $feld ] ) ? $ti[ $feld ] : '' ) ) );
+            if ( '' === $n || 0 !== strpos( $s, $n . ' won' ) ) { continue; }
+            foreach ( $teams as $i => $t ) {
+                if ( false !== strpos( strtolower( (string) $t ), $n ) || false !== strpos( $n, strtolower( (string) $t ) ) ) { return $i + 1; }
+            }
+        }
+    }
+    return null;
+}
+
+/** Heutiges Anfrage-Budget. Bei Datumswechsel (UTC) beginnt automatisch ein neuer Tag. */
+function ftipp_cricket_budget() {
+    $b = get_option( 'ftipp_cricket_api_budget', array() );
+    $today = gmdate( 'Y-m-d' );
+    if ( ! is_array( $b ) || ! isset( $b['date'] ) || $b['date'] !== $today ) {
+        $b = array( 'date' => $today, 'used' => 0 );
+    }
+    return $b;
+}
+
+/**
+ * Eine Anfrage an api.cricapi.com. Der Zähler wird SOFORT hochgesetzt und gespeichert — noch vor dem
+ * Auswerten der Antwort, genau wie beim Tennis. Ein Timeout mitten im Lauf kann das Budget dadurch
+ * nie unterschätzen.
+ */
+function ftipp_cricket_get( $pfad, $args = array() ) {
+    $key = ftipp_cricket_api_key();
+    if ( '' === $key ) { return array( 'ok' => false, 'error' => 'Kein API-Key hinterlegt' ); }
+
+    $b = ftipp_cricket_budget();
+    if ( $b['used'] >= FTIPP_CRICKET_DAILY_BUDGET ) {
+        return array( 'ok' => false, 'error' => 'Tagesbudget erschöpft', 'budget' => true );
+    }
+    $b['used']++;
+    update_option( 'ftipp_cricket_api_budget', $b, false );
+
+    $url  = add_query_arg( array_merge( array( 'apikey' => $key ), $args ), 'https://api.cricapi.com/v1/' . $pfad );
+    $resp = wp_remote_get( $url, array( 'timeout' => 20 ) );
+    if ( is_wp_error( $resp ) ) { return array( 'ok' => false, 'error' => $resp->get_error_message() ); }
+    $code = (int) wp_remote_retrieve_response_code( $resp );
+    $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+    if ( 200 !== $code || ! is_array( $body ) ) { return array( 'ok' => false, 'error' => 'HTTP ' . $code ); }
+    if ( 'success' !== ( isset( $body['status'] ) ? $body['status'] : '' ) ) {
+        return array( 'ok' => false, 'error' => (string) ( isset( $body['reason'] ) ? $body['reason'] : 'Abruf abgelehnt' ) );
+    }
+    return array( 'ok' => true, 'body' => $body );
+}
+
+/**
+ * Kommt diese Serie überhaupt für uns in Frage?
+ * Die Datumsangaben der Serienliste sind NICHT verlässlich formatiert — live gesehen stand mal
+ * "2026-12-14", mal nur "Dec 14" ohne Jahr. Deshalb wird hier bewusst NICHT nach Datum gefiltert;
+ * die Auswahl läuft über Name und Format, die Zeitpunkte holen wir uns später aus den Partien selbst,
+ * die ein sauberes dateTimeGMT mitbringen.
+ */
+function ftipp_cricket_series_league( $serie ) {
+    $name = strtolower( (string) ( isset( $serie['name'] ) ? $serie['name'] : '' ) );
+    if ( '' === $name ) { return ''; }
+    if ( false !== strpos( $name, 'women' ) || false !== strpos( $name, 'u19' ) || false !== strpos( $name, 'u23' ) ) { return ''; }
+    $odi = intval( isset( $serie['odi'] ) ? $serie['odi'] : 0 );
+    $t20 = intval( isset( $serie['t20'] ) ? $serie['t20'] : 0 );
+    if ( $odi + $t20 < 1 ) { return ''; }   // reine Test-Serien interessieren uns nicht
+
+    foreach ( ftipp_cricket_leagues() as $id => $l ) {
+        foreach ( $l['match'] as $teil ) {
+            if ( false !== strpos( $name, $teil ) ) { return $id; }
+        }
+    }
+    // Länderspiel-Serien erkennt man am Namensmuster; ob die Mannschaften wirklich bekannte Nationen
+    // sind, entscheidet später ftipp_cricket_league_of() an der einzelnen Partie.
+    foreach ( array( ' tour of ', 'world cup', 'champions trophy', 'asia cup', 'tri-series', 'tri series' ) as $teil ) {
+        if ( false !== strpos( $name, $teil ) ) { return 'INT'; }
+    }
+    return '';
+}
+
+/**
+ * Spielplan und Ergebnisse abrufen.
+ * Zwei Stufen, beide budgetschonend:
+ *   1. Die Serienliste (mehrere Seiten) höchstens einmal am Tag — sie ändert sich selten.
+ *   2. Je Lauf einige Serien im Detail, rotierend. Ein Detail-Abruf liefert alle Partien einer Serie
+ *      samt Ergebnis, ein Nachfassen je Partie wie beim Tennis entfällt.
+ */
+function ftipp_cricket_sync( $trigger = 'cron' ) {
+    $out = array( 'ok' => false, 'matches' => 0, 'results_new' => 0, 'calls' => 0, 'errors' => array() );
+    if ( '' === ftipp_cricket_api_key() ) {
+        $out['errors'][] = 'Kein API-Key hinterlegt — bitte im Adminbereich unter Cricket eintragen.';
+        return $out;
+    }
+
+    $serien = get_option( 'ftipp_cricket_series', array() );
+    if ( ! is_array( $serien ) ) { $serien = array(); }
+    $listeAlter = (string) get_option( 'ftipp_cricket_series_day', '' );
+
+    // --- Stufe 1: Serienliste auffrischen ---
+    if ( $listeAlter !== gmdate( 'Y-m-d' ) || ! $serien ) {
+        $neu = array();
+        for ( $seite = 0; $seite < FTIPP_CRICKET_SERIES_PAGES; $seite++ ) {
+            $r = ftipp_cricket_get( 'series', array( 'offset' => $seite * 25 ) );
+            $out['calls']++;
+            if ( ! $r['ok'] ) { $out['errors'][] = 'Serienliste: ' . $r['error']; break; }
+            $rows = isset( $r['body']['data'] ) ? $r['body']['data'] : array();
+            if ( ! $rows ) { break; }
+            foreach ( $rows as $ser ) {
+                if ( empty( $ser['id'] ) ) { continue; }
+                $liga = ftipp_cricket_series_league( $ser );
+                if ( '' === $liga ) { continue; }
+                $neu[ (string) $ser['id'] ] = array( 'id' => (string) $ser['id'], 'name' => (string) $ser['name'], 'league' => $liga );
+            }
+            if ( count( $rows ) < 25 ) { break; }
+        }
+        if ( $neu ) {
+            // Bereits bekannte Serien behalten, damit eine abgebrochene Liste nichts wegwirft.
+            $serien = array_merge( $serien, $neu );
+            update_option( 'ftipp_cricket_series', $serien, false );
+            update_option( 'ftipp_cricket_series_day', gmdate( 'Y-m-d' ), false );
+        }
+    }
+
+    // --- Stufe 2: Serien im Detail, rotierend ---
+    $spiele = get_option( 'ftipp_cricket_matches', array() );
+    if ( ! is_array( $spiele ) ) { $spiele = array(); }
+    $ids = array_keys( $serien );
+    sort( $ids );
+    $anzahl = count( $ids );
+    if ( $anzahl ) {
+        $zeiger = intval( get_option( 'ftipp_cricket_cursor', 0 ) );
+        $wieviel = min( FTIPP_CRICKET_SERIES_PER_RUN, $anzahl );
+        for ( $i = 0; $i < $wieviel; $i++ ) {
+            $sid = $ids[ ( $zeiger + $i ) % $anzahl ];
+            $r = ftipp_cricket_get( 'series_info', array( 'id' => $sid ) );
+            $out['calls']++;
+            if ( ! $r['ok'] ) {
+                $out['errors'][] = $serien[ $sid ]['name'] . ': ' . $r['error'];
+                if ( ! empty( $r['budget'] ) ) { break; }
+                continue;
+            }
+            $liste = isset( $r['body']['data']['matchList'] ) ? $r['body']['data']['matchList'] : array();
+            foreach ( $liste as $m ) {
+                if ( ! ftipp_cricket_is_relevant( $m ) ) { continue; }
+                $sh = ftipp_cricket_shape( $m );
+                if ( empty( $sh['start'] ) ) { continue; }
+                $hatteSieger = isset( $spiele[ $sh['id'] ] ) && null !== $spiele[ $sh['id'] ]['winner'];
+                $spiele[ $sh['id'] ] = $sh;
+                if ( null !== $sh['winner'] && ! $hatteSieger ) { $out['results_new']++; }
+                $out['matches']++;
+            }
+        }
+        update_option( 'ftipp_cricket_cursor', ( $zeiger + $wieviel ) % $anzahl, false );
+    }
+
+    // Sehr alte Partien entfernen, damit die Option nicht unbegrenzt wächst.
+    $grenze = gmdate( 'Y-m-d', time() - FTIPP_CRICKET_RETENTION_DAYS * DAY_IN_SECONDS );
+    foreach ( $spiele as $id => $sp ) {
+        if ( ! empty( $sp['date'] ) && $sp['date'] < $grenze ) { unset( $spiele[ $id ] ); }
+    }
+
+    update_option( 'ftipp_cricket_matches', $spiele, false );
+    update_option( 'ftipp_cricket_last_sync', current_time( 'mysql', true ), false );
+
+    $b = ftipp_cricket_budget();
+    $out['budget_used'] = $b['used'];
+    $out['ok'] = ( $out['matches'] > 0 ) || ! $out['errors'];
+
+    ftipp_log_history(
+        'manual' === $trigger ? 'cricket_manual_fetch' : 'cricket_cron_fetch',
+        sprintf( 'Cricket: %d Partien aktualisiert, %d neue Ergebnisse, %d Abrufe (Tagesbudget %d/%d)',
+            $out['matches'], $out['results_new'], $out['calls'], $b['used'], FTIPP_CRICKET_DAILY_BUDGET )
+            . ( $out['errors'] ? ', Fehler bei ' . count( $out['errors'] ) : '' ),
+        'CRICKET', wp_json_encode( array( 'errors' => $out['errors'] ) ),
+        'manual' === $trigger ? get_current_user_id() : null
+    );
+    return $out;
+}
+add_action( 'ftipp_cricket_periodic_fetch', 'ftipp_cricket_sync' );
+
+/**
+ * Partie ohne Ergebnis, deren Anwurf längst vorbei ist.
+ * Live gesehen: ODI-Partien West Indies gegen Sri Lanka vom 03.06.2026 standen im September immer
+ * noch ohne Ergebnis in der Quelle. Ohne diese Prüfung hingen sie für immer in der Tippliste. Ein
+ * ODI dauert einen Tag, ein T20 wenige Stunden — drei Tage Puffer sind reichlich.
+ */
+function ftipp_cricket_ist_veraltet( $m ) {
+    if ( null !== $m['winner'] ) { return false; }
+    $ts = ! empty( $m['start'] ) ? strtotime( $m['start'] ) : 0;
+    return ( $ts && $ts < ( time() - 3 * DAY_IN_SECONDS ) );
+}
+
+/** Alle bekannten Partien einer Liga, aufsteigend nach Anwurf. */
+function ftipp_cricket_games( $league = '' ) {
+    $all = get_option( 'ftipp_cricket_matches', array() );
+    if ( ! is_array( $all ) ) { return array(); }
+    $out = array();
+    foreach ( $all as $id => $g ) {
+        if ( '' !== $league && $g['league'] !== $league ) { continue; }
+        $out[ $id ] = $g;
+    }
+    uasort( $out, function ( $a, $b ) { return strcmp( (string) $a['start'], (string) $b['start'] ); } );
+    return $out;
+}
+
+/** Einen Datensatz der Quelle in unsere Form bringen. */
+function ftipp_cricket_shape( $m ) {
+    $teams = isset( $m['teams'] ) && is_array( $m['teams'] ) ? array_values( $m['teams'] ) : array( '', '' );
+    $kurz = function ( $name ) use ( $m ) {
+        foreach ( ( isset( $m['teamInfo'] ) && is_array( $m['teamInfo'] ) ? $m['teamInfo'] : array() ) as $ti ) {
+            if ( isset( $ti['name'] ) && strtolower( $ti['name'] ) === strtolower( (string) $name ) && ! empty( $ti['shortname'] ) ) {
+                return (string) $ti['shortname'];
+            }
+        }
+        $teile = explode( ' ', trim( (string) $name ) );
+        return strtoupper( substr( $teile[0], 0, 4 ) );
+    };
+    $ts = strtotime( (string) $m['dateTimeGMT'] . ' UTC' );
+    return array(
+        'id'      => (string) $m['id'],
+        'league'  => ftipp_cricket_league_of( $m ),
+        'name'    => (string) ( isset( $m['name'] ) ? $m['name'] : '' ),
+        'format'  => ftipp_cricket_format( $m ),
+        'venue'   => (string) ( isset( $m['venue'] ) ? $m['venue'] : '' ),
+        'start'   => $ts ? gmdate( 'Y-m-d\TH:i:s\Z', $ts ) : null,
+        'date'    => $ts ? gmdate( 'Y-m-d', $ts ) : null,
+        't1'      => array( 'name' => (string) $teams[0], 'abbrev' => $kurz( $teams[0] ) ),
+        't2'      => array( 'name' => (string) ( isset( $teams[1] ) ? $teams[1] : '' ), 'abbrev' => $kurz( isset( $teams[1] ) ? $teams[1] : '' ) ),
+        'ended'   => ! empty( $m['matchEnded'] ),
+        'status'  => (string) ( isset( $m['status'] ) ? $m['status'] : '' ),
+        'winner'  => ftipp_cricket_winner( $m ),
+    );
+}
+
+/** Kennung für die Mitgliedschaft je Liga in ftipp_round_subs — bewusst mit Präfix, damit sie sich
+ *  nicht mit Fußball-Wettbewerben oder anderen Sportarten überschneidet. */
+function ftipp_cricket_sub_id( $league ) { return 'CR_' . $league; }
+
+function ftipp_cricket_default_cfg() {
+    // Ein Sieger-Tipp hat zwei mögliche Ausgänge, ist also leichter als Fußballs Exakt-Tipp und
+    // schwerer als dessen Tendenz (drei Ausgänge). Zwei Punkte, wie beim Tennis.
+    return array( 'pWin' => 2, 'malusOn' => false, 'malus' => 0, 'deadlineMin' => 60 );
+}
+
+function ftipp_cricket_round_cfg( $round_id, $league ) {
+    global $wpdb;
+    $row = $wpdb->get_row( $wpdb->prepare(
+        "SELECT * FROM {$wpdb->prefix}ftipp_cricket_round_config WHERE round_id=%d AND league=%s",
+        $round_id, $league
+    ), ARRAY_A );
+    if ( ! $row ) { return ftipp_cricket_default_cfg(); }
+    return array(
+        'pWin'        => intval( $row['p_win'] ),
+        'malusOn'     => (bool) intval( $row['malus_on'] ),
+        'malus'       => intval( $row['malus'] ),
+        'deadlineMin' => intval( $row['deadline_min'] ),
+    );
+}
+
+/** Ab wann ist nicht mehr tippbar: Anwurf minus Vorlauf. */
+function ftipp_cricket_lock_ts( $match, $cfg ) {
+    $ts = ! empty( $match['start'] ) ? strtotime( $match['start'] ) : 0;
+    if ( ! $ts ) { return 0; }
+    return $ts - max( 0, intval( $cfg['deadlineMin'] ) ) * MINUTE_IN_SECONDS;
+}
+
+/**
+ * Punkte für einen einzelnen Tipp.
+ * Gibt es keinen Sieger (Unentschieden, Tie, abgebrochen), bekommt niemand Punkte — aber auch
+ * niemand Malus: dafür kann der Tippende nichts.
+ */
+function ftipp_cricket_score_tip( $match, $tip, $cfg ) {
+    $winner = isset( $match['winner'] ) ? $match['winner'] : null;
+    $abgegeben = $tip && ! empty( $tip['committed'] );
+
+    if ( null === $winner ) { return array( 'pts' => 0, 'treffer' => false ); }   // noch offen
+    if ( 0 === intval( $winner ) ) { return array( 'pts' => 0, 'treffer' => false ); }   // kein Sieger
+
+    if ( ! $abgegeben ) {
+        $malus = ( ! empty( $cfg['malusOn'] ) ) ? intval( $cfg['malus'] ) : 0;
+        return array( 'pts' => $malus, 'treffer' => false );
+    }
+    if ( intval( $tip['pick'] ) === intval( $winner ) ) {
+        return array( 'pts' => intval( $cfg['pWin'] ), 'treffer' => true );
+    }
+    return array( 'pts' => 0, 'treffer' => false );
+}
+
+/**
+ * Rangliste einer Liga. Bewusst EINE Abfrage je Mitglied (nicht eine je Mitglied und Partie) — die
+ * Partien liegen ohnehin schon als Option im Speicher, siehe die gleiche Überlegung beim Tennis.
+ */
+function ftipp_cricket_compute_leaderboard( $round_id, $league ) {
+    global $wpdb;
+    $cfg     = ftipp_cricket_round_cfg( $round_id, $league );
+    $members = ftipp_round_members( $round_id );
+    $spiele  = ftipp_cricket_games( $league );
+    $subId   = ftipp_cricket_sub_id( $league );
+
+    // Nur Mitglieder, die diese Liga für die Runde aktiviert haben — gleiche Technik wie beim Eishockey.
+    $subRows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT user_id FROM {$wpdb->prefix}ftipp_round_subs WHERE round_id=%d AND comp_id=%s AND active=1", $round_id, $subId
+    ), ARRAY_A );
+    $aktiv = array();
+    foreach ( $subRows as $r ) { $aktiv[ intval( $r['user_id'] ) ] = true; }
+
+    $rows = array();
+    foreach ( $members as $m ) {
+        if ( ! isset( $aktiv[ $m['id'] ] ) ) { continue; }
+        $tipps = $wpdb->get_results( $wpdb->prepare(
+            "SELECT match_id,pick,committed FROM {$wpdb->prefix}ftipp_cricket_tips WHERE user_id=%d", $m['id']
+        ), ARRAY_A );
+        $nach = array();
+        foreach ( $tipps as $t ) { $nach[ $t['match_id'] ] = $t; }
+
+        $total = 0; $hits = 0; $abgegeben = 0;
+        foreach ( $spiele as $id => $sp ) {
+            if ( null === $sp['winner'] ) { continue; }
+            $tip = isset( $nach[ $id ] ) ? $nach[ $id ] : null;
+            if ( $tip && ! empty( $tip['committed'] ) ) { $abgegeben++; }
+            $r = ftipp_cricket_score_tip( $sp, $tip, $cfg );
+            $total += $r['pts'];
+            if ( $r['treffer'] ) { $hits++; }
+        }
+        $u = get_userdata( $m['id'] );
+        $rows[] = array(
+            'user_id' => $m['id'],
+            'name'    => $u ? ftipp_public_name( $u ) : ( 'Spieler #' . $m['id'] ),
+            'total'   => $total, 'hits' => $hits, 'tips' => $abgegeben,
+        );
+    }
+    usort( $rows, function ( $a, $b ) { return $b['total'] <=> $a['total']; } );
+    foreach ( $rows as $i => $r ) { $rows[ $i ]['rank'] = $i + 1; }
+    return $rows;
+}
+
 /**
  * Test-Spiele mit Anpfiff in den nächsten Tagen — unabhängig von der API.
  * Zum Ausprobieren der Tipp-Mechanik (Frist/Sperre, K.o.-Zusatztipp), wenn die
@@ -5382,6 +5897,156 @@ add_action( 'rest_api_init', function () {
         },
     ) );
     /* ---------------- Tennis ---------------- */
+    /* ---- Cricket: Sieger-Tipp je Partie, Wertung je Wettbewerb ---- */
+    register_rest_route( 'ftipp/v1', '/cricket/matches', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req->get_param( 'round' ) );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $league = ftipp_cricket_valid_league( $req->get_param( 'league' ) );
+            $cfg    = ftipp_cricket_round_cfg( $rid, $league );
+            $spiele = ftipp_cricket_games( $league );
+            $now    = time();
+
+            // Anzeigefenster: alle noch offenen Partien plus die zuletzt entschiedenen. Sonst wüchse
+            // die Liste über eine Saison hinweg unbegrenzt (gleiche Überlegung wie beim Tennis).
+            $offen = array(); $jung = array();
+            foreach ( $spiele as $id => $m ) {
+                if ( ftipp_cricket_ist_veraltet( $m ) ) { continue; }   // Quelle hat nie ein Ergebnis nachgeliefert
+                $ts = $m['start'] ? strtotime( $m['start'] ) : 0;
+                if ( null === $m['winner'] ) { $offen[ $id ] = $ts; }
+                elseif ( $ts && $ts > ( $now - 14 * DAY_IN_SECONDS ) ) { $jung[ $id ] = $ts; }
+            }
+            asort( $offen ); asort( $jung );
+            $jung = array_slice( $jung, -40, 40, true );
+            $ids  = array_merge( array_keys( $jung ), array_keys( $offen ) );
+
+            $mine = array();
+            foreach ( $wpdb->get_results( $wpdb->prepare(
+                "SELECT match_id,pick,committed FROM {$wpdb->prefix}ftipp_cricket_tips WHERE user_id=%d", $uid
+            ), ARRAY_A ) as $t ) { $mine[ $t['match_id'] ] = $t; }
+
+            $out = array();
+            foreach ( $ids as $id ) {
+                $m      = $spiele[ $id ];
+                $lockTs = ftipp_cricket_lock_ts( $m, $cfg );
+                $locked = $lockTs && ( $now >= $lockTs );
+                $row = array(
+                    'match'  => $m,
+                    'locked' => (bool) $locked,
+                    'mine'   => isset( $mine[ $id ] ) ? array(
+                        'pick' => intval( $mine[ $id ]['pick'] ), 'committed' => (bool) $mine[ $id ]['committed'],
+                    ) : null,
+                );
+                if ( $locked ) {
+                    // Tipps der Mitspieler erst nach Fristende — wie in allen anderen Sportarten.
+                    $andere = $wpdb->get_results( $wpdb->prepare(
+                        "SELECT user_id,pick FROM {$wpdb->prefix}ftipp_cricket_tips WHERE match_id=%s AND committed=1", $id
+                    ), ARRAY_A );
+                    $named = array();
+                    foreach ( $andere as $o ) {
+                        $u = get_userdata( $o['user_id'] );
+                        $named[] = array(
+                            'name' => $u ? ftipp_public_name( $u ) : ( 'Spieler #' . $o['user_id'] ),
+                            'pick' => intval( $o['pick'] ),
+                        );
+                    }
+                    $row['others'] = $named;
+                }
+                $out[] = $row;
+            }
+            $ligen = array();
+            foreach ( ftipp_cricket_leagues() as $lid => $l ) { $ligen[] = array( 'id' => $lid, 'name' => $l['name'] ); }
+            return array( 'matches' => $out, 'cfg' => $cfg, 'league' => $league, 'leagues' => $ligen );
+        },
+    ) );
+
+    register_rest_route( 'ftipp/v1', '/cricket/tips', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ), 'match_id' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $mid = sanitize_text_field( (string) $req['match_id'] );
+            $alle = get_option( 'ftipp_cricket_matches', array() );
+            if ( ! isset( $alle[ $mid ] ) ) { return new WP_Error( 'not_found', 'Partie unbekannt.', array( 'status' => 404 ) ); }
+            $m   = $alle[ $mid ];
+            $cfg = ftipp_cricket_round_cfg( $rid, $m['league'] );
+            // Sperre serverseitig neu prüfen — auf die Anzeige im Browser ist kein Verlass.
+            $lockTs = ftipp_cricket_lock_ts( $m, $cfg );
+            if ( $lockTs && time() >= $lockTs ) { return new WP_Error( 'locked', 'Die Frist für diese Partie ist abgelaufen.', array( 'status' => 403 ) ); }
+            $pick = intval( $req->get_param( 'pick' ) );
+            if ( ! in_array( $pick, array( 1, 2 ), true ) ) { return new WP_Error( 'bad_pick', 'Ungültige Auswahl.', array( 'status' => 400 ) ); }
+            $wpdb->replace( $wpdb->prefix . 'ftipp_cricket_tips', array(
+                'user_id' => $uid, 'match_id' => $mid, 'pick' => $pick,
+                'committed' => $req->get_param( 'committed' ) ? 1 : 0,
+                'updated_at' => current_time( 'mysql', true ),
+            ) );
+            return array( 'ok' => true );
+        },
+    ) );
+
+    register_rest_route( 'ftipp/v1', '/cricket/leaderboard', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            $uid = get_current_user_id(); $rid = intval( $req->get_param( 'round' ) );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $league = ftipp_cricket_valid_league( $req->get_param( 'league' ) );
+            return array( 'league' => $league, 'name' => ftipp_cricket_league_name( $league ), 'rows' => ftipp_cricket_compute_leaderboard( $rid, $league ) );
+        },
+    ) );
+
+    register_rest_route( 'ftipp/v1', '/cricket/config', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            $uid = get_current_user_id(); $rid = intval( $req->get_param( 'round' ) );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            return ftipp_cricket_round_cfg( $rid, ftipp_cricket_valid_league( $req->get_param( 'league' ) ) );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/cricket/config', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_admin( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Nur der Runden-Admin darf die Regeln ändern.', array( 'status' => 403 ) ); }
+            $league = ftipp_cricket_valid_league( $req->get_param( 'league' ) );
+            // Nur übergebene Felder ändern — die Oberfläche speichert einzelne Felder sofort beim
+            // Ändern und schickt nie die komplette Konfiguration mit.
+            $cur = ftipp_cricket_round_cfg( $rid, $league );
+            foreach ( array( 'pWin' => 'pWin', 'malusOn' => 'malusOn', 'malus' => 'malus', 'deadlineMin' => 'deadlineMin' ) as $param => $feld ) {
+                $v = $req->get_param( $param );
+                if ( null !== $v ) { $cur[ $feld ] = ( 'malusOn' === $feld ) ? (bool) $v : intval( $v ); }
+            }
+            $wpdb->replace( $wpdb->prefix . 'ftipp_cricket_round_config', array(
+                'round_id' => $rid, 'league' => $league,
+                'p_win' => max( 0, intval( $cur['pWin'] ) ),
+                'malus_on' => $cur['malusOn'] ? 1 : 0,
+                'malus' => intval( $cur['malus'] ),
+                'deadline_min' => max( 0, intval( $cur['deadlineMin'] ) ),
+            ) );
+            return ftipp_cricket_round_cfg( $rid, $league );
+        },
+    ) );
+
+    register_rest_route( 'ftipp/v1', '/cricket/subscribe', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id(); $rid = intval( $req['round_id'] );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            // Eigene Route nötig: die generische /rounds/{id}/subs prüft comp_id hart gegen die
+            // Fußball-Registry (gleicher Grund wie bei Formel 1, Tennis und Eishockey).
+            $league = ftipp_cricket_valid_league( $req->get_param( 'league' ) );
+            $wpdb->replace( $wpdb->prefix . 'ftipp_round_subs', array(
+                'round_id' => $rid, 'user_id' => $uid,
+                'comp_id' => ftipp_cricket_sub_id( $league ),
+                'active' => $req->get_param( 'active' ) ? 1 : 0,
+            ) );
+            return array( 'ok' => true );
+        },
+    ) );
+
     register_rest_route( 'ftipp/v1', '/tennis/matches', array(
         'methods' => 'GET', 'permission_callback' => $auth,
         'callback' => function ( $req ) {
@@ -6350,6 +7015,8 @@ function ftipp_page_history() {
         'nhl_manual_fetch' => '🏒⬇️ Eishockey: Manueller Abruf',
         'sumo_cron_fetch' => '🤼⏱️ Sumo: Automatischer Abruf',
         'sumo_manual_fetch' => '🤼⬇️ Sumo: Manueller Abruf',
+        'cricket_cron_fetch' => '🏏⏱️ Cricket: Automatischer Abruf',
+        'cricket_manual_fetch' => '🏏⬇️ Cricket: Manueller Abruf',
         'csv_import'    => '📄 CSV-Import',
         'test_fixtures' => '🎲 Test-Spiele',
         'restore'       => '💾 Sicherung wiederhergestellt',
@@ -7605,6 +8272,20 @@ add_action( 'admin_post_ftipp_tennis_save_key', function () {
     wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'tab' => 'tennis', 'ftipp_tennis_saved' => '1' ), admin_url( 'admin.php' ) ) );
     exit;
 } );
+add_action( 'admin_post_ftipp_cricket_fetch', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_cricket_fetch' );
+    $res = ftipp_cricket_sync( 'manual' );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'tab' => 'cricket', 'ftipp_cricket_done' => $res['ok'] ? 'ok' : 'err' ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
+add_action( 'admin_post_ftipp_cricket_save_key', function () {
+    if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
+    check_admin_referer( 'ftipp_cricket_save_key' );
+    update_option( 'ftipp_cricket_api_key', sanitize_text_field( wp_unslash( $_POST['ftipp_cricket_api_key'] ?? '' ) ) );
+    wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'tab' => 'cricket', 'ftipp_cricket_saved' => '1' ), admin_url( 'admin.php' ) ) );
+    exit;
+} );
 add_action( 'admin_post_ftipp_test_reminder', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_test_reminder' );
@@ -7790,6 +8471,111 @@ function ftipp_settings_page() {
  * Die drei Seitenfunktionen bleiben unverändert; hier wird nur die Tab-Leiste davorgesetzt und die
  * passende aufgerufen. So bleibt jede Sportart weiterhin für sich, genau wie im Frontend-Hub.
  */
+function ftipp_page_cricket() {
+    if ( ! current_user_can( 'manage_options' ) ) { return; }
+    $key    = ftipp_cricket_api_key();
+    $budget = ftipp_cricket_budget();
+    $spiele = get_option( 'ftipp_cricket_matches', array() );
+    if ( ! is_array( $spiele ) ) { $spiele = array(); }
+    $serien = get_option( 'ftipp_cricket_series', array() );
+    if ( ! is_array( $serien ) ) { $serien = array(); }
+    $lastSync = get_option( 'ftipp_cricket_last_sync' );
+
+    $offen = 0; $fertig = 0; $proLiga = array();
+    foreach ( $spiele as $sp ) {
+        if ( null === $sp['winner'] ) { $offen++; } else { $fertig++; }
+        $proLiga[ $sp['league'] ] = ( isset( $proLiga[ $sp['league'] ] ) ? $proLiga[ $sp['league'] ] : 0 ) + 1;
+    }
+    ?>
+    <div class="wrap">
+        <h1>🏏 Cricket</h1>
+        <?php if ( isset( $_GET['ftipp_cricket_saved'] ) ) : ?><div class="notice notice-success is-dismissible"><p>API-Key gespeichert.</p></div><?php endif; ?>
+        <?php if ( isset( $_GET['ftipp_cricket_done'] ) ) : ?>
+            <div class="notice notice-<?php echo ( 'ok' === $_GET['ftipp_cricket_done'] ) ? 'success' : 'error'; ?> is-dismissible">
+                <p><?php echo ( 'ok' === $_GET['ftipp_cricket_done'] ) ? 'Abruf abgeschlossen.' : 'Der Abruf hatte Fehler — Einzelheiten im Verlauf.'; ?></p></div>
+        <?php endif; ?>
+
+        <p>Sieger-Tipp je Partie. Datenquelle: <a href="https://cricketdata.org" target="_blank" rel="noopener">cricketdata.org</a> — dort holst du dir einen eigenen, kostenlosen API-Key.
+           Getippt werden <strong>ODI und T20</strong> der Männer: Länderspiele der bekannten Nationen sowie IPL, Big Bash League, The Hundred und Caribbean Premier League.
+           <strong>Test-Partien sind bewusst nicht dabei</strong> (fünf Tage Spieldauer, häufige Unentschieden).</p>
+
+        <h2>API-Key</h2>
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <input type="hidden" name="action" value="ftipp_cricket_save_key" />
+            <?php wp_nonce_field( 'ftipp_cricket_save_key' ); ?>
+            <input type="text" name="ftipp_cricket_api_key" value="<?php echo esc_attr( $key ); ?>" class="regular-text" placeholder="z.B. 00000000-0000-0000-0000-000000000000" />
+            <?php submit_button( 'Key speichern', 'secondary', 'submit', false ); ?>
+            <p class="description">Der Key wird nur hier gespeichert und steht nicht im Programmcode.</p>
+        </form>
+
+        <h2>Status</h2>
+        <p><strong>Heutiges Abruf-Budget:</strong> <?php echo esc_html( $budget['used'] . ' von ' . FTIPP_CRICKET_DAILY_BUDGET ); ?> genutzt
+               <span class="description">(das Gratis-Kontingent liegt bei 100/Tag — die Reserve fängt manuelle Klicks ab)</span>
+           <br><strong>Beobachtete Serien:</strong> <?php echo count( $serien ); ?>
+           <br><strong>Partien geladen:</strong> <?php echo count( $spiele ); ?>
+               &nbsp;·&nbsp; <strong>offen:</strong> <?php echo esc_html( $offen ); ?>
+               &nbsp;·&nbsp; <strong>entschieden:</strong> <?php echo esc_html( $fertig ); ?>
+           <br><strong>Je Wettbewerb:</strong>
+           <?php
+            if ( $proLiga ) {
+                $teile = array();
+                foreach ( $proLiga as $lid => $n ) { $teile[] = ftipp_cricket_league_name( $lid ) . ' (' . $n . ')'; }
+                echo esc_html( implode( ', ', $teile ) );
+            } else { echo '—'; }
+           ?>
+           <br><strong>Letzter Abruf:</strong> <?php echo $lastSync ? esc_html( wp_date( 'd.m.Y H:i', strtotime( $lastSync ) ) ) : '—'; ?></p>
+
+        <p class="description">Ein Lauf frischt die Serienliste höchstens einmal am Tag auf und holt danach einige Serien im Detail, rotierend.
+           Spielplan und Ergebnis stecken im selben Abruf — ein Nachfassen je Partie wie beim Tennis entfällt. Automatisch läuft das alle 6 Stunden.</p>
+
+        <form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+            <input type="hidden" name="action" value="ftipp_cricket_fetch" />
+            <?php wp_nonce_field( 'ftipp_cricket_fetch' ); ?>
+            <?php submit_button( '⬇️ Jetzt abrufen', 'primary', 'submit', false, $key ? array() : array( 'disabled' => 'disabled' ) ); ?>
+            <?php if ( ! $key ) : ?><span class="description" style="margin-left:8px">Erst einen API-Key eintragen.</span><?php endif; ?>
+        </form>
+
+        <?php
+        $liste = ftipp_cricket_games();
+        if ( $liste ) :
+            $jetzt = time();
+            $kommend = array_filter( $liste, function ( $g ) { return null === $g['winner'] && ! ftipp_cricket_ist_veraltet( $g ); } );
+            $veraltet = count( array_filter( $liste, 'ftipp_cricket_ist_veraltet' ) );
+            $vorbei  = array_reverse( array_filter( $liste, function ( $g ) { return null !== $g['winner']; } ), true );
+        ?>
+        <?php if ( $veraltet ) : ?>
+            <p class="description"><?php echo esc_html( sprintf( '%d Partien ohne Ergebnis liegen mehr als drei Tage zurück — die Quelle hat dort nichts nachgeliefert. Sie werden nicht zum Tippen angezeigt.', $veraltet ) ); ?></p>
+        <?php endif; ?>
+        <h2>Nächste Partien</h2>
+        <table class="widefat striped"><thead><tr><th>Anwurf</th><th>Wettbewerb</th><th>Format</th><th>Partie</th></tr></thead><tbody>
+        <?php foreach ( array_slice( $kommend, 0, 40, true ) as $g ) : ?>
+            <tr>
+                <td><?php echo esc_html( wp_date( 'd.m.Y H:i', strtotime( $g['start'] ) ) ); ?></td>
+                <td><?php echo esc_html( ftipp_cricket_league_name( $g['league'] ) ); ?></td>
+                <td><?php echo esc_html( $g['format'] ); ?></td>
+                <td><?php echo esc_html( $g['t1']['name'] . ' – ' . $g['t2']['name'] ); ?></td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody></table>
+
+        <?php if ( $vorbei ) : ?>
+        <h2>Zuletzt entschieden</h2>
+        <table class="widefat striped"><thead><tr><th>Datum</th><th>Wettbewerb</th><th>Partie</th><th>Ergebnis laut Quelle</th></tr></thead><tbody>
+        <?php foreach ( array_slice( $vorbei, 0, 25, true ) as $g ) : ?>
+            <tr>
+                <td><?php echo esc_html( wp_date( 'd.m.Y', strtotime( $g['start'] ) ) ); ?></td>
+                <td><?php echo esc_html( ftipp_cricket_league_name( $g['league'] ) ); ?></td>
+                <td><?php echo esc_html( $g['t1']['name'] . ' – ' . $g['t2']['name'] ); ?></td>
+                <td><?php echo esc_html( 0 === intval( $g['winner'] ) ? ( $g['status'] . ' (kein Sieger)' ) : $g['status'] ); ?></td>
+            </tr>
+        <?php endforeach; ?>
+        </tbody></table>
+        <?php endif; ?>
+        <?php endif; ?>
+    </div>
+    <?php
+}
+
 function ftipp_page_sports() {
     if ( ! current_user_can( 'manage_options' ) ) { return; }
     $tabs = array(
@@ -7800,6 +8586,7 @@ function ftipp_page_sports() {
         'basketball' => array( 'label' => '🏀 Basketball', 'cb' => 'ftipp_page_basketball' ),
         'tennis'   => array( 'label' => '🎾 Tennis',    'cb' => 'ftipp_page_tennis' ),
         'sumo'     => array( 'label' => '🤼 Sumo',      'cb' => 'ftipp_page_sumo' ),
+        'cricket'  => array( 'label' => '🏏 Cricket',   'cb' => 'ftipp_page_cricket' ),
     );
     $cur = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'fussball';
     if ( ! isset( $tabs[ $cur ] ) ) { $cur = 'fussball'; }
