@@ -2576,6 +2576,43 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
   `sport=ussport`. Regression: Fußball, Formel 1, Tennis, US-Sport und der Runden-Bereich blenden sich
   weiterhin sauber gegenseitig aus. Keine Datenbank-, Schema- oder Schnittstellen-Änderung.
 
+## v1.16.0 — AFL (Australian Football) im Rugby-Bereich
+
+- **Anfrage:** "Hier ist jetzt AFL, das packen wir in Rugby rein, hier ist die API
+  https://api.squiggle.com.au/". Die AFL ist streng genommen Australian Rules Football und kein Rugby —
+  als eiförmige Ballsportart mit Pfosten teilt sie sich aber die Kachel, und eine eigene hätte für eine
+  einzige Liga wenig Sinn. Auf der Kachel und in der Kopfzeile steht deshalb klar, dass es aktuell die
+  AFL ist.
+- **Quelle geprüft:** api.squiggle.com.au ist kostenlos und ohne Key, **verlangt aber zwingend eine
+  aussagekräftige User-Agent-Kennung** — ohne sie antwortet sie mit HTTP 403 und dem ausdrücklichen
+  Hinweis auf Sperren. Das Plugin schickt jetzt Name, Version und die Adresse der eigenen Seite mit.
+  Ein einziger Aufruf liefert die komplette Saison (2026: 218 Spiele), inklusive `unixtime`,
+  `roundname` (Opening Round … Grand Final), Punkten und `complete`-Kennzeichen.
+- **Umgesetzt:** AFL als Liga im Bereich `rugby` der bestehenden Zwei-Team-Maschinerie — dieselbe
+  Tipp-, Wertungs- und Sonderwertungs-Logik wie NHL und Fußball, ohne neue Tabellen oder Routen.
+  Die **Gruppierung der Tippen-Ansicht wurde verallgemeinert**: bisher fest nach Kalendertag (im
+  Eishockey wird fast täglich gespielt), jetzt liefert jede Liga mit, wonach gruppiert wird — AFL nach
+  echten Spielrunden. Sortiert wird nach dem frühesten Anpfiff einer Gruppe, damit "Round 10" nicht
+  alphabetisch hinter "Round 1" landet.
+- **Ein Shell für beide Bereiche:** US-Sport und Rugby nutzen denselben Oberflächen-Bereich, nur mit
+  anderer Überschrift und anderen Ligen — die Mechanik ist identisch. Das spart eine komplette Kopie
+  der Tippen-/Auswertungs-/Sonderwertungs-Ansicht.
+- **Fehler beim Testen gefunden und behoben:** Nach einem Bereichswechsel steht die Liga noch nicht
+  fest (der Server wählt dann die erste des Bereichs). Die Oberfläche prüfte aber noch gegen die leere
+  Liga und zeigte deshalb im Rugby-Bereich fälschlich "noch nicht aktiviert" statt der Spiele. Jetzt
+  werden erst die Spiele geholt, die vom Server gewählte Liga übernommen und danach die Aktivierung
+  geprüft — in allen vier Tabs.
+- Lokal getestet: `php -l` fehlerfrei, Script-Blöcke geprüft. **Live gegen beide APIs:** 1344 NHL- und
+  218 AFL-Spiele in 30 Aufrufen (10,9 s), 30 AFL-Runden erkannt, nächstes offenes Spiel
+  (Preliminary Finals, Sydney–Fremantle) und letztes Ergebnis (Brisbane 144:91 Adelaide) korrekt.
+  Bereichs-Zuordnung gegengeprüft: AFL→rugby, NHL→ussport, und eine liga-fremde Anfrage fällt sauber
+  auf die richtige Liga des Bereichs zurück. Punktelogik auf echten AFL-Punktzahlen geprüft (144:91
+  exakt 3, Tendenz 1, daneben 0). Browser: beide Bereiche mit eigener Überschrift, Liga und
+  Gruppierung (US-Sport nach Datum, Rugby nach "Preliminary Finals"/"Grand Final"), Wechsel in beide
+  Richtungen sauber, keine Konsolenmeldung. Keine Datenbank- oder Schema-Änderung.
+- *Noch nicht auf der echten Seite getestet:* Update einspielen, unter Sportarten → US-Sport einmal
+  "Jetzt abrufen" (holt jetzt auch die AFL) und im Frontend die Rugby-Kachel öffnen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

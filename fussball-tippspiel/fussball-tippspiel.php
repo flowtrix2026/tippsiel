@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name:       Tippstube
- * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis und US-Sport (NHL), echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version:           1.15.0
+ * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL) und Rugby (AFL), echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
+ * Version:           1.16.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.15.0' );
+define( 'FTIPP_VERSION', '1.16.0' );
 define( 'FTIPP_DB_VERSION', '20' );
 
 /**
@@ -1436,6 +1436,7 @@ function ftipp_f1_compute_leaderboard( $round_id ) {
 function ftipp_hockey_leagues() {
     return array(
         'NHL' => array( 'name' => 'NHL', 'sport' => 'ussport', 'region' => 'Nordamerika', 'source' => 'nhle' ),
+        'AFL' => array( 'name' => 'AFL', 'sport' => 'rugby',   'region' => 'Australien',   'source' => 'squiggle' ),
     );
 }
 function ftipp_hockey_league_ids() { return array_keys( ftipp_hockey_leagues() ); }
@@ -1451,11 +1452,21 @@ function ftipp_hockey_league_name( $league ) {
     $all = ftipp_hockey_leagues();
     return isset( $all[ $league ] ) ? $all[ $league ]['name'] : $league;
 }
-/** Fällt auf die erste Liga zurück, damit ein fehlender Parameter nie zu leeren Seiten führt. */
-function ftipp_hockey_valid_league( $league ) {
-    $ids = ftipp_hockey_league_ids();
+/**
+ * Fällt auf die erste Liga des Bereichs zurück, damit ein fehlender oder fremder Parameter nie zu
+ * leeren Seiten führt — und damit aus dem Rugby-Bereich keine US-Liga angesprochen werden kann.
+ */
+function ftipp_hockey_valid_league( $league, $sport = '' ) {
+    $erlaubt = ( '' === $sport ) ? ftipp_hockey_leagues() : ftipp_hockey_leagues_of( $sport );
+    if ( ! $erlaubt ) { $erlaubt = ftipp_hockey_leagues(); }
+    $ids = array_keys( $erlaubt );
     $league = (string) $league;
     return in_array( $league, $ids, true ) ? $league : $ids[0];
+}
+/** Zu welchem Hub-Bereich gehört diese Liga? */
+function ftipp_hockey_sport_of( $league ) {
+    $all = ftipp_hockey_leagues();
+    return isset( $all[ $league ]['sport'] ) ? $all[ $league ]['sport'] : 'ussport';
 }
 
 /** Ein Aufruf an die NHL-API. Weiterleitungen folgt wp_remote_get() selbst (die API antwortet mit 307). */
@@ -1491,6 +1502,10 @@ function ftipp_nhl_shape( $g ) {
         'state'  => $state,
         'type'   => isset( $g['gameType'] ) ? intval( $g['gameType'] ) : 0,
         'round'  => ( isset( $g['gameType'] ) && 3 === intval( $g['gameType'] ) ) ? 'Playoffs' : 'Hauptrunde',
+        // Nach welcher Einheit die Tippen-Ansicht gruppiert. Im Eishockey wird fast täglich gespielt,
+        // deshalb der Kalendertag; andere Ligen (AFL) haben echte Spielrunden.
+        'group'  => isset( $g['startTimeUTC'] ) ? substr( $g['startTimeUTC'], 0, 10 ) : '',
+        'group_label' => '',
         'home'   => $side( isset( $g['homeTeam'] ) ? $g['homeTeam'] : array() ),
         'away'   => $side( isset( $g['awayTeam'] ) ? $g['awayTeam'] : array() ),
         // Im Eishockey gibt es kein Unentschieden — Gleichstand nach 60 Minuten wird in der
@@ -1501,8 +1516,70 @@ function ftipp_nhl_shape( $g ) {
     );
 }
 
+/* ---- AFL (Australian Football League) über api.squiggle.com.au ----
+ * Kostenlos und ohne Key, verlangt aber zwingend eine aussagekräftige User-Agent-Kennung — ohne sie
+ * antwortet die API mit HTTP 403 und dem Hinweis auf Sperren. Ein Aufruf liefert die komplette Saison
+ * (2026: 218 Spiele), deshalb genügt ein einziger Abruf je Lauf.
+ * Eingeordnet im Hub-Bereich "Rugby" (siehe ftipp_hockey_leagues) — die AFL ist zwar Australian Rules
+ * Football und kein Rugby, teilt sich aber als eiförmige Ballsportart mit Pfosten dort die Kachel. */
+function ftipp_afl_fetch( $query ) {
+    $resp = wp_remote_get( 'https://api.squiggle.com.au/?' . $query, array(
+        'timeout' => 25,
+        // Von der API ausdrücklich gefordert: wer fragt, und wie ist er erreichbar.
+        'headers' => array( 'User-Agent' => 'Tippstube/' . FTIPP_VERSION . ' (WordPress-Tippspiel; ' . get_bloginfo( 'url' ) . ')' ),
+    ) );
+    if ( is_wp_error( $resp ) ) { return array( 'ok' => false, 'error' => $resp->get_error_message() ); }
+    $code = (int) wp_remote_retrieve_response_code( $resp );
+    if ( 200 !== $code ) { return array( 'ok' => false, 'error' => 'HTTP ' . $code ); }
+    $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+    if ( ! is_array( $body ) ) { return array( 'ok' => false, 'error' => 'Unerwartete Antwort' ); }
+    return array( 'ok' => true, 'body' => $body );
+}
+
+/** Einen AFL-Spieldatensatz in dieselbe Form bringen wie die übrigen Zwei-Team-Ligen. */
+function ftipp_afl_shape( $g ) {
+    $ts = isset( $g['unixtime'] ) ? intval( $g['unixtime'] ) : 0;
+    $kurz = function ( $name ) {
+        // Kürzel für die schmale Anzeige: erstes Wort, auf vier Zeichen gekappt.
+        $teile = explode( ' ', trim( (string) $name ) );
+        return strtoupper( substr( $teile[0], 0, 4 ) );
+    };
+    $final = isset( $g['complete'] ) && 100 === intval( $g['complete'] );
+    $runde = isset( $g['roundname'] ) ? $g['roundname'] : ( isset( $g['round'] ) ? 'Runde ' . $g['round'] : '' );
+    return array(
+        'id'     => 'AFL-' . $g['id'],
+        'league' => 'AFL',
+        'start'  => $ts ? gmdate( 'Y-m-d\TH:i:s\Z', $ts ) : null,
+        'date'   => $ts ? gmdate( 'Y-m-d', $ts ) : null,
+        'state'  => $final ? 'OFF' : 'FUT',
+        'type'   => ( ! empty( $g['is_final'] ) ) ? 3 : 2,
+        'round'  => $runde,
+        // AFL hat echte Spielrunden — danach wird gruppiert, nicht nach Kalendertag.
+        'group'  => $runde,
+        'group_label' => $runde,
+        'home'   => array(
+            'abbrev' => $kurz( isset( $g['hteam'] ) ? $g['hteam'] : '' ),
+            'name'   => isset( $g['hteam'] ) ? $g['hteam'] : '',
+            'score'  => $final ? intval( isset( $g['hscore'] ) ? $g['hscore'] : 0 ) : null,
+        ),
+        'away'   => array(
+            'abbrev' => $kurz( isset( $g['ateam'] ) ? $g['ateam'] : '' ),
+            'name'   => isset( $g['ateam'] ) ? $g['ateam'] : '',
+            'score'  => $final ? intval( isset( $g['ascore'] ) ? $g['ascore'] : 0 ) : null,
+        ),
+        'ot'     => false,
+        'final'  => $final,
+    );
+}
+
+/** Aktuelle AFL-Saison — nach dem Grand Final (Ende September) zählt schon die nächste. */
+function ftipp_afl_season() {
+    $jahr = intval( gmdate( 'Y' ) );
+    return intval( get_option( 'ftipp_afl_season', ( intval( gmdate( 'n' ) ) >= 11 ) ? $jahr + 1 : $jahr ) );
+}
+
 /**
- * Spielplan und Ergebnisse aller Eishockey-Ligen abrufen.
+ * Spielplan und Ergebnisse aller Ligen dieser Maschinerie abrufen (NHL und AFL).
  * NHL: ein Aufruf liefert eine ganze Woche und dauert nur ~0,06 s — die komplette Saison sind rund
  * 30 Aufrufe. Deshalb wird sie einmal am Stück geladen (keine Backfill-Mechanik wie bei SportScore.com)
  * und danach nur noch die laufende Woche plus die Vorwoche aufgefrischt.
@@ -1571,6 +1648,24 @@ function ftipp_hockey_sync( $trigger = 'cron' ) {
         }
     }
 
+    // AFL: ein Aufruf liefert die komplette Saison, deshalb kein Blättern nötig.
+    $saison = ftipp_afl_season();
+    $a = ftipp_afl_fetch( 'q=games;year=' . $saison );
+    $out['calls']++;
+    if ( ! $a['ok'] ) {
+        $out['errors'][] = 'AFL: ' . $a['error'];
+    } else {
+        $rows = isset( $a['body']['games'] ) ? $a['body']['games'] : array();
+        foreach ( $rows as $g ) {
+            if ( empty( $g['id'] ) ) { continue; }
+            $sh = ftipp_afl_shape( $g );
+            $hatteErgebnis = isset( $games[ $sh['id'] ] ) && ! empty( $games[ $sh['id'] ]['final'] );
+            $games[ $sh['id'] ] = $sh;
+            if ( $sh['final'] && ! $hatteErgebnis ) { $resultsNew++; }
+            $merged++;
+        }
+    }
+
     update_option( 'ftipp_hockey_games', $games, false );
     update_option( 'ftipp_hockey_last_sync', current_time( 'mysql', true ), false );
 
@@ -1580,7 +1675,7 @@ function ftipp_hockey_sync( $trigger = 'cron' ) {
 
     ftipp_log_history(
         'manual' === $trigger ? 'nhl_manual_fetch' : 'nhl_cron_fetch',
-        "Eishockey: {$merged} Spiele aktualisiert, {$resultsNew} neue Ergebnisse, {$out['calls']} Abrufe"
+        "Ligen (NHL/AFL): {$merged} Spiele aktualisiert, {$resultsNew} neue Ergebnisse, {$out['calls']} Abrufe"
             . ( $out['errors'] ? ', Fehler bei ' . count( $out['errors'] ) : '' ),
         'NHL', wp_json_encode( array( 'errors' => $out['errors'] ) ),
         'manual' === $trigger ? get_current_user_id() : null
@@ -3960,26 +4055,39 @@ add_action( 'rest_api_init', function () {
         'callback' => function ( $req ) {
             global $wpdb; $uid = get_current_user_id(); $rid = intval( $req->get_param( 'round' ) );
             if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
-            $league = ftipp_hockey_valid_league( $req->get_param( 'league' ) );
+            $sport  = sanitize_key( (string) ( $req->get_param( 'sport' ) ?: 'ussport' ) );
+            $league = ftipp_hockey_valid_league( $req->get_param( 'league' ), $sport );
             $cfg = ftipp_hockey_round_cfg( $rid, $league );
             $games = ftipp_hockey_games( $league );
             $now = time();
 
             // Spieltage = Kalendertage mit Spielen. Ohne diese Aufteilung stünden über 1300 Spiele
             // einer Saison auf einer Seite.
+            // Gruppiert wird nach dem, was die Liga vorgibt: Eishockey nach Kalendertag, AFL nach
+            // Spielrunde. Sortiert nach dem frühesten Anpfiff der Gruppe, damit "Round 10" nicht
+            // alphabetisch hinter "Round 1" landet.
             $days = array();
             foreach ( $games as $g ) {
-                if ( empty( $g['date'] ) ) { continue; }
-                if ( ! isset( $days[ $g['date'] ] ) ) { $days[ $g['date'] ] = array( 'date' => $g['date'], 'total' => 0, 'final' => 0 ); }
-                $days[ $g['date'] ]['total']++;
-                if ( ! empty( $g['final'] ) ) { $days[ $g['date'] ]['final']++; }
+                $key = ! empty( $g['group'] ) ? $g['group'] : ( ! empty( $g['date'] ) ? $g['date'] : '' );
+                if ( '' === $key ) { continue; }
+                if ( ! isset( $days[ $key ] ) ) {
+                    $days[ $key ] = array(
+                        'date' => $key,
+                        'label' => ! empty( $g['group_label'] ) ? $g['group_label'] : '',
+                        'total' => 0, 'final' => 0, 'sort' => PHP_INT_MAX,
+                    );
+                }
+                $days[ $key ]['total']++;
+                if ( ! empty( $g['final'] ) ) { $days[ $key ]['final']++; }
+                $ts = ! empty( $g['start'] ) ? strtotime( $g['start'] ) : 0;
+                if ( $ts && $ts < $days[ $key ]['sort'] ) { $days[ $key ]['sort'] = $ts; }
             }
-            ksort( $days );
+            uasort( $days, function ( $a, $b ) { return $a['sort'] <=> $b['sort']; } );
             $days = array_values( $days );
 
             $wanted = sanitize_text_field( (string) $req->get_param( 'date' ) );
             if ( '' === $wanted ) {
-                // Standard: der nächste Tag, an dem noch etwas offen ist — sonst der letzte gespielte.
+                // Standard: die nächste Gruppe mit noch offenen Spielen — sonst die zuletzt gespielte.
                 foreach ( $days as $d ) {
                     if ( $d['final'] < $d['total'] ) { $wanted = $d['date']; break; }
                 }
@@ -3994,7 +4102,8 @@ add_action( 'rest_api_init', function () {
 
             $out = array();
             foreach ( $games as $id => $g ) {
-                if ( $g['date'] !== $wanted ) { continue; }
+                $key = ! empty( $g['group'] ) ? $g['group'] : ( ! empty( $g['date'] ) ? $g['date'] : '' );
+                if ( $key !== $wanted ) { continue; }
                 $lockTs = ftipp_hockey_lock_ts( $g, $cfg );
                 $locked = $lockTs && ( $now >= $lockTs );
                 $row = array(
@@ -4029,9 +4138,7 @@ add_action( 'rest_api_init', function () {
                     function ( $id ) { return array( 'id' => $id, 'name' => ftipp_hockey_league_name( $id ) ); },
                     // Nur die Ligen des angefragten Hub-Bereichs — sonst stünde später die DEL im
                     // US-Sport-Dropdown und umgekehrt.
-                    array_keys( ftipp_hockey_leagues_of(
-                        sanitize_key( (string) ( $req->get_param( 'sport' ) ?: 'ussport' ) )
-                    ) )
+                    array_keys( ftipp_hockey_leagues_of( $sport ) )
                 ) ),
             );
         },

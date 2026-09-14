@@ -219,11 +219,11 @@
       <div class="hub-tile-meta">NBA — Spielplan &amp; Ergebnisse, komplette Saison pro Team.</div>
       <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
     </div>
-    <div class="hub-tile" onclick="enterSport('rugby')">
+    <div class="hub-tile is-active" onclick="enterSport('rugby')">
       <div class="hub-tile-icon">🏉</div>
       <p class="hub-tile-name">Rugby</p>
-      <div class="hub-tile-meta">Six Nations, World Cup &amp; Co. — Spielplan &amp; Ergebnisse.</div>
-      <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
+      <div class="hub-tile-meta">AFL (Australian Football) — Ergebnis tippen, komplette Saison bis zum Grand Final.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-live">Aktiv</span><span style="color:var(--accent-hi)">→</span></div>
     </div>
     <div class="hub-tile" onclick="enterSport('baseball')">
       <div class="hub-tile-icon">⚾</div>
@@ -1841,7 +1841,7 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
   <section id="temode-teeinstellungen" style="display:none"></section>
 </div>
 </div><!-- #tennis-shell -->
-<div id="ussport-shell" style="display:none">
+<div id="team-shell" style="display:none">
 <header>
   <h1>
     <svg width="30" height="33" viewBox="0 0 240 260" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="flex:none">
@@ -1850,9 +1850,9 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
       <path d="M74 150 L74 132 Q74 116 120 116 Q166 116 166 132 L166 150" fill="none" stroke="#e3a83f" stroke-width="10"/>
       <path d="M150 70 L120 122" stroke="#f3ead9" stroke-width="9" stroke-linecap="round"/>
     </svg>
-    Tippstube — US-Sport
+    <span id="team-titel">Tippstube — US-Sport</span>
   </h1>
-  <div class="sub">Ergebnis-Tipp: Wie geht das Spiel aus? Aktuell die NHL, weitere US-Ligen folgen.
+  <div class="sub" id="team-unter">Ergebnis-Tipp: Wie geht das Spiel aus? Aktuell die NHL, weitere US-Ligen folgen.
     <br><button class="hub-switch" onclick="showSportHub()">🏈 Sportart wechseln</button>
     <button class="hub-switch" onclick="showRounds()">👥 Runden</button>
   </div>
@@ -1869,14 +1869,21 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
   <section id="nhmode-nhsonder" style="display:none"></section>
   <section id="nhmode-nheinstellungen" style="display:none"></section>
 </div>
-</div><!-- #ussport-shell -->
+</div><!-- #team-shell -->
 
 
 <script>
 /* ---------------- Sportarten-Hub ---------------- */
 // Nur Fußball und Formel 1 sind echt angebunden — alle anderen Kacheln sind bewusst nur eine Vorschau
 // (siehe Journal). Wer eine Sportart einmal gewählt hat, landet beim nächsten Besuch direkt wieder dort.
-const SPORT_SHELLS = {football:'app-shell', f1:'f1-shell', tennis:'tennis-shell', ussport:'ussport-shell'};
+const SPORT_SHELLS = {football:'app-shell', f1:'f1-shell', tennis:'tennis-shell',
+  // US-Sport und Rugby teilen sich denselben Bereich — die Mechanik (zwei Mannschaften, Ergebnis-Tipp)
+  // ist identisch, nur die Ligen dahinter unterscheiden sich.
+  ussport:'team-shell', rugby:'team-shell'};
+const TEAM_SPORTS = {
+  ussport:{titel:'US-Sport', wechsel:'🏈', unter:'Ergebnis-Tipp: Wie geht das Spiel aus? Aktuell die NHL, weitere US-Ligen folgen.'},
+  rugby:  {titel:'Rugby',    wechsel:'🏉', unter:'Ergebnis-Tipp: Wie geht das Spiel aus? Aktuell die AFL (Australian Football League).'}
+};
 /* Tipprunden sind keine Sportart, sondern gelten für alle — deshalb ein eigener Bereich neben den
    Sportarten statt eines Tabs innerhalb von Fußball. */
 const ROUNDS_SHELL = 'rounds-shell';
@@ -1897,7 +1904,14 @@ function enterSport(sport){
   document.getElementById(SPORT_SHELLS[sport]).style.display='';
   if(sport==='f1') switchF1Mode('f1tippen');
   else if(sport==='tennis') switchTennisMode('tetippen');
-  else if(sport==='ussport') switchNhlMode('nhtippen');
+  else if(TEAM_SPORTS[sport]){
+    if(hkSport!==sport){ hkSport=sport; hkLeague=''; hkDate=''; }
+    const m=TEAM_SPORTS[sport];
+    document.getElementById('team-titel').textContent='Tippstube — '+m.titel;
+    document.getElementById('team-unter').firstChild.textContent=m.unter+' ';
+    document.querySelector('#team-shell .hub-switch').textContent=m.wechsel+' Sportart wechseln';
+    switchNhlMode('nhtippen');
+  }
 }
 function showSportHub(){
   try{ localStorage.removeItem('ftipp_sport'); }catch(e){}
@@ -2493,12 +2507,12 @@ async function renderTennisEinstellungen(){
    wird fast täglich gespielt. */
 let hkLeague = 'NHL';
 let hkDate = '';
-/* Hub-Bereich dieses Shells. Die Liga-Liste vom Server wird danach gefiltert, damit später die DEL
-   im Eishockey-Bereich auftaucht und nicht hier bei den US-Ligen. */
-const HK_SPORT = 'ussport';
+/* Aktueller Hub-Bereich dieses Shells ('ussport' oder 'rugby'). Die Liga-Liste vom Server wird danach
+   gefiltert, damit im Rugby-Bereich keine US-Liga auftaucht und umgekehrt. */
+let hkSport = 'ussport';
 
 function switchNhlMode(mode){
-  document.querySelectorAll('#ussport-shell .tab').forEach(t=>t.classList.toggle('active', t.dataset.mode===mode));
+  document.querySelectorAll('#team-shell .tab').forEach(t=>t.classList.toggle('active', t.dataset.mode===mode));
   ['nhtippen','nhauswertung','nhsonder','nheinstellungen'].forEach(m=>{
     document.getElementById('nhmode-'+m).style.display = (m===mode) ? '' : 'none';
   });
@@ -2513,8 +2527,12 @@ function nhlGuard(box){
   if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde — sie gilt dann gleich für alle Sportarten.</div><button style="margin-top:10px" onclick="showRounds()">👥 Zu den Tipprunden</button></div>'; return false; }
   return true;
 }
+/* Beschriftung einer Gruppe: Ligen mit echten Spielrunden (AFL) liefern sie mit, sonst ist die
+   Gruppe ein Kalendertag und wird als solcher formatiert. */
 const nhlDay = iso => { const d=new Date(iso+'T12:00:00Z');
+  if(isNaN(d)) return iso;
   return d.toLocaleDateString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit'}); };
+const hkGruppe = d => (d && d.label) ? d.label : nhlDay(d && d.date ? d.date : d);
 /* Liga-Auswahl — wird immer angezeigt, auch bei nur einer Liga: so ist stets sichtbar, welche Liga
    gerade getippt wird, und es bleibt gleich wie der Wettbewerb-Filter beim Fußball. */
 function mkHkLeagueSelect(leagues, onChange){
@@ -2529,12 +2547,12 @@ async function renderNhlTippen(){
 
   let subs, data;
   try{
+    // Erst die Spiele holen: nach einem Bereichswechsel steht die Liga noch nicht fest, der Server
+    // wählt dann die erste Liga des Bereichs. Ohne diese Übernahme stünde hier fälschlich
+    // "noch nicht aktiviert", weil auf eine leere Liga geprüft würde.
+    data = await api_get(`nhl/games?round=${currentRoundId}&sport=${hkSport}&league=${encodeURIComponent(hkLeague)}&date=${encodeURIComponent(hkDate)}`);
+    if(data && data.league) hkLeague = data.league;
     subs = await api_get(`rounds/${currentRoundId}/subs`);
-    if(subs.subs && subs.subs[hkLeague]){
-      data = await api_get(`nhl/games?round=${currentRoundId}&sport=${HK_SPORT}&league=${encodeURIComponent(hkLeague)}&date=${encodeURIComponent(hkDate)}`);
-    } else {
-      data = await api_get(`nhl/games?round=${currentRoundId}&sport=${HK_SPORT}&league=${encodeURIComponent(hkLeague)}`);
-    }
   }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
 
   const round = roundById(currentRoundId) || {name:''};
@@ -2552,7 +2570,7 @@ async function renderNhlTippen(){
   ctrl.appendChild(mkHkLeagueSelect(leagues, renderNhlTippen));
   if(days.length){
     ctrl.appendChild(mkSelect('Spieltag', days.map(d=>({
-      v:d.date, label:`${nhlDay(d.date)} — ${d.total} Spiele${d.final?` (${d.final} gespielt)`:''}`})),
+      v:d.date, label:`${hkGruppe(d)} — ${d.total} Spiele${d.final?` (${d.final} gespielt)`:''}`})),
       hkDate, v=>{ hkDate=v; renderNhlTippen(); }));
     const navWrap = el('<div class="flexcol"><label>&nbsp;</label><div class="row" style="gap:6px"></div></div>');
     const navRow = navWrap.querySelector('.row');
@@ -2578,7 +2596,8 @@ async function renderNhlTippen(){
   }
 
   const list = el('<div class="card"></div>');
-  list.appendChild(el(`<div class="phase-h">${esc(nhlDay(hkDate))}</div>`));
+  const aktuelleGruppe = days.find(d=>d.date===hkDate);
+  list.appendChild(el(`<div class="phase-h">${esc(hkGruppe(aktuelleGruppe||hkDate))}</div>`));
   ((data && data.games) || []).forEach(row=> list.appendChild(mkHkMatchRow(row, cfg)));
   box.appendChild(list);
   if(cfg.malusOn){ box.appendChild(el(`<div class="warnbox">⚠️ Verpasste Spiele geben <b>${cfg.malus} Punkt(e)</b> (Regel dieser Runde).</div>`)); }
@@ -2675,7 +2694,8 @@ async function renderNhlAuswertung(){
   let data, games;
   try{
     data = await api_get(`nhl/leaderboard?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}`);
-    games = await api_get(`nhl/games?round=${currentRoundId}&sport=${HK_SPORT}&league=${encodeURIComponent(hkLeague)}`);
+    games = await api_get(`nhl/games?round=${currentRoundId}&sport=${hkSport}&league=${encodeURIComponent(hkLeague)}`);
+    if(games && games.league) hkLeague = games.league;
   }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
   box.innerHTML = '';
   const ctrl = el('<div class="card"><div class="row"></div></div>');
@@ -2698,7 +2718,8 @@ async function renderNhlSonder(){
   try{
     subs = await api_get(`rounds/${currentRoundId}/subs`);
     data = await api_get(`nhl/special?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}`);
-    games = await api_get(`nhl/games?round=${currentRoundId}&sport=${HK_SPORT}&league=${encodeURIComponent(hkLeague)}`);
+    games = await api_get(`nhl/games?round=${currentRoundId}&sport=${hkSport}&league=${encodeURIComponent(hkLeague)}`);
+    if(games && games.league) hkLeague = games.league;
   }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
 
   box.innerHTML = '';
@@ -2803,7 +2824,8 @@ async function renderNhlEinstellungen(){
   let cfg, games;
   try{
     cfg = await api_get(`nhl/config?round=${currentRoundId}&league=${encodeURIComponent(hkLeague)}`);
-    games = await api_get(`nhl/games?round=${currentRoundId}&sport=${HK_SPORT}&league=${encodeURIComponent(hkLeague)}`);
+    games = await api_get(`nhl/games?round=${currentRoundId}&sport=${hkSport}&league=${encodeURIComponent(hkLeague)}`);
+    if(games && games.league) hkLeague = games.league;
   }catch(e){ box.innerHTML = `<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`; return; }
 
   box.innerHTML = '';
