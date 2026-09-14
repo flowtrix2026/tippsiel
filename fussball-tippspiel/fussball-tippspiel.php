@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL), Rugby (AFL) und Sumo, echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version:           1.18.1
+ * Version: 1.19.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.18.1' );
+define( 'FTIPP_VERSION', '1.19.0' );
 define( 'FTIPP_DB_VERSION', '21' );
 
 /**
@@ -1473,6 +1473,21 @@ function ftipp_hockey_leagues() {
     return array(
         'NHL' => array( 'name' => 'NHL', 'sport' => 'ussport', 'region' => 'Nordamerika', 'source' => 'nhle' ),
         'AFL' => array( 'name' => 'AFL', 'sport' => 'rugby',   'region' => 'Australien',   'source' => 'squiggle' ),
+        // Basketball über SportScore.com — dieselbe Quelle, die beim Fußball schon läuft, nur mit
+        // sport=basketball. Der 'slug' ist der Liganame bei SportScore, klein und mit Bindestrichen;
+        // er ist NICHT frei wählbar, sondern live gegengeprüft (siehe Journal v1.19.0).
+        'WNBA' => array(
+            'name' => 'WNBA', 'sport' => 'ussport', 'region' => 'Nordamerika',
+            'source' => 'sportscore', 'slug' => 'womens-national-basketball-association',
+        ),
+        'EL' => array(
+            'name' => 'EuroLeague', 'sport' => 'basketball', 'region' => 'Europa',
+            'source' => 'sportscore', 'slug' => 'euroleague',
+        ),
+        'ACB' => array(
+            'name' => 'Liga ACB', 'sport' => 'basketball', 'region' => 'Spanien',
+            'source' => 'sportscore', 'slug' => 'liga-asociacion-de-clubs-de-baloncesto',
+        ),
     );
 }
 function ftipp_hockey_league_ids() { return array_keys( ftipp_hockey_leagues() ); }
@@ -1614,6 +1629,137 @@ function ftipp_afl_season() {
     return intval( get_option( 'ftipp_afl_season', ( intval( gmdate( 'n' ) ) >= 11 ) ? $jahr + 1 : $jahr ) );
 }
 
+/* ------------------------------------------------------------------------------------------------
+ * Basketball über SportScore.com
+ *
+ * Anders als NHL (eine Woche pro Aufruf) und AFL (ganze Saison pro Aufruf) liefert SportScore.com nur
+ * EINEN Kalendertag pro Anfrage — dieselbe Einschränkung wie beim Fußball, siehe ftipp_sportscore_sync().
+ * Deshalb ein Fenster statt "ganze Saison am Stück":
+ *   - "heiße" Tage (gestern bis übermorgen) bei JEDEM Lauf, damit Ergebnisse und kurzfristige
+ *     Verlegungen schnell ankommen;
+ *   - der weitere Vorlauf rotierend, ein paar Tage pro Lauf — Spielpläne weit in der Zukunft ändern
+ *     sich selten, die brauchen keine stündliche Auffrischung.
+ * Bei 4-Stunden-Takt ist das Vorlauf-Fenster damit nach etwa einem Tag einmal komplett durch.
+ * ---------------------------------------------------------------------------------------------- */
+if ( ! defined( 'FTIPP_BASKET_HOT_BACK' ) )     { define( 'FTIPP_BASKET_HOT_BACK', 2 ); }
+if ( ! defined( 'FTIPP_BASKET_HOT_FWD' ) )      { define( 'FTIPP_BASKET_HOT_FWD', 2 ); }
+if ( ! defined( 'FTIPP_BASKET_COLD_DAYS' ) )    { define( 'FTIPP_BASKET_COLD_DAYS', 28 ); }
+if ( ! defined( 'FTIPP_BASKET_COLD_PER_RUN' ) ) { define( 'FTIPP_BASKET_COLD_PER_RUN', 5 ); }
+
+/** Alle Ligen dieser Maschinerie, die von SportScore.com kommen. */
+function ftipp_basket_leagues() {
+    $out = array();
+    foreach ( ftipp_hockey_leagues() as $id => $l ) {
+        if ( isset( $l['source'] ) && 'sportscore' === $l['source'] ) { $out[ $id ] = $l; }
+    }
+    return $out;
+}
+
+/** Ein einzelner Kalendertag einer Basketball-Liga, gratis, ohne Key. */
+function ftipp_basket_fetch( $slug, $date ) {
+    $url = add_query_arg(
+        array( 'sport' => 'basketball', 'date' => $date, 'competition' => $slug, 'limit' => 300 ),
+        'https://sportscore.com/api/v1/fixtures/'
+    );
+    $resp = wp_remote_get( $url, array( 'timeout' => 15 ) );
+    if ( is_wp_error( $resp ) ) { return array( 'ok' => false, 'error' => $resp->get_error_message(), 'matches' => array() ); }
+    $code = (int) wp_remote_retrieve_response_code( $resp );
+    $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+    // Live beobachtet: SportScore.com antwortet immer wieder mit HTTP 503. Kein Fehler unsererseits —
+    // der Tag wandert in die Retry-Liste und wird beim nächsten Lauf zuerst erneut versucht.
+    if ( 200 !== $code || ! isset( $body['matches'] ) || ! is_array( $body['matches'] ) ) {
+        return array( 'ok' => false, 'error' => 'HTTP ' . $code, 'matches' => array() );
+    }
+    return array( 'ok' => true, 'error' => '', 'matches' => $body['matches'] );
+}
+
+/**
+ * Einen SportScore-Basketball-Datensatz in die Form bringen, die diese Maschinerie überall nutzt.
+ * $srcDate ist der Kalendertag, unter dem die Quelle das Spiel geliefert hat — nicht zwangsläufig der
+ * Tag der Anwurfzeit (live gesehen: unter date=2026-10-21 kam ein Spiel mit Anwurf 2026-10-22T00:00,
+ * weil die Quelle in UTC bucketet). Nur mit diesem Wert lässt sich beim nächsten Abruf zuverlässig
+ * erkennen, welche alten Einträge zu einem Tag gehören und verworfen werden müssen.
+ */
+function ftipp_basket_shape( $m, $leagueId, $srcDate = '' ) {
+    $kurz = function ( $name ) {
+        // Kürzel für die schmale Anzeige: erstes Wort, auf vier Zeichen gekappt (wie bei der AFL).
+        $teile = explode( ' ', trim( (string) $name ) );
+        return strtoupper( substr( $teile[0], 0, 4 ) );
+    };
+    $final = isset( $m['status'] ) && 'finished' === $m['status'];
+    $ts    = isset( $m['time'] ) ? strtotime( $m['time'] ) : false;
+    $home  = isset( $m['home'] ) ? (string) $m['home'] : '';
+    $away  = isset( $m['away'] ) ? (string) $m['away'] : '';
+    $tag   = $ts ? gmdate( 'Y-m-d', $ts ) : '';
+    // Die Fixtures-Liste hat keine Spiel-ID, wohl aber eine stabile Adresse — die ist auch nach einer
+    // Verlegung noch dieselbe, damit bleiben abgegebene Tipps am Spiel hängen.
+    $slug = isset( $m['url'] ) ? trim( (string) $m['url'], '/' ) : ( $leagueId . '-' . $home . '-' . $away . '-' . $tag );
+    return array(
+        'id'     => 'BB-' . md5( $slug ),
+        'league' => $leagueId,
+        'start'  => $ts ? gmdate( 'Y-m-d\TH:i:s\Z', $ts ) : null,
+        'date'   => $tag ? $tag : null,
+        'src_date' => (string) $srcDate,
+        'state'  => $final ? 'OFF' : 'FUT',
+        'type'   => 2,
+        'round'  => 'Hauptrunde',
+        // Basketball-Ligen spielen über die Woche verteilt ohne feste Spieltage in dieser Quelle —
+        // deshalb nach Kalendertag gruppieren, wie bei der NHL.
+        'group'  => $tag,
+        'group_label' => '',
+        'home'   => array( 'abbrev' => $kurz( $home ), 'name' => $home, 'score' => $final ? intval( isset( $m['home_score'] ) ? $m['home_score'] : 0 ) : null ),
+        'away'   => array( 'abbrev' => $kurz( $away ), 'name' => $away, 'score' => $final ? intval( isset( $m['away_score'] ) ? $m['away_score'] : 0 ) : null ),
+        'ot'     => false,
+        'final'  => $final,
+    );
+}
+
+/**
+ * Welche Kalendertage dieser Lauf abholt: die heißen Tage immer, dazu ein rotierender Ausschnitt des
+ * Vorlaufs. $cursor wird hochgezählt zurückgegeben, damit beim nächsten Lauf der nächste Ausschnitt dran ist.
+ */
+function ftipp_basket_days( $cursor ) {
+    $heute = time();
+    $hot   = array();
+    for ( $i = -FTIPP_BASKET_HOT_BACK; $i <= FTIPP_BASKET_HOT_FWD; $i++ ) {
+        $hot[] = gmdate( 'Y-m-d', $heute + $i * DAY_IN_SECONDS );
+    }
+    $cold = array();
+    for ( $i = 0; $i < FTIPP_BASKET_COLD_DAYS; $i++ ) {
+        $cold[] = gmdate( 'Y-m-d', $heute + ( FTIPP_BASKET_HOT_FWD + 1 + $i ) * DAY_IN_SECONDS );
+    }
+    $anzahl = max( 1, min( FTIPP_BASKET_COLD_PER_RUN, count( $cold ) ) );
+    $start  = ( intval( $cursor ) * $anzahl ) % count( $cold );
+    $teil   = array();
+    for ( $i = 0; $i < $anzahl; $i++ ) { $teil[] = $cold[ ( $start + $i ) % count( $cold ) ]; }
+    return array( 'days' => array_values( array_unique( array_merge( $hot, $teil ) ) ), 'cursor' => intval( $cursor ) + 1 );
+}
+
+/**
+ * Spiele wegwerfen, bei denen eine Mannschaft laut Quelle zur selben Zeit zwei Partien hat.
+ * Das kann nicht stimmen (live gefunden: San Antonio Spurs am 21.10.2026 gleichzeitig gegen die
+ * Clippers UND gegen OKC). Welcher der beiden Einträge der richtige ist, lässt sich aus der Quelle
+ * nicht entscheiden — deshalb fliegen alle Partien der Kollision raus, statt zu raten. Ein Spiel, das
+ * gar nicht erst auftaucht, ist harmloser als eins, auf das getippt wird und das es nie gab.
+ */
+function ftipp_basket_drop_clashes( &$games, $leagueIds ) {
+    $belegt = array();
+    foreach ( $games as $id => $g ) {
+        if ( ! in_array( $g['league'], $leagueIds, true ) || empty( $g['start'] ) ) { continue; }
+        foreach ( array( 'home', 'away' ) as $seite ) {
+            $team = isset( $g[ $seite ]['name'] ) ? $g[ $seite ]['name'] : '';
+            if ( '' === $team ) { continue; }
+            $belegt[ $g['league'] . '|' . $team . '|' . $g['start'] ][] = $id;
+        }
+    }
+    $raus = array();
+    foreach ( $belegt as $ids ) {
+        if ( count( $ids ) > 1 ) { foreach ( $ids as $id ) { $raus[ $id ] = true; } }
+    }
+    foreach ( array_keys( $raus ) as $id ) { unset( $games[ $id ] ); }
+    return count( $raus );
+}
+
 /**
  * Spielplan und Ergebnisse aller Ligen dieser Maschinerie abrufen (NHL und AFL).
  * NHL: ein Aufruf liefert eine ganze Woche und dauert nur ~0,06 s — die komplette Saison sind rund
@@ -1702,6 +1848,54 @@ function ftipp_hockey_sync( $trigger = 'cron' ) {
         }
     }
 
+    // Basketball über SportScore.com — Tag für Tag, siehe den Kommentarblock bei ftipp_basket_fetch().
+    $basketLigen = ftipp_basket_leagues();
+    $verworfen   = 0;
+    if ( $basketLigen ) {
+        $retry = get_option( 'ftipp_basket_retry', array() );
+        if ( ! is_array( $retry ) ) { $retry = array(); }
+        $plan = ftipp_basket_days( get_option( 'ftipp_basket_cursor', 0 ) );
+        update_option( 'ftipp_basket_cursor', $plan['cursor'], false );
+
+        foreach ( $basketLigen as $lid => $liga ) {
+            // Tage, die beim letzten Lauf gescheitert sind (meist HTTP 503), zuerst nachholen.
+            $offen = array();
+            foreach ( array_keys( $retry ) as $key ) {
+                if ( 0 === strpos( $key, $lid . '|' ) ) { $offen[] = substr( $key, strlen( $lid ) + 1 ); }
+            }
+            foreach ( array_unique( array_merge( $offen, $plan['days'] ) ) as $tag ) {
+                $r = ftipp_basket_fetch( $liga['slug'], $tag );
+                $out['calls']++;
+                if ( ! $r['ok'] ) {
+                    $retry[ $lid . '|' . $tag ] = true;
+                    $out['errors'][] = $liga['name'] . ' ' . $tag . ': ' . $r['error'];
+                    continue;
+                }
+                unset( $retry[ $lid . '|' . $tag ] );
+                // Alte Einträge dieses Liga-Tages verwerfen, damit abgesagte oder verlegte Spiele nicht
+                // als Karteileichen stehen bleiben (gleiche Technik wie beim Fußball-Backfill).
+                foreach ( $games as $gid => $g ) {
+                    if ( $g['league'] === $lid && isset( $g['src_date'] ) && $g['src_date'] === $tag ) {
+                        unset( $games[ $gid ] );
+                    }
+                }
+                foreach ( $r['matches'] as $m ) {
+                    $sh = ftipp_basket_shape( $m, $lid, $tag );
+                    if ( empty( $sh['start'] ) || '' === $sh['home']['name'] || '' === $sh['away']['name'] ) { continue; }
+                    $hatteErgebnis = isset( $games[ $sh['id'] ] ) && ! empty( $games[ $sh['id'] ]['final'] );
+                    $games[ $sh['id'] ] = $sh;
+                    if ( $sh['final'] && ! $hatteErgebnis ) { $resultsNew++; }
+                    $merged++;
+                }
+            }
+        }
+        update_option( 'ftipp_basket_retry', $retry, false );
+        $verworfen = ftipp_basket_drop_clashes( $games, array_keys( $basketLigen ) );
+        if ( $verworfen ) {
+            $out['errors'][] = sprintf( '%d Basketball-Partien verworfen (eine Mannschaft war laut Quelle zweimal gleichzeitig angesetzt).', $verworfen );
+        }
+    }
+
     update_option( 'ftipp_hockey_games', $games, false );
     update_option( 'ftipp_hockey_last_sync', current_time( 'mysql', true ), false );
 
@@ -1711,7 +1905,8 @@ function ftipp_hockey_sync( $trigger = 'cron' ) {
 
     ftipp_log_history(
         'manual' === $trigger ? 'nhl_manual_fetch' : 'nhl_cron_fetch',
-        "Ligen (NHL/AFL): {$merged} Spiele aktualisiert, {$resultsNew} neue Ergebnisse, {$out['calls']} Abrufe"
+        'Ligen (' . implode( '/', ftipp_hockey_league_ids() ) . "): {$merged} Spiele aktualisiert, {$resultsNew} neue Ergebnisse, {$out['calls']} Abrufe"
+            . ( $verworfen ? ", {$verworfen} widersprüchliche Partien verworfen" : '' )
             . ( $out['errors'] ? ', Fehler bei ' . count( $out['errors'] ) : '' ),
         'NHL', wp_json_encode( array( 'errors' => $out['errors'] ) ),
         'manual' === $trigger ? get_current_user_id() : null
@@ -1833,7 +2028,14 @@ function ftipp_hockey_compute_leaderboard( $round_id, $league ) {
  * Punkte und Frist fest und trägt am Saisonende den Sieger ein. */
 
 function ftipp_hockey_special_title( $league ) {
-    return ( 'NHL' === $league ) ? 'Stanley-Cup-Sieger' : ( ftipp_hockey_league_name( $league ) . '-Meister' );
+    // Wo die Liga einen eigenen Namen für den Titelgewinn hat, nehmen wir den — sonst "<Liga>-Meister".
+    $eigen = array(
+        'NHL'  => 'Stanley-Cup-Sieger',
+        'EL'   => 'EuroLeague-Sieger',
+        'WNBA' => 'WNBA-Champion',
+    );
+    if ( isset( $eigen[ $league ] ) ) { return $eigen[ $league ]; }
+    return ftipp_hockey_league_name( $league ) . '-Meister';
 }
 function ftipp_hockey_special_defaults() {
     // Eine Wette über eine ganze Saison ist deutlich mehr wert als ein einzelnes Spiel.
@@ -6183,6 +6385,11 @@ function ftipp_page_team_sport( $sport = 'ussport' ) {
             'text'   => 'Ergebnis-Tipp für die AFL (Australian Football League). Datenquelle: <a href="https://api.squiggle.com.au" target="_blank" rel="noopener">api.squiggle.com.au</a> (kostenlos, kein Key nötig — verlangt aber eine Absender-Kennung, die das Plugin automatisch mitschickt). Ein Abruf lädt die komplette Saison.',
             'hinweis'=> 'Abgerufen wird zusammen mit den übrigen Ligen dieser Maschinerie, alle 4 Stunden automatisch.',
         ),
+        'basketball' => array(
+            'titel'  => '🏀 Basketball',
+            'text'   => 'Ergebnis-Tipp für EuroLeague und Liga ACB (Spanien). Datenquelle: <a href="https://sportscore.com" target="_blank" rel="noopener">sportscore.com</a> (kostenlos, kein Key nötig) — dieselbe Quelle, die beim Fußball schon für mehrere Ligen läuft. Die WNBA hängt an derselben Mechanik, liegt aber im Bereich US-Sport.',
+            'hinweis'=> 'SportScore.com liefert immer nur einen Kalendertag pro Anfrage. Deshalb werden bei jedem Lauf die Tage von gestern bis übermorgen aufgefrischt und zusätzlich ein rotierender Ausschnitt des Vorlaufs — nach etwa einem Tag ist das komplette Fenster von vier Wochen einmal durch. Einzelne Tage antworten dort gelegentlich mit HTTP 503; die werden beim nächsten Lauf automatisch zuerst nachgeholt.',
+        ),
     );
     $m = isset( $meta[ $sport ] ) ? $meta[ $sport ] : $meta['ussport'];
 
@@ -6266,6 +6473,7 @@ function ftipp_page_team_sport( $sport = 'ussport' ) {
 }
 function ftipp_page_ussport() { ftipp_page_team_sport( 'ussport' ); }
 function ftipp_page_rugby()   { ftipp_page_team_sport( 'rugby' ); }
+function ftipp_page_basketball() { ftipp_page_team_sport( 'basketball' ); }
 function ftipp_page_sumo() {
     if ( ! current_user_can( 'manage_options' ) ) { return; }
     $lastSync = get_option( 'ftipp_sumo_last_sync' );
@@ -7034,8 +7242,10 @@ add_action( 'admin_post_ftipp_nhl_fetch', function () {
     if ( ! current_user_can( 'manage_options' ) ) { wp_die( 'Keine Berechtigung.' ); }
     check_admin_referer( 'ftipp_nhl_fetch' );
     $res = ftipp_hockey_sync( 'manual' );
-    // Zurück auf den Tab, von dem aus abgerufen wurde — sonst landet man nach dem Rugby-Abruf bei US-Sport.
-    $tab = ( 'rugby' === sanitize_key( wp_unslash( $_POST['sport'] ?? '' ) ) ) ? 'rugby' : 'nhl';
+    // Zurück auf den Tab, von dem aus abgerufen wurde — sonst landet man nach dem Rugby- oder
+    // Basketball-Abruf wieder bei US-Sport.
+    $von = sanitize_key( wp_unslash( $_POST['sport'] ?? '' ) );
+    $tab = in_array( $von, array( 'rugby', 'basketball' ), true ) ? $von : 'nhl';
     wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'tab' => $tab, 'ftipp_nhl_done' => $res['ok'] ? 'ok' : 'err' ), admin_url( 'admin.php' ) ) );
     exit;
 } );
@@ -7260,6 +7470,7 @@ function ftipp_page_sports() {
         'f1'       => array( 'label' => '🏁 Formel 1',  'cb' => 'ftipp_page_f1' ),
         'nhl'      => array( 'label' => '🏈 US-Sport',  'cb' => 'ftipp_page_ussport' ),
         'rugby'    => array( 'label' => '🏉 Rugby',     'cb' => 'ftipp_page_rugby' ),
+        'basketball' => array( 'label' => '🏀 Basketball', 'cb' => 'ftipp_page_basketball' ),
         'tennis'   => array( 'label' => '🎾 Tennis',    'cb' => 'ftipp_page_tennis' ),
         'sumo'     => array( 'label' => '🤼 Sumo',      'cb' => 'ftipp_page_sumo' ),
     );

@@ -4,11 +4,11 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.18.1
+Stable tag: 1.19.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Privates Tippspiel für deine Familie oder Freundesrunde — echtes WordPress-Login, eigene Tipprunden, automatischer Datenabruf. Fußball (19 Wettbewerbe), Formel 1, Tennis, US-Sport (NHL), Rugby (AFL) und Sumo.
+Privates Tippspiel für deine Familie oder Freundesrunde — echtes WordPress-Login, eigene Tipprunden, automatischer Datenabruf. Fußball (19 Wettbewerbe), Formel 1, Tennis, US-Sport (NHL, WNBA), Basketball (EuroLeague, Liga ACB), Rugby (AFL) und Sumo.
 
 == Description ==
 
@@ -19,12 +19,13 @@ Tippstube ist ein WordPress-Plugin für private Fußball-Tippspiele unter Famili
 * **19 Fußball-Wettbewerbe**: 1./2./3. Bundesliga, DFB-Pokal, Champions League, Europa League, Nations League, Premier League, LaLiga, Süper Lig, Serie A, Ligue 1, Frauen-Bundesliga, Regionalliga Nordost, Eredivisie, Primeira Liga, Saudi Pro League, Österreichische Bundesliga, Brasilianische Serie A
 * **Formel 1 (neu)**: Podium-Tipp — vor jedem Rennen Platz 1, 2 und 3 tippen, eigene Rangliste je Tipprunde, komplett unabhängig von Fußball aktivierbar; dazu eine Sonderwertung "Fahrer-Weltmeisterschaft" (wer wird Meister — Top 3 der Saison tippen, Punkte wie bei einem echten Rennen)
 * **Tennis (neu)**: Sieger-Tipp — wer gewinnt das Match? ATP & WTA Einzel (Hauptfeld), eine Karte je Match, ein Klick genügt; **eigene Rangliste je Turnier**, genau wie jeder Fußball-Wettbewerb seine eigene hat; dazu je Turnier eine Sonderwertung "Turniersieger"
-* **US-Sport (neu)**: NHL — Ergebnis tippen exakt wie beim Fußball, komplette Saison inklusive Playoffs, nach Spieltagen sortiert; jede Liga mit eigener Rangliste (weitere Ligen wie die DEL lassen sich ergänzen); dazu die Sonderwertung "Stanley-Cup-Sieger"
+* **US-Sport (neu)**: NHL und WNBA — Ergebnis tippen exakt wie beim Fußball, komplette Saison inklusive Playoffs, nach Spieltagen sortiert; jede Liga mit eigener Rangliste (weitere Ligen wie die DEL lassen sich ergänzen); dazu die Sonderwertung "Stanley-Cup-Sieger"
 * **Rugby (neu)**: AFL (Australian Football) — Ergebnis tippen wie beim Fußball, komplette Saison bis zum Grand Final, nach Spielrunden sortiert
-* **Sumo (neu)**: Sieger-Tipp je Kampf in der Makuuchi-Division — eigene Rangliste je Basho, dazu der Yusho-Tipp, der sich automatisch auflöst
+* **Basketball (neu)**: Ergebnis-Tipp für EuroLeague und Liga ACB (Spanien); die WNBA liegt unter US-Sport — alle drei über sportscore.com, kostenlos und ohne Key
+* **Sumo**: Sieger-Tipp je Kampf in der Makuuchi-Division — eigene Rangliste je Basho, dazu der Yusho-Tipp, der sich automatisch auflöst
 * **Punktesystem**: 1 Punkt für die richtige Tendenz, 3 Punkte fürs exakte Ergebnis, optionaler K.o.-Zusatztipp bei Pokalspielen (Fußball); bei Formel 1 Punkte für exakte Position und für richtigen Fahrer in falscher Position
 * **Zwei Ranglisten-Modi**: Freundschaftlich (geteilter Platz bei Gleichstand) oder Challenge (harter Tie-Break)
-* **Sonderwertungen** in **jeder** Sportart: die eingebaute Wertung (F1-Weltmeister, Tennis-Turniersieger, Stanley Cup, AFL-Meister, Sumo-Yusho) plus beliebig viele **selbst angelegte** — Name, Punkte, Frist und Ergebnis bestimmt der Runden-Admin
+* **Sonderwertungen** in **jeder** Sportart: die eingebaute Wertung (F1-Weltmeister, Tennis-Turniersieger, Stanley Cup, EuroLeague-Sieger, AFL-Meister, Sumo-Yusho) plus beliebig viele **selbst angelegte** — Name, Punkte, Frist und Ergebnis bestimmt der Runden-Admin
 * **Pinnwand-Chat** und **Statistik/Achievements** pro Runde
 * **E-Mail-Benachrichtigungen**: Fristen-Erinnerung, wöchentlicher Ranking-Newsletter
 
@@ -36,8 +37,9 @@ Sieben Menüpunkte unter "Tippstube" im WordPress-Adminmenü:
 * **Tippstube** (die Hauptseite) — ein Tab je Sportart:
     * *Fußball* — Datenabruf der Fußball-Wettbewerbe, API-Football-Key, CSV-Import für Wettbewerbe ohne gute kostenlose Quelle
     * *Formel 1* — eigener, von Fußball unabhängiger Datenabruf (f1api.dev, kostenlos, kein Key nötig)
-    * *US-Sport* — Datenabruf der NHL über api-web.nhle.com (kostenlos, ohne Key)
+    * *US-Sport* — Datenabruf der NHL über api-web.nhle.com und der WNBA über sportscore.com (beides kostenlos, ohne Key)
     * *Rugby* — Datenabruf der AFL über api.squiggle.com.au (kostenlos, ohne Key)
+    * *Basketball* — Datenabruf der EuroLeague und der Liga ACB über sportscore.com (kostenlos, ohne Key); abgerufen wird tageweise in einem rollenden Fenster, gescheiterte Tage werden automatisch nachgeholt
     * *Sumo* — Datenabruf über sumo-api.com (kostenlos, ohne Key); zeigt das laufende Basho, die Kampftage und den Yusho (kostenlos, kein Key); erster Abruf lädt die ganze Saison, danach nur noch die laufende Woche
     * *Tennis* — eigener Datenabruf über livetennisapi.com mit selbst eingetragenem, kostenlosem API-Key; zeigt das genutzte Tagesbudget und alle geladenen Matches
 * **Design** — Akzentfarbe, Logo und Untertitel jeder Tipprunde zentral einsehbar und bearbeitbar
@@ -76,6 +78,13 @@ Wertung kann der Runden-Admin beliebig viele eigene anlegen — etwa "Bester Spi
 Punkten, Frist und selbst eingetragenem Ergebnis.
 
 = 1.17.0 =
+Basketball ist die siebte Sportart: EuroLeague und Liga ACB im neuen Bereich Basketball, die WNBA
+unter US-Sport. Datenquelle ist sportscore.com — dieselbe, die beim Fußball schon läuft, kostenlos
+und ohne Key. NBA, EuroCup und die türkischen Ligen wurden bewusst nicht übernommen: beim EuroCup
+mischt die Quelle den Frauen-Wettbewerb mit hinein, die "Turkish Basketball First League" ist trotz
+des Namens die zweite Liga, und im NBA-Spielplan stand eine Mannschaft zweimal gleichzeitig angesetzt.
+Gegen genau solche Widersprüche filtert das Plugin jetzt auch aktiv.
+
 Sumo ist die sechste Sportart: Sieger-Tipp je Kampf in der Makuuchi-Division, eigene Rangliste je Basho
 (15 Kampftage), dazu die Sonderwertung "Yusho" auf den Turniersieger — die löst sich automatisch auf,
 sobald die Turnierdatenbank den Sieger meldet. Datenquelle sumo-api.com, kostenlos und ohne Key.

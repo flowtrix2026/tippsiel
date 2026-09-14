@@ -210,14 +210,14 @@
     <div class="hub-tile is-active" onclick="enterSport('ussport')">
       <div class="hub-tile-icon">🏈</div>
       <p class="hub-tile-name">US-Sport</p>
-      <div class="hub-tile-meta">NHL — Ergebnis tippen, komplette Saison inklusive Playoffs. NFL, NBA und MLB folgen.</div>
+      <div class="hub-tile-meta">NHL und WNBA — Ergebnis tippen, komplette Saison inklusive Playoffs. NFL und MLB folgen.</div>
       <div class="hub-tile-foot"><span class="hub-pill is-live">Aktiv</span><span style="color:var(--accent-hi)">→</span></div>
     </div>
-    <div class="hub-tile" onclick="enterSport('basketball')">
+    <div class="hub-tile is-active" onclick="enterSport('basketball')">
       <div class="hub-tile-icon">🏀</div>
       <p class="hub-tile-name">Basketball</p>
-      <div class="hub-tile-meta">NBA — Spielplan &amp; Ergebnisse, komplette Saison pro Team.</div>
-      <div class="hub-tile-foot"><span class="hub-pill is-soon">Bald verfügbar</span></div>
+      <div class="hub-tile-meta">EuroLeague und Liga ACB — Ergebnis tippen, Spieltag für Spieltag.</div>
+      <div class="hub-tile-foot"><span class="hub-pill is-live">Aktiv</span><span style="color:var(--accent-hi)">→</span></div>
     </div>
     <div class="hub-tile is-active" onclick="enterSport('rugby')">
       <div class="hub-tile-icon">🏉</div>
@@ -1915,10 +1915,11 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
 const SPORT_SHELLS = {football:'app-shell', f1:'f1-shell', tennis:'tennis-shell',
   // US-Sport und Rugby teilen sich denselben Bereich — die Mechanik (zwei Mannschaften, Ergebnis-Tipp)
   // ist identisch, nur die Ligen dahinter unterscheiden sich.
-  ussport:'team-shell', rugby:'team-shell', sumo:'sumo-shell'};
+  ussport:'team-shell', rugby:'team-shell', basketball:'team-shell', sumo:'sumo-shell'};
 const TEAM_SPORTS = {
-  ussport:{titel:'US-Sport', wechsel:'🏈', unter:'Ergebnis-Tipp: Wie geht das Spiel aus? Aktuell die NHL, weitere US-Ligen folgen.'},
-  rugby:  {titel:'Rugby',    wechsel:'🏉', unter:'Ergebnis-Tipp: Wie geht das Spiel aus? Aktuell die AFL (Australian Football League).'}
+  ussport:{titel:'US-Sport', wechsel:'🏈', unter:'Ergebnis-Tipp: Wie geht das Spiel aus? NHL und WNBA, weitere US-Ligen folgen.'},
+  rugby:  {titel:'Rugby',    wechsel:'🏉', unter:'Ergebnis-Tipp: Wie geht das Spiel aus? Aktuell die AFL (Australian Football League).'},
+  basketball:{titel:'Basketball', wechsel:'🏀', unter:'Ergebnis-Tipp: Wie geht das Spiel aus? EuroLeague und Liga ACB (Spanien).'}
 };
 /* Tipprunden sind keine Sportart, sondern gelten für alle — deshalb ein eigener Bereich neben den
    Sportarten statt eines Tabs innerhalb von Fußball. */
@@ -1958,7 +1959,16 @@ function showSportHub(){
 (function(){
   if(window.__ftippRundenBeimStart){ showRounds(); return; }
   let chosen=null; try{ chosen=localStorage.getItem('ftipp_sport'); }catch(e){}
-  if(chosen && SPORT_SHELLS[chosen]){ hideAllShells(); document.getElementById(SPORT_SHELLS[chosen]).style.display=''; }
+  if(!(chosen && SPORT_SHELLS[chosen])) return;
+  /* Den Bereich nicht nur einblenden, sondern über enterSport() auch einrichten. Wurde er bloß
+     sichtbar gemacht, zeigte der von US-Sport, Rugby und Basketball geteilte Bereich nach einem
+     Neuladen den fest im HTML stehenden US-Sport-Kopf — und schlimmer: hkSport blieb auf 'ussport',
+     es wurden also die Spiele des falschen Bereichs geladen.
+     enterSport() greift auf Funktionen aus späteren Skriptblöcken zu (switchNhlMode & Co.), deshalb
+     erst starten, wenn die Seite fertig geparst ist. */
+  const start = ()=>enterSport(chosen);
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
 })();
 </script>
 
@@ -2566,7 +2576,7 @@ function switchNhlMode(mode){
 }
 
 function nhlGuard(box){
-  if(!CONNECTED){ box.innerHTML = '<div class="card"><div class="hint">Eishockey steht nur im echten WordPress-Betrieb zur Verfügung.</div></div>'; return false; }
+  if(!CONNECTED){ box.innerHTML = '<div class="card"><div class="hint">'+esc(hkSportName())+' steht nur im echten WordPress-Betrieb zur Verfügung.</div></div>'; return false; }
   if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde — sie gilt dann gleich für alle Sportarten.</div><button style="margin-top:10px" onclick="showRounds()">👥 Zu den Tipprunden</button></div>'; return false; }
   return true;
 }
@@ -2628,13 +2638,13 @@ async function renderNhlTippen(){
 
   if(!subs.subs || !subs.subs[hkLeague]){
     const card = el(`<div class="card"><div class="hint">${esc(ftippHkName(leagues))}-Tippen ist für diese Runde noch nicht aktiviert.</div></div>`);
-    const btn = el(`<button style="margin-top:10px">🏒 ${esc(ftippHkName(leagues))} für diese Runde aktivieren</button>`);
+    const btn = el(`<button style="margin-top:10px">${hkSportIcon()} ${esc(ftippHkName(leagues))} für diese Runde aktivieren</button>`);
     btn.onclick = async ()=>{ try{ await api_post('nhl/subscribe', {round_id: currentRoundId, league: hkLeague, active:true}); renderNhlTippen(); }catch(e){ alert('Fehler: '+e.message); } };
     card.appendChild(btn); box.appendChild(card);
     return;
   }
   if(!days.length){
-    box.appendChild(el('<div class="card"><div class="hint">Noch keine Spiele geladen — der Admin muss unter Tippstube → Sportarten → Eishockey einmal „Jetzt abrufen" klicken.</div></div>'));
+    box.appendChild(el('<div class="card"><div class="hint">Noch keine Spiele geladen — der Admin muss unter Tippstube → '+esc(hkSportName())+' einmal „Jetzt abrufen" klicken.</div></div>'));
     return;
   }
 
@@ -2645,7 +2655,11 @@ async function renderNhlTippen(){
   box.appendChild(list);
   if(cfg.malusOn){ box.appendChild(el(`<div class="warnbox">⚠️ Verpasste Spiele geben <b>${cfg.malus} Punkt(e)</b> (Regel dieser Runde).</div>`)); }
 }
-function ftippHkName(leagues){ const l=(leagues||[]).find(x=>x.id===hkLeague); return l?l.name:'Eishockey'; }
+/* Name und Symbol des aktuellen Bereichs — der Bereich teilt sich mit US-Sport, Rugby und
+   Basketball dieselbe Oberfläche, deshalb darf hier nichts fest auf Eishockey stehen. */
+function hkSportName(){ const m=TEAM_SPORTS[hkSport]; return m?m.titel:'Eishockey'; }
+function hkSportIcon(){ const m=TEAM_SPORTS[hkSport]; return m?m.wechsel:'🏒'; }
+function ftippHkName(leagues){ const l=(leagues||[]).find(x=>x.id===hkLeague); return l?l.name:hkSportName(); }
 
 /* Eine Spielzeile — gleiche Struktur und dieselben CSS-Klassen wie beim Fußball. */
 function mkHkMatchRow(row, cfg){
@@ -2746,7 +2760,7 @@ async function renderNhlAuswertung(){
   row0.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderNhlAuswertung(); }));
   row0.appendChild(mkHkLeagueSelect((games&&games.leagues)||[], renderNhlAuswertung));
   box.appendChild(ctrl);
-  if(!data.rows.length){ box.appendChild(el('<div class="card"><div class="hint">Noch keine Mitspieler mit aktivem Eishockey-Tippen in dieser Runde.</div></div>')); return; }
+  if(!data.rows.length){ box.appendChild(el('<div class="card"><div class="hint">Noch keine Mitspieler mit aktivem '+esc(hkSportName())+'-Tippen in dieser Runde.</div></div>')); return; }
   const rowsHtml = data.rows.map(r=>`<tr><td class="num">${r.rank}</td><td>${esc(r.name)}</td><td class="num">${r.total}</td><td class="num">${r.exact}</td><td class="num">${r.tend}</td><td class="num">${r.special}</td><td class="num">${r.missed}</td></tr>`).join('');
   box.appendChild(el(`<div class="card"><table><thead><tr><th class="num">#</th><th>Spieler</th><th class="num">Punkte</th><th class="num">Exakt</th><th class="num">Tendenz</th><th class="num">Sonder</th><th class="num">Verpasst</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
 }
@@ -2774,7 +2788,7 @@ async function renderNhlSonder(){
   box.appendChild(ctrl);
 
   if(!subs.subs || !subs.subs[hkLeague]){
-    box.appendChild(el('<div class="card"><div class="hint">Eishockey-Tippen ist für diese Runde noch nicht aktiviert — das geht im Tab „📝 Tippen".</div></div>'));
+    box.appendChild(el('<div class="card"><div class="hint">'+esc(hkSportName())+'-Tippen ist für diese Runde noch nicht aktiviert — das geht im Tab „📝 Tippen".</div></div>'));
     return;
   }
   const teams = data.teams || [];
@@ -2882,7 +2896,7 @@ async function renderNhlEinstellungen(){
   box.appendChild(ctrl);
 
   if(!(roundById(currentRoundId)||{}).is_admin){
-    box.appendChild(el(`<div class="card"><div class="hint">Die Eishockey-Regeln legt der Runden-Admin fest.</div>`
+    box.appendChild(el(`<div class="card"><div class="hint">Die ${esc(hkSportName())}-Regeln legt der Runden-Admin fest.</div>`
       + `<div class="row" style="margin-top:8px"><span class="pill gold">${cfg.pTend} Punkte für die richtige Tendenz</span>`
       + `<span class="pill gold">${cfg.pExact} fürs exakte Ergebnis</span>`
       + `<span class="meta">Tipp-Frist ${cfg.deadlineMin} Min. vor Spielbeginn</span>`
@@ -3281,13 +3295,3 @@ function renderEigeneSonderReload(){ if(_eigeneSonderReload) _eigeneSonderReload
 </script>
 </body>
 </html>
-
-<script>
-/* Auto-Höhe für die Einbettung in WordPress (postet die Inhaltshöhe an die umgebende Seite) */
-(function(){
-  function ph(){ try{ parent.postMessage({t:'ftipp-h', h:Math.max(document.documentElement.scrollHeight, document.body.scrollHeight)}, '*'); }catch(e){} }
-  window.addEventListener('load', ph);
-  if(window.ResizeObserver){ try{ new ResizeObserver(ph).observe(document.documentElement); }catch(e){} }
-  setInterval(ph, 700);
-})();
-</script>

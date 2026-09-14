@@ -2747,6 +2747,94 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
   den Block der Plugin-Datei damit ausgeführt: Ergebnis ist genau ein Eintrag je Seite, keine Dopplung,
   keine fehlende Seite, und die Sportarten-Seite steht als erster Eintrag namens "Tippstube".
 
+## v1.19.0 — Basketball: EuroLeague, Liga ACB und WNBA
+
+- **Anfrage:** Nach dem Durchgehen mehrerer Datenquellen fiel die Wahl auf SportScore.com für
+  Basketball. Der Nutzer hat die Ligen selbst festgelegt: "NBA - zu US SPorts / WNBA - zu US SPorts /
+  EuroCup / EuroLeague / Liga ACB (Spanien) / Turkish Basketball First League" — nach der Prüfung
+  dann reduziert auf **WNBA, EuroLeague und Liga ACB**.
+
+### Was vor dem Bauen geprüft wurde (und was dabei rausflog)
+
+Jede gewünschte Liga wurde live gegen die Quelle getestet: Findet SportScore sie? Gibt es kommende
+Spiele? Kommen Ergebnisse zurück? Stimmen die Mannschaften? Ergebnis:
+
+| Liga | Ergebnis |
+|---|---|
+| EuroLeague | 30 Spiele, 20 Teams, keine Widersprüche → **drin** |
+| Liga ACB | 24 Spiele, 17 Teams, keine Widersprüche → **drin** |
+| WNBA | 11 Spiele, 14 Teams, keine Widersprüche → **drin** (Saison läuft aus, füllt sich ab Mai) |
+| NBA | 90 Spiele, 30 Teams, **1 Widerspruch** → Nutzer: "NBA holen wir uns woanders her" |
+| EuroCup | **30 Teams statt ~20** — die Quelle mischt den EuroCup Women mit hinein (u.a. Chemcats Chemnitz neben Ratiopharm Ulm) → raus |
+| Turkish Basketball First League | Trotz des Namens die **zweite** türkische Liga (Harem Spor, Balıkesir, Darüşşafaka). Die erste heißt dort `basketbol-super-ligi` → raus |
+
+- **Fehlgeschlagener Prüfversuch, offen dokumentiert:** Zuerst wurde die Heim/Auswärts-Reihenfolge
+  gegen die Match-Adresse (`url`) gegengeprüft — dabei kamen bei allen Ligen rund 50 % Abweichung
+  heraus. Der Test war unbrauchbar: die Adresse kodiert gar keine Heim/Auswärts-Reihenfolge (sie ist
+  auch nicht alphabetisch). Gegen ESPN gegenprüfen ging nicht, das antwortet von hier mit HTTP 403.
+  Belastbar blieb nur die Prüfung auf innere Widersprüche.
+
+### Umgesetzt — ohne neue Tabellen, ohne neue REST-Routen
+
+- **Drei Einträge in `ftipp_hockey_leagues()`** mit `source => 'sportscore'` und dem geprüften `slug`.
+  Die Zwei-Mannschaften-Maschinerie (ursprünglich für die NHL gebaut, inzwischen auch AFL) passt
+  unverändert: Tabellen, REST-Routen, Ranglisten, Sonderwertungen und der gemeinsame Frontend-Bereich
+  werden mitbenutzt. `sport` steuert die Hub-Kachel — WNBA nach `ussport`, EuroLeague und Liga ACB in
+  den neuen Bereich `basketball`.
+- **Neuer Hub-Bereich Basketball** (Kachel war schon als "Bald verfügbar" angelegt, jetzt aktiv) plus
+  **eigener Admin-Tab 🏀 Basketball**. Der Abruf-Knopf springt danach auf den Tab zurück, von dem aus
+  geklickt wurde — dieselbe Korrektur wie seinerzeit bei Rugby (v1.16.1).
+- **Abruf-Fenster statt Saison am Stück:** SportScore.com liefert nur einen Kalendertag pro Anfrage.
+  Deshalb `ftipp_basket_days()`: die "heißen" Tage (gestern bis übermorgen) bei jedem Lauf, dazu ein
+  rotierender Ausschnitt von 5 Tagen aus dem vierwöchigen Vorlauf. Macht 10 Anfragen pro Liga und Lauf;
+  bei 4-Stunden-Takt ist das Vorlauf-Fenster nach rund einem Tag einmal komplett durch.
+- **HTTP 503 eingeplant:** Die Quelle antwortet sporadisch mit 503 (beim Fußball seit v1.1.1 bekannt).
+  Gescheiterte Tage landen in `ftipp_basket_retry` und werden beim nächsten Lauf **zuerst** nachgeholt.
+- **`src_date` im Datensatz:** Die Quelle bucketet in UTC — unter `date=2026-10-21` kam ein Spiel mit
+  Anwurf `2026-10-22T00:00`. Ohne den Abruf-Tag im Datensatz würde das Aufräumen alter Einträge den
+  falschen Tag treffen und abgesagte Spiele als Karteileichen stehen lassen.
+- **Spiel-ID aus der Match-Adresse** (`BB-` + md5): Die Fixtures-Liste hat keine ID. Die Adresse bleibt
+  auch nach einer Verlegung gleich — live gegengeprüft, dass zwei Abrufe desselben Tages identische IDs
+  liefern. Damit bleiben abgegebene Tipps am Spiel hängen.
+- **`ftipp_basket_drop_clashes()` — Schutz gegen widersprüchliche Spielpläne:** Steht eine Mannschaft
+  laut Quelle zur selben Zeit in zwei Partien, fliegen **beide** raus. Welche die richtige ist, lässt
+  sich nicht entscheiden; ein Spiel, das gar nicht erst auftaucht, ist harmloser als eins, auf das
+  getippt wird und das es nie gab. Die Zahl steht anschließend im Verlauf.
+- **Sonderwertungen** nach dem Grundsatz oben: eingebaut je Liga (EuroLeague-Sieger, Liga-ACB-Meister,
+  WNBA-Champion) **und** frei anlegbare darunter — letzteres ohne Zutun, weil der gemeinsame Bereich
+  die Liga-Kennung schon durchreicht.
+
+### Zwei Fehler, die dabei aufgefallen sind (beide gab es schon vorher)
+
+Der gemeinsame Zwei-Mannschaften-Bereich hatte noch Texte und Verhalten aus der Zeit, als er nur für
+Eishockey gedacht war. Mit der dritten Sportart darin fiel das auf:
+
+- **Nach dem Neuladen wurde der falsche Bereich geladen.** Die Wiederherstellung der zuletzt gewählten
+  Sportart hat den Bereich nur *eingeblendet*, nicht *eingerichtet*: Kopfzeile und Untertitel blieben
+  auf dem fest im HTML stehenden US-Sport-Text, und — schwerwiegender — `hkSport` blieb auf `ussport`
+  stehen. Wer in Basketball oder Rugby war und die Seite neu lud, bekam stillschweigend die Spiele von
+  US-Sport. Behoben: die Wiederherstellung ruft jetzt `enterSport()` auf, also denselben Weg wie ein
+  Klick auf die Kachel. Der Aufruf ist bis `DOMContentLoaded` verzögert, weil `enterSport()` Funktionen
+  aus späteren Skriptblöcken braucht (derselbe Stolperstein wie seinerzeit bei `showRounds()`).
+- **Fest verdrahtete Eishockey-Texte.** Sieben Stellen im geteilten Bereich sagten „Eishockey", zeigten
+  ein 🏒 oder verwiesen auf „Tippstube → Sportarten → Eishockey" — letzteres doppelt falsch, den
+  Menüpunkt „Sportarten" gibt es seit v1.18.1 nicht mehr. Alle laufen jetzt über `hkSportName()` und
+  `hkSportIcon()` und benennen den tatsächlichen Bereich. Das war auch für US-Sport und Rugby schon
+  falsch, nur ist es niemandem aufgefallen.
+
+### Geprüft
+
+- `php -l` sauber, alle 3 Inline-Skriptblöcke des Frontends syntaktisch geprüft.
+- Isolierter Test (die echten Funktionen aus der Plugin-Datei geschnitten, nicht nachgebaut):
+  Registry, Tagesplan samt Rotation, echter Abruf gegen SportScore.com (Spielplan **und** fertiges
+  Spiel mit Ergebnis), ID-Stabilität über zwei Abrufe, Widerspruchs-Filter inklusive Gegenprobe, dass
+  er fremde Ligen nicht anfasst. Alles bestanden.
+
+### Keine Schema-Änderung
+
+`FTIPP_DB_VERSION` bleibt **21** — es kommt keine Tabelle und keine Spalte dazu. Bestehende Daten
+bleiben unberührt.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
