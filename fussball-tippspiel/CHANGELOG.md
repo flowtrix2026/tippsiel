@@ -69,6 +69,29 @@ Ergebnisse kommen **automatisch per API**.
 - **Offene K.o.-Paarungen** (Pokal/Europapokal vor der Auslosung): ein Spiel ist **erst tippbar, wenn die Paarung feststeht** (kommt automatisch beim wöchentlichen Refresh). Kein Vorab-Tippen auf Platzhalter.
 - **Kein Joker/Multiplier** — Regeln bewusst schlicht gehalten.
 
+## GRUNDSATZ: Sonderwertungen in JEDER Sportart frei anlegbar
+
+> **Gilt ab sofort für alles, was wir bauen — jede neue Sportart, jede neue Liga.**
+
+Jede Sportart bekommt im Tab **⭐ Sonderwertungen** zwei Dinge:
+
+1. **Die eingebaute Sonderwertung** der Sportart (F1: Fahrer-Weltmeisterschaft · Tennis: Turniersieger ·
+   Eishockey/US-Sport: Stanley-Cup- bzw. Liga-Meister · Rugby: AFL-Meister · Sumo: Yusho). Sie kommt
+   automatisch, weil sie zur Sportart gehört.
+2. **Beliebig viele eigene Sonderwertungen, die der Runden-Admin selbst anlegt** — genau wie beim
+   Fußball. Also z.B. "Bester Spieler / MVP", "Meiste Ausschlüsse", "Überraschung der Saison",
+   was auch immer der Runde einfällt. Mit eigenem Namen, eigenen Punkten, eigener Frist, und der
+   Runden-Admin trägt am Ende das Ergebnis ein.
+
+Technisch läuft Punkt 2 über das **bereits vorhandene Fußball-System** (`ftipp_special` /
+`ftipp_special_tips` und die `/special`-Routen). Diese Routen prüfen `comp_id` **nicht** gegen die
+Fußball-Registry — eine neue Sportart muss dort also nur ihre eigene Kennung mitgeben
+(`F1`, `TENNIS`, `NHL`, `AFL`, `SUMO`, …). Für unbekannte Kennungen legt `ftipp_default_specials()`
+keine Vorgaben an, es entstehen also keine fußballfremden Standard-Wertungen.
+
+**Checkliste bei jeder neuen Sportart:** Tab "⭐ Sonderwertungen" vorhanden → eingebaute Wertung drin →
+darunter der Bereich für eigene Sonderwertungen mit "➕ Sonderwertung hinzufügen" für den Runden-Admin.
+
 ## Sonderwertungen (pro Wettbewerb)
 - Im Backend **frei anlegbar/änderbar**, jede einzeln **auswählbar**, Punkte einstellbar (Default ~**10**).
 - Beispiele: Meister/Sieger je Wettbewerb · Torschützenkönig · **bester Passgeber (Vorlagengeber)** · Mannschaft mit den **meisten roten Karten** · weitere.
@@ -2671,6 +2694,37 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - *Noch nicht auf der echten Seite getestet:* Update einspielen (legt drei Tabellen an), unter
   Sportarten → Sumo einmal "Jetzt abrufen" und im Frontend eine Runde aktivieren. Das September-Basho
   läuft noch bis zum 27.09.
+
+## v1.18.0 — Eigene Sonderwertungen in jeder Sportart
+
+- **Anfrage:** "Kannst du ab jetzt immer, wenn wir was machen … dass man immer noch eine eigene
+  Sonderwertung … wir haben jetzt hier den AFL-Meister bei Rugby, ich möchte aber auch sagen, das wäre
+  der beste Spieler, MVP … dass ich selber noch Sachen hinzupacken kann, wie beim Fußball einfach halt.
+  Bitte schreib das in der MD-Datei."
+- **Als Grundsatz festgehalten:** Ganz oben im Journal steht jetzt der Abschnitt
+  **„GRUNDSATZ: Sonderwertungen in JEDER Sportart frei anlegbar"** samt Checkliste für jede künftige
+  Sportart. Zusätzlich als Dauerregel im Gedächtnis abgelegt, damit es auch in späteren Sitzungen gilt.
+- **Umgesetzt:** Jede Sportart hat im Tab „⭐ Sonderwertungen" jetzt zwei Bereiche — oben die eingebaute
+  Wertung der Sportart (F1-Fahrerwertung, Tennis-Turniersieger, Stanley-Cup/Liga-Meister, AFL-Meister,
+  Sumo-Yusho), darunter **„➕ Eigene Sonderwertungen"** zum Selbstanlegen: Name, Punkte, Frist, Ergebnis
+  — genau wie beim Fußball, inklusive Tippen, Abgeben, Bearbeiten und Mitspieler-Tipps nach Fristende.
+- **Ohne neue Technik:** Das läuft über das **bereits vorhandene Fußball-System** (`ftipp_special` /
+  `ftipp_special_tips` und die `/special`-Routen). Die prüfen `comp_id` nicht gegen die Fußball-Registry,
+  die Sportart gibt dort einfach ihre Kennung mit (`F1`, `TENNIS`, `NHL`, `SUMO`; bei den Zwei-Team-
+  Bereichen die jeweilige Liga, also auch `AFL`). Für unbekannte Kennungen legt `ftipp_default_specials()`
+  nichts an — es entstehen also keine fußballfremden Standard-Wertungen. Keine neue Tabelle, keine neue
+  Route, keine Schema-Änderung.
+- **Ein Baustein statt fünf Kopien:** `renderEigeneSonder(box, compId, titel)` wird von allen Sportarten
+  genutzt; jede hängt ihn am Ende ihrer Sonderwertungs-Ansicht an und meldet sich für den Neuaufbau an.
+- Lokal getestet: Script-Blöcke geprüft. Browser über alle vier Sportart-Tabs: Bereich und
+  „➕ Sonderwertung hinzufügen" überall vorhanden, der Einleitungstext nennt jeweils die richtige
+  eingebaute Wertung (Fahrer-Weltmeisterschaft / Turniersieger / Stanley-Cup-Sieger / Yusho). Kompletter
+  Durchstich bei Sumo: angelegt (`comp_id: SUMO`), in „Bester Kämpfer (MVP)" umbenannt, Punkte auf 20
+  gesetzt, eigenen Tipp eingetragen und abgegeben — jede Aktion landet einzeln beim Server. Regression
+  über alle sechs Sportarten sauber, keine Konsolenmeldung.
+- *Beim Testen aufgefallen (kein Produktfehler):* Im Test-Mock fing der generische `special?`-Zweig auch
+  `nhl/special?` ab, weil das denselben Teilstring enthält — auf dem echten Server sind das getrennte
+  REST-Routen. Nur der Mock musste umsortiert werden.
 
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).

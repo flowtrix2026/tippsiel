@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL), Rugby (AFL) und Sumo, echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version:           1.17.0
+ * Version:           1.18.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.17.0' );
+define( 'FTIPP_VERSION', '1.18.0' );
 define( 'FTIPP_DB_VERSION', '21' );
 
 /**

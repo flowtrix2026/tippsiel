@@ -2084,6 +2084,7 @@ function mkF1CfgNum(label, value, key, onSaved){
    statt eines Textfelds. */
 async function renderF1Sonder(){
   const box = document.getElementById('f1mode-f1sonder');
+  _eigeneSonderReload = renderF1Sonder;
   if(!CONNECTED){ box.innerHTML = '<div class="card"><div class="hint">Formel 1 steht nur im echten WordPress-Betrieb zur Verfügung.</div></div>'; return; }
   if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde — sie gilt dann gleich für alle Sportarten.</div><button style="margin-top:10px" onclick="showRounds()">👥 Zu den Tipprunden</button></div>'; return; }
   box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
@@ -2173,6 +2174,8 @@ async function renderF1Sonder(){
     box.appendChild(el(`<div class="card"><div class="row" style="margin-bottom:8px"><b>👀 Tipps der Mitspieler</b></div>`
       + `<table><thead><tr><th>Spieler</th><th>Platz 1</th><th>Platz 2</th><th>Platz 3</th><th class="num">Punkte</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
   }
+
+  await renderEigeneSonder(box, 'F1', 'Fahrer-Weltmeisterschaft');
 }
 
 /* Regeln für die Formel-1-Rennen dieser Tipprunde — Punkte und Tipp-Frist, wie beim Fußball-Tab
@@ -2384,6 +2387,7 @@ async function renderTennisAuswertung(){
    hier per Auswahlliste aus den Spielern des Turniers statt per Freitext. */
 async function renderTennisSonder(){
   const box = document.getElementById('temode-tesonder');
+  _eigeneSonderReload = renderTennisSonder;
   if(!tennisGuard(box)) return;
   box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
 
@@ -2482,6 +2486,8 @@ async function renderTennisSonder(){
     box.appendChild(el(`<div class="card"><div class="row" style="margin-bottom:8px"><b>👀 Tipps der Mitspieler</b></div>`
       + `<table><thead><tr><th>Spieler</th><th>Getippter Sieger</th><th class="num">Punkte</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
   }
+
+  await renderEigeneSonder(box, 'TENNIS', 'Turniersieger-Wertung');
 }
 
 /* Zahlenfeld für eine Tennis-Regel — speichert sofort, schickt nur das eine geänderte Feld. */
@@ -2748,6 +2754,7 @@ async function renderNhlAuswertung(){
 /* Sonderwertung je Liga (NHL: Stanley-Cup-Sieger) — gleicher Aufbau wie bei Fußball, F1 und Tennis. */
 async function renderNhlSonder(){
   const box = document.getElementById('nhmode-nhsonder');
+  _eigeneSonderReload = renderNhlSonder;
   if(!nhlGuard(box)) return;
   box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
 
@@ -2839,6 +2846,8 @@ async function renderNhlSonder(){
     box.appendChild(el(`<div class="card"><div class="row" style="margin-bottom:8px"><b>👀 Tipps der Mitspieler</b></div>`
       + `<table><thead><tr><th>Spieler</th><th>Getipptes Team</th><th class="num">Punkte</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
   }
+
+  await renderEigeneSonder(box, hkLeague || 'NHL', (data.title||'Meister-Wertung'));
 }
 
 function mkNhlCfgNum(label, value, key, onSaved){
@@ -3039,6 +3048,7 @@ async function renderSumoAuswertung(){
 /* Sonderwertung "Yusho" — löst sich automatisch auf, sobald die API den Turniersieger meldet. */
 async function renderSumoSonder(){
   const box = document.getElementById('sumode-susonder');
+  _eigeneSonderReload = renderSumoSonder;
   if(!sumoGuard(box)) return;
   box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
   let subs, data;
@@ -3104,6 +3114,8 @@ async function renderSumoSonder(){
     box.appendChild(el(`<div class="card"><div class="row" style="margin-bottom:8px"><b>👀 Tipps der Mitspieler</b></div>`
       + `<table><thead><tr><th>Spieler</th><th>Getippter Sieger</th><th class="num">Punkte</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`));
   }
+
+  await renderEigeneSonder(box, 'SUMO', 'Yusho-Wertung');
 }
 
 function mkSumoCfgNum(label, value, key, onSaved){
@@ -3159,6 +3171,112 @@ async function renderSumoEinstellungen(){
   card.appendChild(row2);
   box.appendChild(card);
 }
+
+/* ---------------- Eigene Sonderwertungen (alle Sportarten) ----------------
+   Grundsatz (siehe PROJEKT_JOURNAL.md): Jede Sportart hat neben ihrer eingebauten Sonderwertung auch
+   beliebig viele selbst angelegte — genau wie Fußball. Das läuft über dieselben /special-Routen; die
+   prüfen comp_id nicht gegen die Fußball-Registry, die Sportart gibt einfach ihre Kennung mit
+   ('F1', 'TENNIS', 'NHL', 'AFL', 'SUMO'). Ein Baustein für alle, statt fünf Kopien. */
+async function renderEigeneSonder(box, compId, titel){
+  const wrap = el('<div class="card"></div>');
+  wrap.appendChild(el(`<div class="row" style="margin-bottom:6px"><b>➕ Eigene Sonderwertungen</b></div>`));
+  wrap.appendChild(el(`<div class="meta">Zusätzlich zur ${esc(titel)} könnt ihr eigene Wetten anlegen — etwa „Bester Spieler", „Überraschung der Saison" oder was euch einfällt. Name, Punkte und Frist bestimmt der Runden-Admin, er trägt am Ende auch das Ergebnis ein.</div>`));
+  box.appendChild(wrap);
+
+  const liste = el('<div></div>');
+  box.appendChild(liste);
+  const round = roundById(currentRoundId) || {};
+  const isAdmin = !!round.is_admin;
+
+  let bets = [];
+  try{ const res = await api_get(`special?round=${currentRoundId}&comp=${encodeURIComponent(compId)}`); bets = res.bets||[]; }
+  catch(e){ liste.appendChild(el(`<div class="card"><div class="warnbox">Fehler: ${esc(e.message)}</div></div>`)); return; }
+
+  if(!bets.length){
+    liste.appendChild(el(`<div class="card"><div class="meta">${isAdmin?'Noch keine eigene Sonderwertung angelegt.':'Der Runden-Admin hat noch keine eigene Sonderwertung angelegt.'}</div></div>`));
+  }
+
+  bets.forEach(b=>{
+    const card = el('<div class="card"></div>');
+    if(isAdmin){
+      const r1 = el('<div class="row" style="margin-bottom:8px"></div>');
+      r1.appendChild(el('<label>Bezeichnung</label>'));
+      const lab = el(`<input type="text" value="${esc(b.label)}" style="min-width:220px">`);
+      lab.onchange = async ()=>{ try{ await api_post('special/'+b.id,{label:lab.value}); }catch(e){ alert(e.message); } };
+      r1.appendChild(lab);
+      const del = el('<button class="danger mini right">🗑️</button>');
+      del.onclick = async ()=>{ if(!confirm('Sonderwertung löschen?')) return;
+        try{ await api_del('special/'+b.id); renderEigeneSonderReload(); }catch(e){ alert(e.message); } };
+      r1.appendChild(del);
+      card.appendChild(r1);
+      const r2 = el('<div class="row"></div>');
+      r2.appendChild(el('<label>Punkte</label>'));
+      const pts = el(`<input type="number" class="score" value="${b.points}" style="width:64px">`);
+      pts.onchange = async ()=>{ try{ await api_post('special/'+b.id,{points:Math.max(0,parseInt(pts.value)||0)}); }catch(e){ alert(e.message); } };
+      r2.appendChild(pts);
+      r2.appendChild(el('<label>Frist</label>'));
+      const dl = el(`<input type="datetime-local" value="${b.deadline||''}">`);
+      dl.onchange = async ()=>{ try{ await api_post('special/'+b.id,{deadline:dl.value}); }catch(e){ alert(e.message); } };
+      r2.appendChild(dl);
+      r2.appendChild(el('<label>Ergebnis</label>'));
+      const res = el(`<input type="text" placeholder="Ergebnis eintragen" value="${esc(b.result||'')}" style="min-width:160px">`);
+      res.onchange = async ()=>{ try{ await api_post('special/'+b.id,{result:res.value}); renderEigeneSonderReload(); }catch(e){ alert(e.message); } };
+      r2.appendChild(res);
+      card.appendChild(r2);
+    } else {
+      card.appendChild(el(`<div class="row" style="margin-bottom:8px"><b>${esc(b.label)}</b>`
+        + `<span class="pill gold">${b.points} Punkte</span>`
+        + (b.deadline?`<span class="meta">Frist ${esc(fmtDate(b.deadline))}</span>`:'')
+        + (b.result?`<span class="pill gold">Ergebnis: ${esc(b.result)}</span>`:'') + `</div>`));
+    }
+
+    const gesperrt = b.locked;
+    const fix = b.my_committed && !b._editing;
+    const r3 = el('<div class="row" style="margin-top:8px;border-top:1px solid var(--line);padding-top:8px"></div>');
+    r3.appendChild(el('<label>Mein Tipp</label>'));
+    let commitBtn = null;
+    const myt = el(`<input type="text" placeholder="dein Tipp" value="${esc(b.my_value||'')}" ${(gesperrt||fix)?'disabled':''} style="min-width:200px">`);
+    myt.oninput = async ()=>{
+      try{ await api_post('special/'+b.id+'/tip',{value:myt.value}); b.my_value=myt.value;
+        if(commitBtn) commitBtn.disabled = !myt.value.trim(); }catch(e){ alert(e.message); }
+    };
+    r3.appendChild(myt);
+    if(gesperrt){
+      r3.appendChild(el('<span class="pill warn">Frist vorbei</span>'));
+    } else if(fix){
+      r3.appendChild(el('<span class="pill good">✅ abgegeben — Tipp ist fix</span>'));
+      const edit = el('<button class="mini sec right">✏️ Bearbeiten</button>');
+      edit.onclick = ()=>{ b._editing=true; renderEigeneSonderReload(); };
+      r3.appendChild(edit);
+    } else {
+      commitBtn = el(`<button class="mini right" ${b.my_value&&b.my_value.trim()?'':'disabled'}>✅ Tipp abgeben</button>`);
+      commitBtn.onclick = async ()=>{
+        try{ await api_post('special/'+b.id+'/tip/commit',{}); renderEigeneSonderReload(); }catch(e){ alert(e.message); }
+      };
+      r3.appendChild(commitBtn);
+    }
+    card.appendChild(r3);
+    if(!gesperrt){
+      card.appendChild(el('<div class="meta" style="margin-top:6px">🔒 Die Tipps der Mitspieler siehst du erst, sobald die Frist abgelaufen ist.</div>'));
+    } else if(b.others && b.others.length){
+      card.appendChild(el(`<div class="meta" style="margin-top:6px">👀 Tipps der Mitspieler: ${b.others.map(o=>`<b>${esc(o.name)}</b> ${esc(o.value)}`).join(' · ')}</div>`));
+    }
+    liste.appendChild(card);
+  });
+
+  if(isAdmin){
+    const add = el('<button style="margin-top:4px">➕ Sonderwertung hinzufügen</button>');
+    add.onclick = async ()=>{
+      const dl = new Date(Date.now()+2*86400000).toISOString().slice(0,16);
+      try{ await api_post('special',{round_id:currentRoundId, comp_id:compId, label:'Neue Sonderwertung', type:'custom', points:10, deadline:dl});
+        renderEigeneSonderReload(); }catch(e){ alert(e.message); }
+    };
+    box.appendChild(add);
+  }
+}
+/* Die jeweils offene Sonderwertungs-Ansicht neu aufbauen — welche das ist, weiß nur die Sportart. */
+let _eigeneSonderReload = null;
+function renderEigeneSonderReload(){ if(_eigeneSonderReload) _eigeneSonderReload(); }
 
 </script>
 </body>

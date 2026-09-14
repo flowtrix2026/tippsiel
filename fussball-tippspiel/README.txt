@@ -4,7 +4,7 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.17.0
+Stable tag: 1.18.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -24,7 +24,7 @@ Tippstube ist ein WordPress-Plugin für private Fußball-Tippspiele unter Famili
 * **Sumo (neu)**: Sieger-Tipp je Kampf in der Makuuchi-Division — eigene Rangliste je Basho, dazu der Yusho-Tipp, der sich automatisch auflöst
 * **Punktesystem**: 1 Punkt für die richtige Tendenz, 3 Punkte fürs exakte Ergebnis, optionaler K.o.-Zusatztipp bei Pokalspielen (Fußball); bei Formel 1 Punkte für exakte Position und für richtigen Fahrer in falscher Position
 * **Zwei Ranglisten-Modi**: Freundschaftlich (geteilter Platz bei Gleichstand) oder Challenge (harter Tie-Break)
-* **Sonderwertungen** je Wettbewerb (Meister, Torschützenkönig etc.), automatische Auflösung per Textvergleich
+* **Sonderwertungen** in **jeder** Sportart: die eingebaute Wertung (F1-Weltmeister, Tennis-Turniersieger, Stanley Cup, AFL-Meister, Sumo-Yusho) plus beliebig viele **selbst angelegte** — Name, Punkte, Frist und Ergebnis bestimmt der Runden-Admin
 * **Pinnwand-Chat** und **Statistik/Achievements** pro Runde
 * **E-Mail-Benachrichtigungen**: Fristen-Erinnerung, wöchentlicher Ranking-Newsletter
 
@@ -65,6 +65,11 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.18.0 =
+Eigene Sonderwertungen gibt es jetzt in jeder Sportart, nicht nur bei Fußball: Neben der eingebauten
+Wertung kann der Runden-Admin beliebig viele eigene anlegen — etwa "Bester Spieler / MVP" — mit Name,
+Punkten, Frist und selbst eingetragenem Ergebnis.
 
 = 1.17.0 =
 Sumo ist die sechste Sportart: Sieger-Tipp je Kampf in der Makuuchi-Division, eigene Rangliste je Basho
