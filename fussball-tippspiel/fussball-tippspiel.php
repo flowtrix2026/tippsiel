@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL), Rugby (AFL) und Sumo, echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version: 1.19.0
+ * Version: 1.20.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.19.0' );
+define( 'FTIPP_VERSION', '1.20.0' );
 define( 'FTIPP_DB_VERSION', '21' );
 
 /**
@@ -898,21 +898,43 @@ function ftipp_sportscore_map() {
 // Rückstands-Abruf dafür entsprechend mehr Cron-Läufe (auf "Jetzt abrufen" mehrfach hintereinander
 // klicken beschleunigt das bei Bedarf).
 if ( ! defined( 'FTIPP_SPORTSCORE_BACKFILL_BATCH' ) ) { define( 'FTIPP_SPORTSCORE_BACKFILL_BATCH', 12 ); }
+// Versuche je Kalendertag und hartes Zeitlimit je Wettbewerb und Lauf. Beides zusammen ersetzt die
+// frühere Rechnung "12 Tage = 12 Anfragen": jetzt entscheidet die Uhr, wie viele Tage ein Lauf schafft.
+// Vorher war die Laufzeit sogar unbegrenzt (12 Anfragen x bis zu 15 s Zeitüberschreitung).
+if ( ! defined( 'FTIPP_SPORTSCORE_TRIES' ) )        { define( 'FTIPP_SPORTSCORE_TRIES', 4 ); }
+if ( ! defined( 'FTIPP_SPORTSCORE_TIME_BUDGET' ) )  { define( 'FTIPP_SPORTSCORE_TIME_BUDGET', 10 ); }
 
-/** Ein einzelner Kalendertag für einen SportScore.com-Wettbewerb, gratis, ohne Key. */
-function ftipp_fetch_sportscore_day( $slug, $date ) {
+/**
+ * Ein einzelner Kalendertag für einen SportScore.com-Wettbewerb, gratis, ohne Key.
+ * Wiederholt bei Fehlschlag: die Quelle weist live gemessen rund 75-80 % aller Anfragen mit HTTP 503 ab
+ * (siehe Journal v1.20.0). Mit nur einem Versuch pro Tag kroch der Saison-Nachlauf entsprechend langsam.
+ * $deadline (Zeitstempel aus microtime) deckelt die Gesamtdauer hart — ohne das könnten die
+ * Wiederholungen die bisher sicher gehaltene Laufzeit sprengen.
+ */
+function ftipp_fetch_sportscore_day( $slug, $date, $deadline = 0 ) {
     $url = add_query_arg(
         array( 'sport' => 'football', 'date' => $date, 'competition' => $slug, 'limit' => 200 ),
         'https://sportscore.com/api/v1/fixtures/'
     );
-    $resp = wp_remote_get( $url, array( 'timeout' => 15 ) );
-    if ( is_wp_error( $resp ) ) { return array( 'ok' => false, 'error' => $resp->get_error_message(), 'matches' => array() ); }
-    $code = (int) wp_remote_retrieve_response_code( $resp );
-    $body = json_decode( wp_remote_retrieve_body( $resp ), true );
-    if ( 200 !== $code || ! isset( $body['matches'] ) || ! is_array( $body['matches'] ) ) {
-        return array( 'ok' => false, 'error' => 'HTTP ' . $code, 'matches' => array() );
+    $letzter = 'kein Versuch';
+    for ( $v = 1; $v <= FTIPP_SPORTSCORE_TRIES; $v++ ) {
+        if ( $deadline && microtime( true ) >= $deadline ) {
+            return array( 'ok' => false, 'error' => $letzter . ' (Zeitlimit)', 'matches' => array() );
+        }
+        $resp = wp_remote_get( $url, array( 'timeout' => 15 ) );
+        if ( is_wp_error( $resp ) ) {
+            $letzter = $resp->get_error_message();
+        } else {
+            $code = (int) wp_remote_retrieve_response_code( $resp );
+            $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+            if ( 200 === $code && isset( $body['matches'] ) && is_array( $body['matches'] ) ) {
+                return array( 'ok' => true, 'error' => '', 'matches' => $body['matches'] );
+            }
+            $letzter = 'HTTP ' . $code;
+        }
+        if ( $v < FTIPP_SPORTSCORE_TRIES ) { usleep( 400000 ); }
     }
-    return array( 'ok' => true, 'error' => '', 'matches' => $body['matches'] );
+    return array( 'ok' => false, 'error' => $letzter, 'matches' => array() );
 }
 
 /**
@@ -980,8 +1002,15 @@ function ftipp_sportscore_sync( $cid, $slug, $season_start_year ) {
     $datesToFetch = array_merge( $retryDates, $newDates );
 
     $failCount = 0; $lastError = '';
+    $deadline  = microtime( true ) + FTIPP_SPORTSCORE_TIME_BUDGET;
     foreach ( $datesToFetch as $date ) {
-        $r = ftipp_fetch_sportscore_day( $slug, $date );
+        if ( microtime( true ) >= $deadline ) {
+            // Zeit für diesen Wettbewerb alle — die restlichen Tage kommen in die Retry-Liste und
+            // werden beim nächsten Lauf zuerst geholt. Der Fortschritts-Zeiger bleibt korrekt.
+            $cache['failed_dates'][ $date ] = true;
+            continue;
+        }
+        $r = ftipp_fetch_sportscore_day( $slug, $date, $deadline );
         if ( ! $r['ok'] ) {
             // Einzelner Tag scheitert nicht den ganzen Sync — kommt (falls noch nicht drin) in die
             // Retry-Liste und wird beim nächsten Sync automatisch zuerst erneut versucht. Mitzählen, damit
@@ -1471,22 +1500,25 @@ function ftipp_f1_compute_leaderboard( $round_id ) {
  */
 function ftipp_hockey_leagues() {
     return array(
-        'NHL' => array( 'name' => 'NHL', 'sport' => 'ussport', 'region' => 'Nordamerika', 'source' => 'nhle' ),
-        'AFL' => array( 'name' => 'AFL', 'sport' => 'rugby',   'region' => 'Australien',   'source' => 'squiggle' ),
+        'NHL' => array( 'name' => 'NHL', 'sport' => 'ussport', 'region' => 'Nordamerika', 'source' => 'nhle', 'einheit' => 'Tore' ),
+        'AFL' => array( 'name' => 'AFL', 'sport' => 'rugby',   'region' => 'Australien',   'source' => 'squiggle', 'einheit' => 'Punkte' ),
         // Basketball über SportScore.com — dieselbe Quelle, die beim Fußball schon läuft, nur mit
         // sport=basketball. Der 'slug' ist der Liganame bei SportScore, klein und mit Bindestrichen;
         // er ist NICHT frei wählbar, sondern live gegengeprüft (siehe Journal v1.19.0).
+        // 'comp' ist der Wettbewerbsname, wie SportScore.com ihn im Datensatz mitschickt — exakt so,
+        // inklusive Akzent. Danach wird in PHP sortiert; die Quelle wird pro Kalendertag nur EINMAL
+        // gefragt (siehe ftipp_basket_fetch_day), nicht einmal pro Liga.
         'WNBA' => array(
             'name' => 'WNBA', 'sport' => 'ussport', 'region' => 'Nordamerika',
-            'source' => 'sportscore', 'slug' => 'womens-national-basketball-association',
+            'source' => 'sportscore', 'comp' => "Women's National Basketball Association",
         ),
         'EL' => array(
             'name' => 'EuroLeague', 'sport' => 'basketball', 'region' => 'Europa',
-            'source' => 'sportscore', 'slug' => 'euroleague',
+            'source' => 'sportscore', 'comp' => 'EuroLeague',
         ),
         'ACB' => array(
             'name' => 'Liga ACB', 'sport' => 'basketball', 'region' => 'Spanien',
-            'source' => 'sportscore', 'slug' => 'liga-asociacion-de-clubs-de-baloncesto',
+            'source' => 'sportscore', 'comp' => 'Liga Asociación de Clubs de Baloncesto',
         ),
     );
 }
@@ -1644,7 +1676,14 @@ function ftipp_afl_season() {
 if ( ! defined( 'FTIPP_BASKET_HOT_BACK' ) )     { define( 'FTIPP_BASKET_HOT_BACK', 2 ); }
 if ( ! defined( 'FTIPP_BASKET_HOT_FWD' ) )      { define( 'FTIPP_BASKET_HOT_FWD', 2 ); }
 if ( ! defined( 'FTIPP_BASKET_COLD_DAYS' ) )    { define( 'FTIPP_BASKET_COLD_DAYS', 28 ); }
-if ( ! defined( 'FTIPP_BASKET_COLD_PER_RUN' ) ) { define( 'FTIPP_BASKET_COLD_PER_RUN', 5 ); }
+if ( ! defined( 'FTIPP_BASKET_DAYS_PER_RUN' ) ) { define( 'FTIPP_BASKET_DAYS_PER_RUN', 12 ); }
+// Live gemessen (14.09.2026): sportscore.com weist rund 75-80 % aller Anfragen mit HTTP 503 ab — egal
+// ob mit oder ohne Liga-Filter, egal wie langsam man fragt. Ein einziger Versuch pro Tag holt deshalb
+// so gut wie nichts. Mit Wiederholungen lagen 6 Tage in 16 Sekunden vollständig vor, kein Tag ging
+// verloren. Das Zeitlimit sorgt dafür, dass ein Klick auf "Jetzt abrufen" nie ins PHP-Zeitlimit läuft;
+// was nicht mehr reinpasst, wird beim nächsten Lauf zuerst nachgeholt.
+if ( ! defined( 'FTIPP_BASKET_TRIES' ) )       { define( 'FTIPP_BASKET_TRIES', 8 ); }
+if ( ! defined( 'FTIPP_BASKET_TIME_BUDGET' ) ) { define( 'FTIPP_BASKET_TIME_BUDGET', 15 ); }
 
 /** Alle Ligen dieser Maschinerie, die von SportScore.com kommen. */
 function ftipp_basket_leagues() {
@@ -1655,22 +1694,45 @@ function ftipp_basket_leagues() {
     return $out;
 }
 
-/** Ein einzelner Kalendertag einer Basketball-Liga, gratis, ohne Key. */
-function ftipp_basket_fetch( $slug, $date ) {
+/**
+ * Ein kompletter Basketball-Kalendertag (alle Wettbewerbe weltweit), gratis, ohne Key.
+ * Bewusst OHNE Wettbewerbs-Filter: die Quelle wird so pro Tag nur einmal gefragt statt einmal je Liga,
+ * und jede weitere Basketball-Liga kostet später keinen einzigen zusätzlichen Abruf.
+ * Wird bis zu FTIPP_BASKET_TRIES mal wiederholt, weil die Quelle die meisten Anfragen mit 503 abweist.
+ */
+function ftipp_basket_fetch_day( $date, $deadline = 0 ) {
     $url = add_query_arg(
-        array( 'sport' => 'basketball', 'date' => $date, 'competition' => $slug, 'limit' => 300 ),
+        array( 'sport' => 'basketball', 'date' => $date, 'limit' => 300 ),
         'https://sportscore.com/api/v1/fixtures/'
     );
-    $resp = wp_remote_get( $url, array( 'timeout' => 15 ) );
-    if ( is_wp_error( $resp ) ) { return array( 'ok' => false, 'error' => $resp->get_error_message(), 'matches' => array() ); }
-    $code = (int) wp_remote_retrieve_response_code( $resp );
-    $body = json_decode( wp_remote_retrieve_body( $resp ), true );
-    // Live beobachtet: SportScore.com antwortet immer wieder mit HTTP 503. Kein Fehler unsererseits —
-    // der Tag wandert in die Retry-Liste und wird beim nächsten Lauf zuerst erneut versucht.
-    if ( 200 !== $code || ! isset( $body['matches'] ) || ! is_array( $body['matches'] ) ) {
-        return array( 'ok' => false, 'error' => 'HTTP ' . $code, 'matches' => array() );
+    $letzter = 'kein Versuch';
+    for ( $v = 1; $v <= FTIPP_BASKET_TRIES; $v++ ) {
+        if ( $deadline && microtime( true ) >= $deadline ) {
+            return array( 'ok' => false, 'error' => $letzter . ' (Zeitlimit)', 'matches' => array(), 'tries' => $v - 1 );
+        }
+        $resp = wp_remote_get( $url, array( 'timeout' => 15 ) );
+        if ( is_wp_error( $resp ) ) {
+            $letzter = $resp->get_error_message();
+        } else {
+            $code = (int) wp_remote_retrieve_response_code( $resp );
+            $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+            if ( 200 === $code && isset( $body['matches'] ) && is_array( $body['matches'] ) ) {
+                return array( 'ok' => true, 'error' => '', 'matches' => $body['matches'], 'tries' => $v );
+            }
+            $letzter = 'HTTP ' . $code;
+        }
+        if ( $v < FTIPP_BASKET_TRIES ) { usleep( 400000 ); }
     }
-    return array( 'ok' => true, 'error' => '', 'matches' => $body['matches'] );
+    return array( 'ok' => false, 'error' => $letzter, 'matches' => array(), 'tries' => FTIPP_BASKET_TRIES );
+}
+
+/** Wettbewerbsname der Quelle => unsere Liga-Kennung. */
+function ftipp_basket_comp_map() {
+    $out = array();
+    foreach ( ftipp_basket_leagues() as $id => $l ) {
+        if ( ! empty( $l['comp'] ) ) { $out[ $l['comp'] ] = $id; }
+    }
+    return $out;
 }
 
 /**
@@ -1715,24 +1777,37 @@ function ftipp_basket_shape( $m, $leagueId, $srcDate = '' ) {
 }
 
 /**
- * Welche Kalendertage dieser Lauf abholt: die heißen Tage immer, dazu ein rotierender Ausschnitt des
- * Vorlaufs. $cursor wird hochgezählt zurückgegeben, damit beim nächsten Lauf der nächste Ausschnitt dran ist.
+ * Welche Kalendertage dieser Lauf abholt. Zwei Quellen, bewusst nach dem Vorbild des Fußball-Backfills
+ * (ftipp_sportscore_sync) statt eines festen "heißen Fensters":
+ *   1. Tage, an denen wir ein Spiel OHNE Ergebnis kennen, dessen Anwurf schon vorbei ist — nur so
+ *      kommen Ergebnisse rein. Ein durchgespielter Tag wird dadurch nie wieder angefragt.
+ *   2. Neue Tage ab dem Fortschritts-Zeiger, bis das Vorlauf-Fenster einmal durch ist.
+ * Der erste Entwurf frischte stattdessen stur "gestern bis übermorgen" auf. Das verbrannte bei jedem
+ * Lauf über die Hälfte der Zeit auf Tagen, an denen unsere Ligen gar nicht spielen.
  */
-function ftipp_basket_days( $cursor ) {
-    $heute = time();
-    $hot   = array();
-    for ( $i = -FTIPP_BASKET_HOT_BACK; $i <= FTIPP_BASKET_HOT_FWD; $i++ ) {
-        $hot[] = gmdate( 'Y-m-d', $heute + $i * DAY_IN_SECONDS );
+function ftipp_basket_plan( $games, $ligaIds ) {
+    $jetzt = time();
+    $ende  = gmdate( 'Y-m-d', $jetzt + FTIPP_BASKET_COLD_DAYS * DAY_IN_SECONDS );
+
+    $nachtragen = array();
+    foreach ( $games as $g ) {
+        if ( ! in_array( $g['league'], $ligaIds, true ) || ! empty( $g['final'] ) || empty( $g['src_date'] ) ) { continue; }
+        if ( ! empty( $g['start'] ) && strtotime( $g['start'] ) > $jetzt ) { continue; }
+        $nachtragen[ $g['src_date'] ] = true;
     }
-    $cold = array();
-    for ( $i = 0; $i < FTIPP_BASKET_COLD_DAYS; $i++ ) {
-        $cold[] = gmdate( 'Y-m-d', $heute + ( FTIPP_BASKET_HOT_FWD + 1 + $i ) * DAY_IN_SECONDS );
+
+    $start  = gmdate( 'Y-m-d', $jetzt - FTIPP_BASKET_HOT_BACK * DAY_IN_SECONDS );
+    $cursor = (string) get_option( 'ftipp_basket_cursor', '' );
+    if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $cursor ) || strtotime( $cursor ) < strtotime( $start ) ) {
+        $cursor = $start;
     }
-    $anzahl = max( 1, min( FTIPP_BASKET_COLD_PER_RUN, count( $cold ) ) );
-    $start  = ( intval( $cursor ) * $anzahl ) % count( $cold );
-    $teil   = array();
-    for ( $i = 0; $i < $anzahl; $i++ ) { $teil[] = $cold[ ( $start + $i ) % count( $cold ) ]; }
-    return array( 'days' => array_values( array_unique( array_merge( $hot, $teil ) ) ), 'cursor' => intval( $cursor ) + 1 );
+    $neu = array();
+    $d   = $cursor;
+    for ( $i = 0; $i < FTIPP_BASKET_DAYS_PER_RUN && strtotime( $d ) <= strtotime( $ende ); $i++ ) {
+        $neu[] = $d;
+        $d = gmdate( 'Y-m-d', strtotime( $d . ' +1 day' ) );
+    }
+    return array( 'nachtragen' => array_keys( $nachtragen ), 'neu' => $neu, 'cursor' => $d );
 }
 
 /**
@@ -1848,49 +1923,59 @@ function ftipp_hockey_sync( $trigger = 'cron' ) {
         }
     }
 
-    // Basketball über SportScore.com — Tag für Tag, siehe den Kommentarblock bei ftipp_basket_fetch().
+    // Basketball über SportScore.com — ein Abruf je Kalendertag für alle Ligen zusammen,
+    // siehe die Kommentarblöcke bei ftipp_basket_fetch_day() und ftipp_basket_plan().
     $basketLigen = ftipp_basket_leagues();
     $verworfen   = 0;
     if ( $basketLigen ) {
+        $compMap  = ftipp_basket_comp_map();
+        $ligaIds  = array_keys( $basketLigen );
+        $deadline = microtime( true ) + FTIPP_BASKET_TIME_BUDGET;
+
         $retry = get_option( 'ftipp_basket_retry', array() );
         if ( ! is_array( $retry ) ) { $retry = array(); }
-        $plan = ftipp_basket_days( get_option( 'ftipp_basket_cursor', 0 ) );
+        $plan = ftipp_basket_plan( $games, $ligaIds );
+        // Der Zeiger rückt IMMER weiter, auch wenn Tage scheitern — die kommen in die Retry-Liste und
+        // werden beim nächsten Lauf zuerst geholt (gleiche Technik wie beim Fußball-Backfill).
         update_option( 'ftipp_basket_cursor', $plan['cursor'], false );
 
-        foreach ( $basketLigen as $lid => $liga ) {
-            // Tage, die beim letzten Lauf gescheitert sind (meist HTTP 503), zuerst nachholen.
-            $offen = array();
-            foreach ( array_keys( $retry ) as $key ) {
-                if ( 0 === strpos( $key, $lid . '|' ) ) { $offen[] = substr( $key, strlen( $lid ) + 1 ); }
+        $tage = array_values( array_unique( array_merge( array_keys( $retry ), $plan['nachtragen'], $plan['neu'] ) ) );
+        foreach ( $tage as $nr => $tag ) {
+            if ( microtime( true ) >= $deadline ) {
+                foreach ( array_slice( $tage, $nr ) as $rest ) { $retry[ $rest ] = true; }
+                $out['errors'][] = sprintf( 'Basketball: Zeitlimit erreicht, %d Tage auf den nächsten Lauf verschoben.', count( $tage ) - $nr );
+                break;
             }
-            foreach ( array_unique( array_merge( $offen, $plan['days'] ) ) as $tag ) {
-                $r = ftipp_basket_fetch( $liga['slug'], $tag );
-                $out['calls']++;
-                if ( ! $r['ok'] ) {
-                    $retry[ $lid . '|' . $tag ] = true;
-                    $out['errors'][] = $liga['name'] . ' ' . $tag . ': ' . $r['error'];
-                    continue;
+            $r = ftipp_basket_fetch_day( $tag, $deadline );
+            $out['calls'] += max( 1, intval( isset( $r['tries'] ) ? $r['tries'] : 1 ) );
+            if ( ! $r['ok'] ) {
+                $retry[ $tag ] = true;
+                $out['errors'][] = 'Basketball ' . $tag . ': ' . $r['error'];
+                continue;
+            }
+            unset( $retry[ $tag ] );
+            // Alte Einträge dieses Tages verwerfen, damit abgesagte oder verlegte Spiele nicht als
+            // Karteileichen stehen bleiben.
+            foreach ( $games as $gid => $g ) {
+                if ( in_array( $g['league'], $ligaIds, true ) && isset( $g['src_date'] ) && $g['src_date'] === $tag ) {
+                    unset( $games[ $gid ] );
                 }
-                unset( $retry[ $lid . '|' . $tag ] );
-                // Alte Einträge dieses Liga-Tages verwerfen, damit abgesagte oder verlegte Spiele nicht
-                // als Karteileichen stehen bleiben (gleiche Technik wie beim Fußball-Backfill).
-                foreach ( $games as $gid => $g ) {
-                    if ( $g['league'] === $lid && isset( $g['src_date'] ) && $g['src_date'] === $tag ) {
-                        unset( $games[ $gid ] );
-                    }
-                }
-                foreach ( $r['matches'] as $m ) {
-                    $sh = ftipp_basket_shape( $m, $lid, $tag );
-                    if ( empty( $sh['start'] ) || '' === $sh['home']['name'] || '' === $sh['away']['name'] ) { continue; }
-                    $hatteErgebnis = isset( $games[ $sh['id'] ] ) && ! empty( $games[ $sh['id'] ]['final'] );
-                    $games[ $sh['id'] ] = $sh;
-                    if ( $sh['final'] && ! $hatteErgebnis ) { $resultsNew++; }
-                    $merged++;
-                }
+            }
+            foreach ( $r['matches'] as $m ) {
+                $comp = isset( $m['competition'] ) ? (string) $m['competition'] : '';
+                if ( ! isset( $compMap[ $comp ] ) ) { continue; }   // fremde Liga, interessiert uns nicht
+                $sh = ftipp_basket_shape( $m, $compMap[ $comp ], $tag );
+                if ( empty( $sh['start'] ) || '' === $sh['home']['name'] || '' === $sh['away']['name'] ) { continue; }
+                $hatteErgebnis = isset( $games[ $sh['id'] ] ) && ! empty( $games[ $sh['id'] ]['final'] );
+                $games[ $sh['id'] ] = $sh;
+                if ( $sh['final'] && ! $hatteErgebnis ) { $resultsNew++; }
+                $merged++;
             }
         }
+        // Die Retry-Liste deckeln, damit sie bei längerem Serverausfall nicht unbegrenzt wächst.
+        if ( count( $retry ) > 60 ) { $retry = array_slice( $retry, 0, 60, true ); }
         update_option( 'ftipp_basket_retry', $retry, false );
-        $verworfen = ftipp_basket_drop_clashes( $games, array_keys( $basketLigen ) );
+        $verworfen = ftipp_basket_drop_clashes( $games, $ligaIds );
         if ( $verworfen ) {
             $out['errors'][] = sprintf( '%d Basketball-Partien verworfen (eine Mannschaft war laut Quelle zweimal gleichzeitig angesetzt).', $verworfen );
         }
@@ -1922,6 +2007,61 @@ function ftipp_hockey_games( $league ) {
     $out = array();
     foreach ( $all as $id => $g ) { if ( $g['league'] === $league ) { $out[ $id ] = $g; } }
     return $out;
+}
+
+/**
+ * Tabelle einer Liga, berechnet aus den Spielen, die wir tatsächlich geladen haben.
+ * Bewusst KEINE offizielle Tabelle: Ligen, deren Spielplan nur in einem rollenden Fenster vorliegt
+ * (alles über SportScore.com), kennen wir nicht von Saisonbeginn an. Deshalb gibt die Funktion immer
+ * mit zurück, aus wie vielen gewerteten Spielen sie stammt — die Oberfläche schreibt das dazu, damit
+ * niemand sie für den amtlichen Stand hält.
+ * Unentschieden gibt es in keiner dieser Ligen (Eishockey entscheidet in der Verlängerung), ein
+ * Gleichstand wird deshalb nicht als eigene Spalte geführt, sondern schlicht nicht gewertet.
+ */
+function ftipp_hockey_table( $league ) {
+    $zeilen = array();
+    $gewertet = 0;
+    $anlegen = function ( &$z, $name ) {
+        if ( ! isset( $z[ $name ] ) ) {
+            $z[ $name ] = array( 'team' => $name, 'sp' => 0, 'siege' => 0, 'nied' => 0, 'pf' => 0, 'pa' => 0, 'diff' => 0 );
+        }
+    };
+    foreach ( ftipp_hockey_games( $league ) as $g ) {
+        if ( empty( $g['final'] ) ) { continue; }
+        $h = isset( $g['home']['name'] ) ? $g['home']['name'] : '';
+        $a = isset( $g['away']['name'] ) ? $g['away']['name'] : '';
+        $hs = isset( $g['home']['score'] ) ? $g['home']['score'] : null;
+        $as = isset( $g['away']['score'] ) ? $g['away']['score'] : null;
+        if ( '' === $h || '' === $a || null === $hs || null === $as ) { continue; }
+        $hs = intval( $hs ); $as = intval( $as );
+        if ( $hs === $as ) { continue; }
+        $anlegen( $zeilen, $h ); $anlegen( $zeilen, $a );
+        $gewertet++;
+        $zeilen[ $h ]['sp']++; $zeilen[ $a ]['sp']++;
+        $zeilen[ $h ]['pf'] += $hs; $zeilen[ $h ]['pa'] += $as;
+        $zeilen[ $a ]['pf'] += $as; $zeilen[ $a ]['pa'] += $hs;
+        if ( $hs > $as ) { $zeilen[ $h ]['siege']++; $zeilen[ $a ]['nied']++; }
+        else             { $zeilen[ $a ]['siege']++; $zeilen[ $h ]['nied']++; }
+    }
+    foreach ( $zeilen as $k => $z ) { $zeilen[ $k ]['diff'] = $z['pf'] - $z['pa']; }
+    $zeilen = array_values( $zeilen );
+    usort( $zeilen, function ( $x, $y ) {
+        // Siegquote zuerst — sonst stünde ein Team mit mehr absolvierten Spielen automatisch vorn.
+        $qx = $x['sp'] ? $x['siege'] / $x['sp'] : 0;
+        $qy = $y['sp'] ? $y['siege'] / $y['sp'] : 0;
+        if ( $qx !== $qy ) { return $qy <=> $qx; }
+        if ( $x['siege'] !== $y['siege'] ) { return $y['siege'] <=> $x['siege']; }
+        if ( $x['diff'] !== $y['diff'] ) { return $y['diff'] <=> $x['diff']; }
+        return strcmp( $x['team'], $y['team'] );
+    } );
+    $all = ftipp_hockey_leagues();
+    return array(
+        'league'   => $league,
+        'name'     => ftipp_hockey_league_name( $league ),
+        'einheit'  => isset( $all[ $league ]['einheit'] ) ? $all[ $league ]['einheit'] : 'Punkte',
+        'gewertet' => $gewertet,
+        'rows'     => $zeilen,
+    );
 }
 
 function ftipp_hockey_default_cfg() {
@@ -4683,6 +4823,16 @@ add_action( 'rest_api_init', function () {
                     array_keys( ftipp_hockey_leagues_of( $sport ) )
                 ) ),
             );
+        },
+    ) );
+    register_rest_route( 'ftipp/v1', '/nhl/table', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            $uid = get_current_user_id(); $rid = intval( $req->get_param( 'round' ) );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            $sport  = sanitize_key( (string) ( $req->get_param( 'sport' ) ?: 'ussport' ) );
+            $league = ftipp_hockey_valid_league( $req->get_param( 'league' ), $sport );
+            return ftipp_hockey_table( $league );
         },
     ) );
     register_rest_route( 'ftipp/v1', '/nhl/tips', array(

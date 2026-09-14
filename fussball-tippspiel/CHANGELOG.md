@@ -2835,6 +2835,95 @@ Eishockey gedacht war. Mit der dritten Sportart darin fiel das auf:
 `FTIPP_DB_VERSION` bleibt **21** — es kommt keine Tabelle und keine Spalte dazu. Bestehende Daten
 bleiben unberührt.
 
+## v1.20.0 — Basketball-Abruf repariert, Tabelle für alle Zwei-Mannschaften-Sportarten
+
+- **Meldung:** Nach dem Einspielen von v1.19.0 meldete der Adminbereich „Abruf abgeschlossen", zeigte
+  aber **0 Spiele**. Die WNBA kam durch, EuroLeague und Liga ACB nicht. Dazu die Beobachtung des
+  Nutzers: „hier ist auch keine Tabelle".
+
+### Ursache: die Quelle weist die meisten Anfragen ab
+
+Live gemessen am 14.09.2026 gegen sportscore.com, 24 Einzelversuche auf denselben Tag:
+**19 von 24 mit HTTP 503 abgewiesen — 79 % Fehlerquote.** Gegenproben: ohne Liga-Filter 25 % Erfolg,
+mit 2 Sekunden Pause 17 %, mit Liga-Filter und Pause 33 %. Es liegt also weder am Filter noch am Takt,
+die Quelle ist schlicht überlastet.
+
+Der Abruf machte **einen einzigen Versuch pro Kalendertag**. Dass die WNBA trotzdem ankam, war Zufall:
+ihre Saison läuft gerade, sie hat an vielen Tagen Spiele. EuroLeague (Start 25.09.) und Liga ACB
+(Start 03.10.) hatten im abgerufenen Fenster **je genau einen Tag mit Spielen** — und ausgerechnet der
+kassierte den 503.
+
+### Drei Änderungen
+
+1. **Wiederholen statt aufgeben.** Bis zu 8 Versuche je Tag mit 0,4 s Pause, gedeckelt durch ein hartes
+   Zeitlimit von 15 Sekunden, damit ein Klick auf „Jetzt abrufen" nie ins PHP-Zeitlimit läuft. Was nicht
+   mehr hineinpasst, kommt in die Retry-Liste und wird beim nächsten Lauf zuerst geholt.
+2. **Ein Abruf je Kalendertag statt einer je Liga.** Der Wettbewerbs-Filter der Quelle wird nicht mehr
+   benutzt; stattdessen wird der ganze Basketball-Tag geholt und in PHP nach `competition` sortiert
+   (`ftipp_basket_comp_map()`). Ein Drittel der Anfragen — und jede weitere Basketball-Liga kostet
+   künftig **null** zusätzliche Abrufe.
+3. **Fortschritts-Zeiger statt festem „heißen Fenster".** Der erste Entwurf frischte stur „gestern bis
+   übermorgen" auf und verbrannte damit über die Hälfte der Zeit auf Tagen, an denen unsere Ligen gar
+   nicht spielen. Jetzt wie beim Fußball-Backfill: einmal sequenziell durchs Vorlauf-Fenster, danach nur
+   noch Tage, an denen ein Spiel **ohne Ergebnis** liegt, dessen Anwurf vorbei ist. Ein durchgespielter
+   Tag wird nie wieder angefragt.
+
+**Nachgemessen, fünf Läufe hintereinander gegen die echte Quelle:**
+
+| Lauf | Dauer | Tage | Anfragen | Bestand danach |
+|---|---|---|---|---|
+| 1 | 15,3 s | 9 | 27 | 10 (WNBA) |
+| 2 | 15,3 s | 8 | 26 | 34 (EL 10, WNBA 24) |
+| 3 | 15,5 s | 8 | 26 | 66 (ACB 12, EL 30, WNBA 24) |
+| 4 | 14,1 s | 9 | 25 | **91** (ACB 27, EL 40, WNBA 24) |
+| 5 | 0,0 s | 0 | **0** | 91 — nichts mehr offen |
+
+Nach vier Läufen ist das Fenster durch; danach kostet der Abruf nichts mehr, bis neue Ergebnisse
+anstehen oder das Fenster weiterrückt.
+
+### Derselbe Fix für den Fußball
+
+Acht Fußball-Wettbewerbe (Serie A, Ligue 1, Eredivisie, Süper Lig, Primeira Liga, Saudi, Österreich,
+Brasilien) hängen an **derselben Quelle** und machten ebenfalls nur einen Versuch pro Tag — bei 79 %
+Abweisung kroch der Saison-Nachlauf entsprechend. `ftipp_fetch_sportscore_day()` wiederholt jetzt bis zu
+4-mal, begrenzt durch ein Zeitlimit von 10 Sekunden je Wettbewerb und Lauf. **Das macht die Laufzeit
+sogar sicherer als vorher:** bisher war sie unbegrenzt (12 Anfragen mal bis zu 15 s Zeitüberschreitung),
+jetzt entscheidet die Uhr.
+
+### Neu: Tab „📊 Tabelle"
+
+Der geteilte Zwei-Mannschaften-Bereich (US-Sport, Rugby, Basketball) hatte als einziger keine Tabelle.
+`ftipp_hockey_table()` berechnet sie aus den geladenen Spielen: Spiele, Siege, Niederlagen, erzielte und
+kassierte Punkte (bei der NHL „Tore", steuerbar über `einheit` in der Liga-Registry), Differenz.
+
+- **Sortiert nach Siegquote**, nicht nach absoluten Siegen — sonst stünde ein Team mit mehr absolvierten
+  Spielen automatisch vorn, und genau das ist bei einem rollenden Abruf-Fenster der Normalfall.
+- **Ehrlich beschriftet:** Unter der Tabelle steht immer, aus wie vielen gewerteten Spielen sie stammt,
+  und dass es **nicht der amtliche Ligastand** ist. Ligen über SportScore.com kennen wir nur im Fenster,
+  nicht ab Saisonbeginn — eine Tabelle daraus wäre sonst irreführend.
+- Unentschieden gibt es in keiner dieser Ligen; ein Gleichstand wird nicht gewertet statt eine
+  Spalte zu führen, die immer 0 wäre.
+
+### Geprüft
+
+- `php -l` sauber, alle Inline-Skriptblöcke syntaktisch geprüft.
+- Fünf aufeinanderfolgende Sync-Läufe gegen die **echte** Quelle (Tabelle oben).
+- Tabellen-Berechnung mit **echten** WNBA-Ergebnissen (12 Spiele, 14 Mannschaften) plus drei
+  Plausibilitätsprüfungen: Summe Siege = Summe Niederlagen, Summe aller Differenzen = 0,
+  Siege+Niederlagen = 2 × gewertete Spiele. Alle bestanden.
+- Browser-Test des neuen Tabs.
+
+### Ein Fehler unterwegs, der fast durchgerutscht wäre
+
+Die Tabelle rendete zuerst nur die laufenden Nummern, keine Zeileninhalte. Grund: `el()` hängt den
+HTML-Schnipsel in ein `<div>`, und darin wirft der HTML-Parser ein alleinstehendes `<tr>` ersatzlos
+weg. Jetzt wird die Tabelle als **ein** HTML-String gebaut, genau wie `mkTableHtml()` beim Fußball.
+Ohne den Browser-Test wäre das erst beim Nutzer aufgefallen.
+
+### Keine Schema-Änderung
+
+`FTIPP_DB_VERSION` bleibt **21**.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

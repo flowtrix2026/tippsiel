@@ -4,7 +4,7 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.19.0
+Stable tag: 1.20.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -22,6 +22,7 @@ Tippstube ist ein WordPress-Plugin für private Fußball-Tippspiele unter Famili
 * **US-Sport (neu)**: NHL und WNBA — Ergebnis tippen exakt wie beim Fußball, komplette Saison inklusive Playoffs, nach Spieltagen sortiert; jede Liga mit eigener Rangliste (weitere Ligen wie die DEL lassen sich ergänzen); dazu die Sonderwertung "Stanley-Cup-Sieger"
 * **Rugby (neu)**: AFL (Australian Football) — Ergebnis tippen wie beim Fußball, komplette Saison bis zum Grand Final, nach Spielrunden sortiert
 * **Basketball (neu)**: Ergebnis-Tipp für EuroLeague und Liga ACB (Spanien); die WNBA liegt unter US-Sport — alle drei über sportscore.com, kostenlos und ohne Key
+* **Tabelle (neu)** in US-Sport, Rugby und Basketball: Spiele, Siege, Niederlagen, Punkte und Differenz je Liga, sortiert nach Siegquote — berechnet aus den geladenen Spielen, mit ehrlichem Hinweis, dass es nicht der amtliche Ligastand ist
 * **Sumo**: Sieger-Tipp je Kampf in der Makuuchi-Division — eigene Rangliste je Basho, dazu der Yusho-Tipp, der sich automatisch auflöst
 * **Punktesystem**: 1 Punkt für die richtige Tendenz, 3 Punkte fürs exakte Ergebnis, optionaler K.o.-Zusatztipp bei Pokalspielen (Fußball); bei Formel 1 Punkte für exakte Position und für richtigen Fahrer in falscher Position
 * **Zwei Ranglisten-Modi**: Freundschaftlich (geteilter Platz bei Gleichstand) oder Challenge (harter Tie-Break)

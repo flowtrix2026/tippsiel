@@ -1896,11 +1896,13 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
 <div class="wrap">
   <div class="tabs">
     <div class="tab active" data-mode="nhtippen" onclick="switchNhlMode('nhtippen')">📝 Tippen</div>
+    <div class="tab" data-mode="nhtabelle" onclick="switchNhlMode('nhtabelle')">📊 Tabelle</div>
     <div class="tab" data-mode="nhauswertung" onclick="switchNhlMode('nhauswertung')">🏆 Auswertung</div>
     <div class="tab" data-mode="nhsonder" onclick="switchNhlMode('nhsonder')">⭐ Sonderwertungen</div>
     <div class="tab" data-mode="nheinstellungen" onclick="switchNhlMode('nheinstellungen')">⚙️ Einstellungen</div>
   </div>
   <section id="nhmode-nhtippen"></section>
+  <section id="nhmode-nhtabelle" style="display:none"></section>
   <section id="nhmode-nhauswertung" style="display:none"></section>
   <section id="nhmode-nhsonder" style="display:none"></section>
   <section id="nhmode-nheinstellungen" style="display:none"></section>
@@ -2566,10 +2568,11 @@ let hkSport = 'ussport';
 
 function switchNhlMode(mode){
   document.querySelectorAll('#team-shell .tab').forEach(t=>t.classList.toggle('active', t.dataset.mode===mode));
-  ['nhtippen','nhauswertung','nhsonder','nheinstellungen'].forEach(m=>{
+  ['nhtippen','nhtabelle','nhauswertung','nhsonder','nheinstellungen'].forEach(m=>{
     document.getElementById('nhmode-'+m).style.display = (m===mode) ? '' : 'none';
   });
   if(mode==='nhtippen') renderNhlTippen();
+  else if(mode==='nhtabelle') renderNhlTabelle();
   else if(mode==='nhauswertung') renderNhlAuswertung();
   else if(mode==='nhsonder') renderNhlSonder();
   else renderNhlEinstellungen();
@@ -2655,6 +2658,48 @@ async function renderNhlTippen(){
   box.appendChild(list);
   if(cfg.malusOn){ box.appendChild(el(`<div class="warnbox">⚠️ Verpasste Spiele geben <b>${cfg.malus} Punkt(e)</b> (Regel dieser Runde).</div>`)); }
 }
+/* Tabelle der gewählten Liga — berechnet aus den geladenen Spielen, nicht vom Anbieter übernommen.
+   Deshalb steht unter der Tabelle immer, aus wie vielen gewerteten Spielen sie stammt. */
+async function renderNhlTabelle(){
+  const box = $('#nhmode-nhtabelle'); box.innerHTML='';
+  if(!nhlGuard(box)) return;
+  let data, games;
+  try{
+    games = await api_get(`nhl/games?round=${currentRoundId}&sport=${hkSport}&league=${encodeURIComponent(hkLeague)}`);
+    if(games && games.league) hkLeague = games.league;
+    data = await api_get(`nhl/table?round=${currentRoundId}&sport=${hkSport}&league=${encodeURIComponent(hkLeague)}`);
+  }catch(e){ box.appendChild(el(`<div class="card"><div class="warnbox">⚠️ ${esc(e.message)}</div></div>`)); return; }
+
+  const kopf = el('<div class="card"><div class="row"></div></div>');
+  const row0 = kopf.querySelector('.row');
+  row0.appendChild(mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; renderNhlTabelle(); }));
+  row0.appendChild(mkHkLeagueSelect((games&&games.leagues)||[], renderNhlTabelle));
+  box.appendChild(kopf);
+
+  if(!data.rows || !data.rows.length){
+    box.appendChild(el('<div class="card"><div class="hint">Noch keine gewerteten Spiele — die Tabelle entsteht, sobald die ersten Ergebnisse da sind.</div></div>'));
+    return;
+  }
+  // Als ein einziger HTML-String gebaut, nicht Zeile für Zeile per el(): el() hängt den Schnipsel in
+  // ein <div>, und darin wirft der HTML-Parser ein alleinstehendes <tr> ersatzlos weg. Gleiche Technik
+  // wie mkTableHtml() beim Fußball, inklusive der Klassen "num" und "rank1".
+  let html = `<div class="phase-h" style="margin-top:0">📊 ${esc(data.name)}</div>`;
+  html += `<table><thead><tr><th class="num">#</th><th>Mannschaft</th><th class="num">Sp</th>`;
+  html += `<th class="num">S</th><th class="num">N</th><th class="num">${esc(data.einheit)}</th><th class="num">Diff</th></tr></thead><tbody>`;
+  data.rows.forEach((r,i)=>{
+    const c1 = i===0 ? 'rank1' : '';
+    const d  = (r.diff>0?'+':'')+r.diff;
+    html += `<tr><td class="num ${c1}">${i+1}</td><td class="${c1}">${esc(r.team)}</td>`;
+    html += `<td class="num">${r.sp}</td><td class="num"><b>${r.siege}</b></td><td class="num">${r.nied}</td>`;
+    html += `<td class="num">${r.pf}:${r.pa}</td><td class="num">${esc(d)}</td></tr>`;
+  });
+  html += `</tbody></table>`;
+  html += `<div class="hint" style="margin-top:10px">Sortiert nach Siegquote. Berechnet aus <b>${data.gewertet}</b> gewerteten Spielen, die in der Tippstube geladen sind — das ist nicht der amtliche Ligastand.</div>`;
+  const karte = el('<div class="card"></div>');
+  karte.innerHTML = html;
+  box.appendChild(karte);
+}
+
 /* Name und Symbol des aktuellen Bereichs — der Bereich teilt sich mit US-Sport, Rugby und
    Basketball dieselbe Oberfläche, deshalb darf hier nichts fest auf Eishockey stehen. */
 function hkSportName(){ const m=TEAM_SPORTS[hkSport]; return m?m.titel:'Eishockey'; }
