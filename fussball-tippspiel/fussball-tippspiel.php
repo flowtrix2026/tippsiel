@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL), Rugby (AFL) und Sumo, echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version:           1.18.0
+ * Version:           1.18.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.18.0' );
+define( 'FTIPP_VERSION', '1.18.1' );
 define( 'FTIPP_DB_VERSION', '21' );
 
 /**
@@ -5643,17 +5643,18 @@ add_action( 'template_redirect', function () {
  * ============================================================ */
 add_action( 'admin_menu', function () {
     add_menu_page( 'Tippstube', 'Tippstube', 'manage_options', 'ftipp', 'ftipp_page_sports', ftipp_menu_icon_href(), 30 );
-    // Gleicher Slug wie der Parent ersetzt WordPress' automatisch erzeugten Default-Untermenüpunkt
-    // (sonst gäbe es "Tippstube" doppelt ganz oben in der Liste).
+    // Kein eigener Untermenüpunkt für die Sportarten: WordPress legt für die Hauptseite ohnehin
+    // automatisch einen Eintrag an (beschriftet wie das Hauptmenü, also "Tippstube"), sobald das erste
+    // Untermenü dazukommt. Ein zusätzlicher Eintrag mit demselben Slug stand deshalb doppelt im Menü
+    // und führte auf dieselbe Seite. "Tippstube" ist jetzt die Sportarten-Seite.
     add_submenu_page( 'ftipp', 'Info', 'Info', 'manage_options', 'ftipp_info', 'ftipp_page_info' );
     add_submenu_page( 'ftipp', 'Einstellungen', 'Einstellungen', 'manage_options', 'ftipp_settings', 'ftipp_page_settings' );
-    add_submenu_page( 'ftipp', 'Sportarten', 'Sportarten', 'manage_options', 'ftipp', 'ftipp_page_sports' );
     add_submenu_page( 'ftipp', 'Design', 'Design', 'manage_options', 'ftipp_design', 'ftipp_page_design' );
     add_submenu_page( 'ftipp', 'Datensicherung', 'Datensicherung', 'manage_options', 'ftipp_backup', 'ftipp_page_backup' );
     add_submenu_page( 'ftipp', 'Changelog', 'Changelog', 'manage_options', 'ftipp_changelog', 'ftipp_page_changelog' );
     add_submenu_page( 'ftipp', 'History', 'History', 'manage_options', 'ftipp_history', 'ftipp_page_history' );
     add_submenu_page( 'ftipp', 'Cron-Job', 'Cron-Job', 'manage_options', 'ftipp_cron', 'ftipp_page_cron' );
-    // Formel 1 und Tennis stecken jetzt als Tabs in "Sportarten". Die alten Adressen bleiben trotzdem
+    // Formel 1 und Tennis stecken als Tabs auf der Hauptseite. Die alten Adressen bleiben trotzdem
     // erreichbar (nicht im Menü sichtbar), damit gespeicherte Lesezeichen weiter funktionieren.
     add_submenu_page( null, 'Formel 1', 'Formel 1', 'manage_options', 'ftipp_f1', 'ftipp_page_f1' );
     add_submenu_page( null, 'Tennis', 'Tennis', 'manage_options', 'ftipp_tennis', 'ftipp_page_tennis' );
@@ -7288,7 +7289,7 @@ function ftipp_page_settings() {
     <div class="wrap">
         <h1>⚙️ Einstellungen</h1>
         <p>Gilt für alle Sportarten. Die Spieldaten der einzelnen Sportarten stellst du unter
-           <a href="<?php echo esc_url( admin_url( 'admin.php?page=ftipp&tab=fussball' ) ); ?>">Sportarten → Fußball</a>,
+           <a href="<?php echo esc_url( admin_url( 'admin.php?page=ftipp&tab=fussball' ) ); ?>">Tippstube → Fußball</a>,
            <a href="<?php echo esc_url( admin_url( 'admin.php?page=ftipp&tab=f1' ) ); ?>">Formel 1</a> und
            <a href="<?php echo esc_url( admin_url( 'admin.php?page=ftipp&tab=tennis' ) ); ?>">Tennis</a> ein.</p>
 

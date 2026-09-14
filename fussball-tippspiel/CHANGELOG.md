@@ -2726,6 +2726,27 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
   `nhl/special?` ab, weil das denselben Teilstring enthält — auf dem echten Server sind das getrennte
   REST-Routen. Nur der Mock musste umsortiert werden.
 
+## v1.18.1 — Doppelten Menüpunkt entfernt
+
+- **Anfrage:** "Tippstube und Sportarten ist genau dasselbe. Dann lasst Sportarten raus. In Tippstube
+  sind dann alle Sportarten drin." Stimmt — beide Einträge führten auf dieselbe Seite.
+- **Ursache:** WordPress legt für die Hauptseite eines Menüs automatisch einen ersten Unterpunkt an
+  (beschriftet wie das Hauptmenü), sobald das erste Untermenü dazukommt. Der zusätzlich registrierte
+  Eintrag "Sportarten" hatte denselben Slug (`ftipp`) und stand damit ein zweites Mal im Menü. Der
+  Kommentar im Code behauptete, ein gleicher Slug ersetze den automatischen Eintrag — das stimmt aber
+  nur, wenn er **als erster** registriert wird; hier kam "Info" davor. Die Dopplung steckte dadurch
+  schon länger drin, fiel aber erst auf, seit der Eintrag "Sportarten" heißt und nicht mehr
+  "Einstellungen" bzw. "Fußball".
+- **Umgesetzt:** Den zusätzlichen Eintrag ersatzlos gestrichen. **"Tippstube" ist jetzt die
+  Sportarten-Seite** mit den Tabs Fußball · Formel 1 · US-Sport · Rugby · Tennis · Sumo. Alle Adressen
+  bleiben unverändert (`page=ftipp&tab=…`), Lesezeichen und Rücksprünge funktionieren weiter.
+  Der Kommentar erklärt jetzt die tatsächliche WordPress-Logik, und der Verweis auf der
+  Einstellungen-Seite heißt passend "Tippstube → Fußball".
+- Lokal getestet: `php -l` fehlerfrei. Zusätzlich die echte WordPress-Menülogik nachgebildet
+  (automatischer Eltern-Eintrag nur, wenn noch kein Untermenü existiert **und** der Slug abweicht) und
+  den Block der Plugin-Datei damit ausgeführt: Ergebnis ist genau ein Eintrag je Seite, keine Dopplung,
+  keine fehlende Seite, und die Sportarten-Seite steht als erster Eintrag namens "Tippstube".
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

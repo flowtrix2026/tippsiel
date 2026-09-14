@@ -4,7 +4,7 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.18.0
+Stable tag: 1.18.1
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -30,10 +30,10 @@ Tippstube ist ein WordPress-Plugin für private Fußball-Tippspiele unter Famili
 
 = Funktionen für den Plattform-Admin =
 
-Acht Menüpunkte unter "Tippstube" im WordPress-Adminmenü:
+Sieben Menüpunkte unter "Tippstube" im WordPress-Adminmenü:
 
 * **Einstellungen** — E-Mail-Benachrichtigungen (Fristen-Erinnerung, Ranking-Newsletter samt Versandtag/-zeit) und Hinweis zur Selbstregistrierung; gilt für alle Sportarten
-* **Sportarten** — ein Menüpunkt mit einem Tab je Sportart:
+* **Tippstube** (die Hauptseite) — ein Tab je Sportart:
     * *Fußball* — Datenabruf der Fußball-Wettbewerbe, API-Football-Key, CSV-Import für Wettbewerbe ohne gute kostenlose Quelle
     * *Formel 1* — eigener, von Fußball unabhängiger Datenabruf (f1api.dev, kostenlos, kein Key nötig)
     * *US-Sport* — Datenabruf der NHL über api-web.nhle.com (kostenlos, ohne Key)
@@ -65,6 +65,10 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.18.1 =
+Der Menüpunkt "Sportarten" ist entfallen — er führte auf dieselbe Seite wie "Tippstube". Die
+Sportarten-Tabs stecken jetzt direkt hinter "Tippstube".
 
 = 1.18.0 =
 Eigene Sonderwertungen gibt es jetzt in jeder Sportart, nicht nur bei Fußball: Neben der eingebauten
