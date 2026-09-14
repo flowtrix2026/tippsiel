@@ -2504,6 +2504,37 @@ sauber aufgeklärt und in dauerhafte Absicherungen umgesetzt wurden.
 - Lokal getestet: Script-Blöcke geprüft, im Browser mit nur einer Liga alle vier Tabs durchgeklickt —
   Tippen, Auswertung, Sonderwertungen und Einstellungen zeigen jeweils "Liga: NHL" neben "Runde".
 
+## v1.14.0 — Tipprunden aus Fußball heraus auf die oberste Ebene
+
+- **Anfrage:** "wir haben bei Fußball Runden drin — wollen wir Runden nicht rausnehmen bei Fußball und
+  das in die Tippstube ins Menü mit einbauen, ist doch viel einfacher zu finden. Das ist nachher auch gut
+  für die anderen Sportarten." Per Rückfrage geklärt, dass es um die **App** geht (Hub-Ebene), nicht um
+  das WordPress-Adminmenü — dort kämen nur Plattform-Admins hin, und Mitspieler könnten dann keine
+  Runden mehr selbst anlegen oder per Code beitreten.
+- **Warum das richtig ist:** Eine Tipprunde gilt für **alle** Sportarten — dieselbe Runde "Fam" wird für
+  Fußball, Formel 1, Tennis und Eishockey benutzt. Sie steckte trotzdem als Tab in der Fußball-Ansicht,
+  weshalb alle anderen Sportarten mit "das geht in der ⚽ Fußball-Ansicht unter Runden" darauf verweisen
+  mussten. Ein sportartübergreifendes Thema gehört nicht in eine einzelne Sportart.
+- **Umgesetzt:** Neuer eigenständiger Bereich **"Tippstube — Tipprunden"** (`#rounds-shell`) auf
+  derselben Ebene wie die Sportarten. Der Fußball-Tab "👥 Runden" ist entfallen; die bestehende
+  `renderRunden()` blieb unverändert und rendert jetzt einfach in den neuen Bereich. Erreichbar über
+  drei Wege: den Knopf "👥 Meine Tipprunden verwalten" auf dem Sportarten-Hub, den Knopf "👥 Runden" im
+  Kopf **jeder** Sportart (neben "Sportart wechseln"), und die Hinweise in den Sportarten, die statt auf
+  Fußball zu verweisen jetzt direkt einen Knopf dorthin haben. Wer noch in gar keiner Runde ist, landet
+  beim Start direkt dort.
+- **Fehler beim Testen gefunden und behoben:** Der Aufruf für "ohne Runde direkt zu den Tipprunden"
+  steht im Fußball-Skriptblock, `showRounds()` aber im weiter unten stehenden Hub-Block. Kommt die
+  Bootstrap-Antwort schneller zurück als dieser Block ausgeführt wird (lokaler Server, Cache), gab es
+  einen `ReferenceError: showRounds is not defined` — der Nutzer sah dann gar nichts. Jetzt wird die
+  Funktion vor dem Aufruf geprüft und andernfalls nur vorgemerkt; der Hub-Block holt es nach. Damit ist
+  die Reihenfolge egal.
+- Lokal getestet: Script-Blöcke geprüft. Browser: Hub zeigt den Runden-Knopf, Fußball hat den Tab nicht
+  mehr (Tippen · Auswertung · Tabelle · Teilnehmer · Sonderwertungen · Einstellungen), jede der vier
+  Sportarten hat "👥 Runden" im Kopf, der Weg Sportart → Runden → zurück zum Hub funktioniert, und der
+  Runden-Bereich blendet alle anderen Bereiche korrekt aus. Fall "Nutzer ohne Tipprunde" gegengeprüft:
+  landet beim Start im Runden-Bereich mit vollständigem Inhalt, und die Hinweise in den anderen
+  Sportarten führen per Knopf dorthin — in einem frischen Tab ohne jede Konsolenmeldung.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

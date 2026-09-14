@@ -157,7 +157,8 @@
     </svg>
     <div>
       <h1>Tippstube</h1>
-      <p class="hub-tagline">Wähle deine Sportart — jede mit eigenen Runden, eigener Rangliste.</p>
+      <p class="hub-tagline">Wähle deine Sportart — deine Tipprunden gelten für alle.</p>
+      <p style="margin:8px 0 0"><button class="hub-switch" onclick="showRounds()">👥 Meine Tipprunden verwalten</button></p>
     </div>
   </div>
 
@@ -259,6 +260,7 @@
   </h1>
   <div class="sub">1./2./3. Liga · DFB-Pokal · Champions League · Europa League · Nations League · Premier League · LaLiga · Süper Lig · Serie A · Ligue 1 · Frauen-Bundesliga · Regionalliga Nordost · Eredivisie · Primeira Liga · Saudi Pro League · Österreichische Bundesliga · Brasilianische Serie A — jede Runde ihre eigene Wertung
     <br><button class="hub-switch" onclick="showSportHub()">⚽ Sportart wechseln</button>
+    <button class="hub-switch" onclick="showRounds()">👥 Runden</button>
   </div>
 </header>
 <div class="wrap">
@@ -266,7 +268,6 @@
     <div class="tab active" data-mode="tippen" onclick="switchMode('tippen')">📝 Tippen</div>
     <div class="tab" data-mode="auswertung" onclick="switchMode('auswertung')">🏆 Auswertung</div>
     <div class="tab" data-mode="tabelle" onclick="switchMode('tabelle')" style="display:none">📊 Tabelle</div>
-    <div class="tab" data-mode="runden" onclick="switchMode('runden')" style="display:none">👥 Runden</div>
     <div class="tab" data-mode="teilnehmer" onclick="switchMode('teilnehmer')">👥 Teilnehmer</div>
     <div class="tab" data-mode="sonder" onclick="switchMode('sonder')">⭐ Sonderwertungen</div>
     <div class="tab" data-mode="einstellungen" onclick="switchMode('einstellungen')">⚙️ Einstellungen</div>
@@ -276,7 +277,6 @@
   <section id="mode-tippen"></section>
   <section id="mode-auswertung" style="display:none"></section>
   <section id="mode-tabelle" style="display:none"></section>
-  <section id="mode-runden" style="display:none"></section>
   <section id="mode-teilnehmer" style="display:none"></section>
   <section id="mode-sonder" style="display:none"></section>
   <section id="mode-einstellungen" style="display:none"></section>
@@ -479,7 +479,7 @@ async function initConnected(){
 
   document.getElementById('rolebar').style.display='none';
   ['teilnehmer','einstellungen'].forEach(m=>{ const t=document.querySelector('.tab[data-mode="'+m+'"]'); if(t) t.style.display='none'; });
-  ['runden','tabelle'].forEach(m=>{ const t=document.querySelector('.tab[data-mode="'+m+'"]'); if(t) t.style.display=''; });
+  ['tabelle'].forEach(m=>{ const t=document.querySelector('.tab[data-mode="'+m+'"]'); if(t) t.style.display=''; });
 
   let loadError=null;
   try{
@@ -499,7 +499,15 @@ async function initConnected(){
     document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.mode==='tippen'));
     return;
   }
-  switchMode(ROUNDS.length ? 'tippen' : 'runden');
+  switchMode('tippen');
+  // Ohne Tipprunde direkt in den Runden-Bereich — dort führt der Weg zum Anlegen/Beitreten.
+  // showRounds() steht im Hub-Skriptblock weiter unten: kommt die Bootstrap-Antwort schneller zurück
+  // als dieser Block ausgeführt wird (Cache, lokaler Server), gäbe es sonst einen ReferenceError.
+  // Deshalb nur vormerken, wenn es die Funktion noch nicht gibt — der Hub-Block holt es dann nach.
+  if(!ROUNDS.length){
+    if(typeof showRounds === 'function'){ showRounds(); }
+    else { window.__ftippRundenBeimStart = true; }
+  }
 }
 
 function mkRoundSwitcher(){
@@ -507,8 +515,8 @@ function mkRoundSwitcher(){
   return mkSelect('Runde', ROUNDS.map(r=>({v:r.id,label:r.name})), currentRoundId, v=>{ currentRoundId=+v||v; switchMode(document.querySelector('.tab.active').dataset.mode); });
 }
 function needRoundHint(box){
-  box.appendChild(el(`<div class="card"><div class="hint">Du bist noch in keiner Tipprunde. Wechsle zu <b>👥 Runden</b>, um eine zu erstellen oder per Code beizutreten.</div>
-    <button onclick="switchMode('runden')">👥 Zu den Runden</button></div>`));
+  box.appendChild(el(`<div class="card"><div class="hint">Du bist noch in keiner Tipprunde. Eine Tipprunde gilt für alle Sportarten — leg eine an oder tritt per Code bei.</div>
+    <button onclick="showRounds()">👥 Zu den Tipprunden</button></div>`));
 }
 
 /* ---------------------- RUNDEN ---------------------- */
@@ -1270,11 +1278,10 @@ function refresh(){ renderRolebar(); const active=document.querySelector('.tab.a
 function switchMode(mode){
   if(mode==='einstellungen' && !CONNECTED && !isAdmin()) mode='tippen';
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.mode===mode));
-  ['tippen','auswertung','tabelle','runden','teilnehmer','sonder','einstellungen'].forEach(m=> $('#mode-'+m).style.display = m===mode?'':'none');
+  ['tippen','auswertung','tabelle','teilnehmer','sonder','einstellungen'].forEach(m=> $('#mode-'+m).style.display = m===mode?'':'none');
   if(mode==='tippen') renderTippen();
   else if(mode==='auswertung') renderAuswertung();
   else if(mode==='tabelle') renderTabelle();
-  else if(mode==='runden') renderRunden();
   else if(mode==='teilnehmer') renderTeilnehmer();
   else if(mode==='sonder') renderSonder();
   else if(mode==='einstellungen') renderEinstellungen();
@@ -1734,6 +1741,26 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
 </script>
 </div><!-- #app-shell -->
 
+<div id="rounds-shell" style="display:none">
+<header>
+  <h1>
+    <svg width="30" height="33" viewBox="0 0 240 260" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="flex:none">
+      <path d="M20 30 Q20 20 30 20 L210 20 Q220 20 220 30 L220 130 Q220 190 170 220 L120 250 L70 220 Q20 190 20 130 Z" fill="#173a22" stroke="#d9a441" stroke-width="6"/>
+      <circle cx="95" cy="100" r="20" fill="#e3a83f"/><circle cx="145" cy="100" r="20" fill="#e3a83f"/>
+      <path d="M62 168 Q62 132 95 132 Q128 132 128 168 Z" fill="#e3a83f"/>
+      <path d="M112 168 Q112 132 145 132 Q178 132 178 168 Z" fill="#f3ead9"/>
+    </svg>
+    Tippstube — Tipprunden
+  </h1>
+  <div class="sub">Dein privater Kreis — eine Runde gilt für alle Sportarten.
+    <br><button class="hub-switch" onclick="showSportHub()">🏠 Zur Sportart-Auswahl</button>
+  </div>
+</header>
+<div class="wrap">
+  <section id="mode-runden"></section>
+</div>
+</div><!-- #rounds-shell -->
+
 <div id="f1-shell" style="display:none">
 <header>
   <h1>
@@ -1749,6 +1776,7 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
   </h1>
   <div class="sub">Podium-Tipp: Platz 1, 2 und 3 vor jedem Rennen tippen.
     <br><button class="hub-switch" onclick="showSportHub()">🏁 Sportart wechseln</button>
+    <button class="hub-switch" onclick="showRounds()">👥 Runden</button>
   </div>
 </header>
 <div class="wrap">
@@ -1778,6 +1806,7 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
   </h1>
   <div class="sub">Sieger-Tipp: Wer gewinnt das Match?
     <br><button class="hub-switch" onclick="showSportHub()">🎾 Sportart wechseln</button>
+    <button class="hub-switch" onclick="showRounds()">👥 Runden</button>
   </div>
 </header>
 <div class="wrap">
@@ -1806,6 +1835,7 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
   </h1>
   <div class="sub">Ergebnis-Tipp: Wie geht das Spiel aus?
     <br><button class="hub-switch" onclick="showSportHub()">🏒 Sportart wechseln</button>
+    <button class="hub-switch" onclick="showRounds()">👥 Runden</button>
   </div>
 </header>
 <div class="wrap">
@@ -1828,9 +1858,18 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
 // Nur Fußball und Formel 1 sind echt angebunden — alle anderen Kacheln sind bewusst nur eine Vorschau
 // (siehe Journal). Wer eine Sportart einmal gewählt hat, landet beim nächsten Besuch direkt wieder dort.
 const SPORT_SHELLS = {football:'app-shell', f1:'f1-shell', tennis:'tennis-shell', nhl:'nhl-shell'};
+/* Tipprunden sind keine Sportart, sondern gelten für alle — deshalb ein eigener Bereich neben den
+   Sportarten statt eines Tabs innerhalb von Fußball. */
+const ROUNDS_SHELL = 'rounds-shell';
 function hideAllShells(){
   document.getElementById('sport-hub').style.display='none';
+  document.getElementById(ROUNDS_SHELL).style.display='none';
   Object.values(SPORT_SHELLS).forEach(id=>{ const e=document.getElementById(id); if(e) e.style.display='none'; });
+}
+function showRounds(){
+  hideAllShells();
+  document.getElementById(ROUNDS_SHELL).style.display='';
+  if(typeof renderRunden==='function') renderRunden();
 }
 function enterSport(sport){
   if(!SPORT_SHELLS[sport]){ alert('Kommt bald! Diese Sportart ist noch nicht angebunden.'); return; }
@@ -1847,6 +1886,7 @@ function showSportHub(){
   document.getElementById('sport-hub').style.display='';
 }
 (function(){
+  if(window.__ftippRundenBeimStart){ showRounds(); return; }
   let chosen=null; try{ chosen=localStorage.getItem('ftipp_sport'); }catch(e){}
   if(chosen && SPORT_SHELLS[chosen]){ hideAllShells(); document.getElementById(SPORT_SHELLS[chosen]).style.display=''; }
 })();
@@ -1874,7 +1914,7 @@ function switchF1Mode(mode){
 async function renderF1Tippen(){
   const box = document.getElementById('f1mode-f1tippen');
   if(!CONNECTED){ box.innerHTML = '<div class="card"><div class="hint">Formel 1 steht nur im echten WordPress-Betrieb zur Verfügung.</div></div>'; return; }
-  if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde. Das geht in der ⚽ Fußball-Ansicht unter „Runden".</div></div>'; return; }
+  if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde — sie gilt dann gleich für alle Sportarten.</div><button style="margin-top:10px" onclick="showRounds()">👥 Zu den Tipprunden</button></div>'; return; }
   box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
 
   let subs, tipsData;
@@ -1941,7 +1981,7 @@ async function renderF1Tippen(){
 
 async function renderF1Auswertung(){
   const box = document.getElementById('f1mode-f1auswertung');
-  if(!CONNECTED || !ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde.</div></div>'; return; }
+  if(!CONNECTED || !ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde — sie gilt dann gleich für alle Sportarten.</div><button style="margin-top:10px" onclick="showRounds()">👥 Zu den Tipprunden</button></div>'; return; }
   box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
   try{
     const data = await api_get(`f1/leaderboard?round=${currentRoundId}`);
@@ -1975,7 +2015,7 @@ function mkF1CfgNum(label, value, key, onSaved){
 async function renderF1Sonder(){
   const box = document.getElementById('f1mode-f1sonder');
   if(!CONNECTED){ box.innerHTML = '<div class="card"><div class="hint">Formel 1 steht nur im echten WordPress-Betrieb zur Verfügung.</div></div>'; return; }
-  if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde. Das geht in der ⚽ Fußball-Ansicht unter „Runden".</div></div>'; return; }
+  if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde — sie gilt dann gleich für alle Sportarten.</div><button style="margin-top:10px" onclick="showRounds()">👥 Zu den Tipprunden</button></div>'; return; }
   box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
 
   let subs, data;
@@ -2071,7 +2111,7 @@ async function renderF1Sonder(){
 async function renderF1Einstellungen(){
   const box = document.getElementById('f1mode-f1einstellungen');
   if(!CONNECTED){ box.innerHTML = '<div class="card"><div class="hint">Formel 1 steht nur im echten WordPress-Betrieb zur Verfügung.</div></div>'; return; }
-  if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde. Das geht in der ⚽ Fußball-Ansicht unter „Runden".</div></div>'; return; }
+  if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde — sie gilt dann gleich für alle Sportarten.</div><button style="margin-top:10px" onclick="showRounds()">👥 Zu den Tipprunden</button></div>'; return; }
   box.innerHTML = '<div class="card"><div class="meta">Lädt…</div></div>';
 
   let cfg;
@@ -2135,7 +2175,7 @@ function switchTennisMode(mode){
 
 function tennisGuard(box){
   if(!CONNECTED){ box.innerHTML = '<div class="card"><div class="hint">Tennis steht nur im echten WordPress-Betrieb zur Verfügung.</div></div>'; return false; }
-  if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde. Das geht in der ⚽ Fußball-Ansicht unter „Runden".</div></div>'; return false; }
+  if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde — sie gilt dann gleich für alle Sportarten.</div><button style="margin-top:10px" onclick="showRounds()">👥 Zu den Tipprunden</button></div>'; return false; }
   return true;
 }
 
@@ -2448,7 +2488,7 @@ function switchNhlMode(mode){
 
 function nhlGuard(box){
   if(!CONNECTED){ box.innerHTML = '<div class="card"><div class="hint">Eishockey steht nur im echten WordPress-Betrieb zur Verfügung.</div></div>'; return false; }
-  if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde. Das geht in der ⚽ Fußball-Ansicht unter „Runden".</div></div>'; return false; }
+  if(!ROUNDS || !ROUNDS.length){ box.innerHTML = '<div class="card"><div class="hint">Du bist noch in keiner Tipprunde — sie gilt dann gleich für alle Sportarten.</div><button style="margin-top:10px" onclick="showRounds()">👥 Zu den Tipprunden</button></div>'; return false; }
   return true;
 }
 const nhlDay = iso => { const d=new Date(iso+'T12:00:00Z');

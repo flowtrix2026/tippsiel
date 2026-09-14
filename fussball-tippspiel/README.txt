@@ -4,7 +4,7 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.13.1
+Stable tag: 1.14.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,6 +61,11 @@ Ausführliche Erklärungen zu allen Funktionen: Tippstube → Info im WordPress-
 == Changelog ==
 
 Die vollständige, laufend aktualisierte Versionshistorie steht direkt im WordPress-Admin unter Tippstube → Changelog, sowie im Projekt-Repository unter [github.com/flowtrix2026/tippsiel](https://github.com/flowtrix2026/tippsiel).
+
+= 1.14.0 =
+Die Tipprunden sind aus der Fußball-Ansicht herausgelöst und haben jetzt einen eigenen Bereich auf
+gleicher Ebene wie die Sportarten — erreichbar vom Sportarten-Hub und aus jeder Sportart heraus. Eine
+Tipprunde gilt ja für alle Sportarten; bisher musste man dafür umständlich zu Fußball wechseln.
 
 = 1.13.1 =
 Die Liga steht bei Eishockey jetzt immer sichtbar neben der Runde ("Liga: NHL") — auch solange es nur
