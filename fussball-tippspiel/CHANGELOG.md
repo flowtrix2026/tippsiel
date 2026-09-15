@@ -3146,6 +3146,61 @@ samt Endstand. Steht als nächster Kandidat in `VERBESSERUNGEN.md`.
 
 `FTIPP_DB_VERSION` bleibt **22**.
 
+## v1.24.0 — MLB im US-Sport, und der Abruf bricht nicht mehr alles ab
+
+- **Meldung des Nutzers:** „Wenn irgendwas nicht geht, dann macht er gleich Abbruch. Dann dauert das
+  alles zu lange." Und: „dann bau die MLB ein, wenn das alles funktioniert."
+
+### Zwei echte Abbruch-Ursachen im Fußball-Abruf
+
+Beim Nachsehen kamen zwei Dinge heraus, die schlimmer waren als gedacht:
+
+1. **Ein fehlgeschlagener Wettbewerb löschte seinen kompletten Spielplan.** `ftipp_fetch_all()` baut
+   die Liste neu auf und speichert sie am Ende mit `update_option('ftipp_fixtures', $all)` — also
+   **vollständig überschreibend**. Wer diesmal nicht geliefert hat, war anschließend leer. Ein einzelner
+   Aussetzer von OpenLigaDB hätte die ganze Bundesliga aus der App verschwinden lassen.
+2. **Kein Gesamt-Zeitlimit.** Mehrere SportScore-Wettbewerbe mit je 10 Sekunden konnten in PHPs
+   Ausführungslimit rennen. Dann kam die Zeile mit dem Speichern nie dran und **der komplette Lauf war
+   verloren** — genau das „dauert alles zu lange", das der Nutzer beschrieb.
+
+**Behoben:** Der bisherige Stand wird vorher gelesen und für alles wiederverwendet, was dieser Lauf
+nicht liefern konnte (mit Vermerk in der Adminübersicht). Dazu ein Gesamtbudget von 45 Sekunden — läuft
+es ab, werden die restlichen Wettbewerbe planmäßig auf den nächsten Lauf verschoben statt abgewürgt.
+
+### Und einer beim Eishockey
+
+`ftipp_hockey_sync()` brach den Saison-Aufbau der NHL bei der **ersten** fehlgeschlagenen Woche ab. Weil
+die Saison dann als unvollständig galt, begann der nächste Lauf wieder von vorn — scheiterte dieselbe
+Woche erneut, wäre die NHL **nie** durchgekommen. Jetzt wird die Woche übersprungen, um sieben Tage
+weitergesprungen und beim nächsten Lauf nachgeholt; nach fünf Fehlwochen greift eine Notbremse.
+
+### Neu: MLB
+
+Über `statsapi.mlb.com`, die offizielle Stats-API der Liga — kostenlos, ohne Schlüssel. Gefunden über
+dasselbe Verzeichnis wie die Serie-A-Quelle.
+
+Gemessen: **628 Partien in einer Anfrage in 0,9 Sekunden**, davon 400 gespielt — und **kein einziges
+beendetes Spiel ohne Ergebnis**. Die Playoff-Runden kommen benannt mit (Wild Card Series, Division
+Series, Championship Series, World Series). Tabelle gegengeprüft: Siege = Niederlagen = 400, Summe
+aller Differenzen 0.
+
+- Eingehängt in die Zwei-Mannschaften-Maschinerie als Liga im Bereich **US-Sport**, so wie es der
+  Nutzer festgelegt hatte. Die Kachel „Baseball" bleibt frei für Ligen außerhalb der MLB — dieselbe
+  Trennung wie Eishockey neben der NHL.
+- Sonderwertung: **World-Series-Sieger**. Einheit in der Tabelle: **Runs**.
+- Bewusst ein **Fenster** (30 Tage zurück, 45 nach vorn) statt der ganzen Saison: die MLB spielt rund
+  2.430 Partien im Jahr, die alle in einer WordPress-Option zu halten wäre unnötig schwer.
+
+### Geprüft
+
+- `php -l` sauber, alle Inline-Skriptblöcke geprüft.
+- MLB live gegen die offizielle Quelle (Zahlen oben), inklusive Prüfung auf doppelte IDs (keine) und
+  Plausibilität der Tabelle.
+
+### Keine Schema-Änderung
+
+`FTIPP_DB_VERSION` bleibt **22**.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

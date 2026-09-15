@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL), Rugby (AFL) und Sumo, echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version: 1.23.0
+ * Version: 1.24.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.23.0' );
+define( 'FTIPP_VERSION', '1.24.0' );
 define( 'FTIPP_DB_VERSION', '22' );
 
 /**
@@ -927,6 +927,9 @@ function ftipp_sportscore_map() {
 // Rückstands-Abruf dafür entsprechend mehr Cron-Läufe (auf "Jetzt abrufen" mehrfach hintereinander
 // klicken beschleunigt das bei Bedarf).
 if ( ! defined( 'FTIPP_SPORTSCORE_BACKFILL_BATCH' ) ) { define( 'FTIPP_SPORTSCORE_BACKFILL_BATCH', 12 ); }
+// Gesamtbudget für einen Fußball-Abruf. Bewusst unter dem, was Hoster üblicherweise als
+// Ausführungslimit setzen (oft 60 s) — lieber planmäßig aufhören und speichern als abgewürgt werden.
+if ( ! defined( 'FTIPP_FETCH_TIME_BUDGET' ) ) { define( 'FTIPP_FETCH_TIME_BUDGET', 45 ); }
 // Versuche je Kalendertag und hartes Zeitlimit je Wettbewerb und Lauf. Beides zusammen ersetzt die
 // frühere Rechnung "12 Tage = 12 Anfragen": jetzt entscheidet die Uhr, wie viele Tage ein Lauf schafft.
 // Vorher war die Laufzeit sogar unbegrenzt (12 Anfragen x bis zu 15 s Zeitüberschreitung).
@@ -1242,9 +1245,22 @@ function ftipp_fetch_all( $trigger = 'cron' ) {
 
     $all = array(); $counts = array(); $errors = array(); $sources = array();
 
+    // Bisheriger Stand — wird unten für alles wiederverwendet, was dieser Lauf nicht liefern konnte.
+    // Ohne das würde ein einzelner Aussetzer einer Quelle den kompletten Spielplan dieses Wettbewerbs
+    // löschen (die Option wird am Ende komplett überschrieben), und die App stünde leer da.
+    $vorher = get_option( 'ftipp_fixtures', array() );
+    if ( ! is_array( $vorher ) ) { $vorher = array(); }
+
+    // Gesamt-Zeitlimit. Vorher konnte ein zäher Lauf (mehrere SportScore-Wettbewerbe mit je 10 Sekunden)
+    // in PHPs Ausführungslimit rennen — dann wurde am Ende NICHTS gespeichert und die ganze Arbeit war
+    // weg. Jetzt wird sauber abgebrochen und das Erreichte behalten; der Rest kommt beim nächsten Lauf.
+    $deadlineAll = microtime( true ) + FTIPP_FETCH_TIME_BUDGET;
+    $zuSpaet     = array();
+
     // 1) Deutsche Ligen + DFB-Pokal + Champions/Europa League + Premier League/LaLiga zuerst über OpenLigaDB
     //    (aktuelle Saison, gratis).
     foreach ( array( 'BL1', 'BL2', 'BL3', 'DFB', 'CL', 'EL', 'PL', 'LA1', 'FBL', 'RLNO' ) as $cid ) {
+        if ( microtime( true ) >= $deadlineAll ) { $zuSpaet[] = $cid; continue; }
         $r = ftipp_fetch_openligadb( ftipp_openligadb_shortcut( $cid ), $de_season );
         if ( $r['ok'] && count( $r['fixtures'] ) > 0 ) {
             $all[ $cid ] = $r['fixtures']; $counts[ $cid ] = count( $r['fixtures'] );
@@ -1257,6 +1273,7 @@ function ftipp_fetch_all( $trigger = 'cron' ) {
     // 1b) Wettbewerbe ohne brauchbare OpenLigaDB-Quelle, aber mit aktueller ESPN-Abdeckung (aktuell:
     //     Süper Lig — bei OpenLigaDB seit 2013/2014 keine aktuellen Daten mehr, siehe Journal).
     foreach ( ftipp_espn_soccer_map() as $cid => $slug ) {
+        if ( microtime( true ) >= $deadlineAll ) { $zuSpaet[] = $cid; continue; }
         $r = ftipp_fetch_espn_soccer( $slug, $de_season );
         if ( $r['ok'] && count( $r['fixtures'] ) > 0 ) {
             $all[ $cid ] = $r['fixtures']; $counts[ $cid ] = count( $r['fixtures'] );
@@ -1286,6 +1303,7 @@ function ftipp_fetch_all( $trigger = 'cron' ) {
     //     ftipp_sportscore_map()) — Tag-für-Tag-Abruf mit Cache, siehe ftipp_sportscore_sync().
     foreach ( ftipp_sportscore_map() as $cid => $slug ) {
         if ( isset( $all[ $cid ] ) ) { continue; }
+        if ( microtime( true ) >= $deadlineAll ) { $zuSpaet[] = $cid; continue; }
         $r = ftipp_sportscore_sync( $cid, $slug, $de_season );
         if ( count( $r['fixtures'] ) > 0 ) {
             $all[ $cid ] = $r['fixtures']; $counts[ $cid ] = count( $r['fixtures'] );
@@ -1350,6 +1368,23 @@ function ftipp_fetch_all( $trigger = 'cron' ) {
             );
         }
         $all[ $cid ] = $fx; $counts[ $cid ] = count( $fx );
+    }
+
+    // Was dieser Lauf nicht liefern konnte, behält seinen bisherigen Stand — sonst wäre der Spielplan
+    // eines Wettbewerbs nach einem einzigen Aussetzer der Quelle komplett verschwunden.
+    foreach ( $vorher as $cid => $fx ) {
+        if ( isset( $all[ $cid ] ) || ! is_array( $fx ) || ! $fx ) { continue; }
+        $all[ $cid ]    = $fx;
+        $counts[ $cid ] = count( $fx );
+        $sources[ $cid ] = 'bisheriger Stand (diesmal nicht abgerufen)';
+        if ( empty( $errors[ $cid ] ) ) {
+            $errors[ $cid ] = in_array( $cid, $zuSpaet, true )
+                ? 'Zeitlimit erreicht — wird beim nächsten Lauf geholt, bisheriger Stand bleibt.'
+                : 'Diesmal nicht abgerufen — bisheriger Stand bleibt.';
+        }
+    }
+    if ( $zuSpaet ) {
+        $errors['_zeit'] = sprintf( '%d Wettbewerbe wegen des Zeitlimits verschoben: %s', count( $zuSpaet ), implode( ', ', $zuSpaet ) );
     }
 
     update_option( 'ftipp_fixtures', $all, false );
@@ -1677,6 +1712,8 @@ function ftipp_hockey_leagues() {
     return array(
         'NHL' => array( 'name' => 'NHL', 'sport' => 'ussport', 'region' => 'Nordamerika', 'source' => 'nhle', 'einheit' => 'Tore' ),
         'AFL' => array( 'name' => 'AFL', 'sport' => 'rugby',   'region' => 'Australien',   'source' => 'squiggle', 'einheit' => 'Punkte' ),
+        // MLB über die offizielle Stats-API der Liga (statsapi.mlb.com) — kostenlos, ohne Schlüssel.
+        'MLB' => array( 'name' => 'MLB', 'sport' => 'ussport', 'region' => 'Nordamerika', 'source' => 'mlb', 'einheit' => 'Runs' ),
         // Basketball über SportScore.com — dieselbe Quelle, die beim Fußball schon läuft, nur mit
         // sport=basketball. Der 'slug' ist der Liganame bei SportScore, klein und mit Bindestrichen;
         // er ist NICHT frei wählbar, sondern live gegengeprüft (siehe Journal v1.19.0).
@@ -1837,6 +1874,80 @@ function ftipp_afl_shape( $g ) {
 function ftipp_afl_season() {
     $jahr = intval( gmdate( 'Y' ) );
     return intval( get_option( 'ftipp_afl_season', ( intval( gmdate( 'n' ) ) >= 11 ) ? $jahr + 1 : $jahr ) );
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * MLB über die offizielle Stats-API der Liga (statsapi.mlb.com)
+ *
+ * Kostenlos, ohne Schlüssel, dieselbe Schnittstelle, die auch die offiziellen MLB-Anwendungen nutzen.
+ * Live gemessen am 15.09.2026: 144 Partien über elf Tage, davon 59 beendet — und **kein einziges**
+ * beendetes Spiel ohne Ergebnis. Ein Aufruf deckt ein ganzes Datumsfenster ab.
+ *
+ * Bewusst ein Fenster statt der ganzen Saison: die MLB spielt rund 2.430 Partien im Jahr, die alle in
+ * einer WordPress-Option zu halten wäre unnötig schwer. Das Fenster deckt die jüngste Vergangenheit
+ * (für Tabelle und Auswertung) und den Vorlauf zum Tippen ab.
+ * ---------------------------------------------------------------------------------------------- */
+if ( ! defined( 'FTIPP_MLB_BACK_DAYS' ) ) { define( 'FTIPP_MLB_BACK_DAYS', 30 ); }
+if ( ! defined( 'FTIPP_MLB_FWD_DAYS' ) )  { define( 'FTIPP_MLB_FWD_DAYS', 45 ); }
+
+function ftipp_mlb_fetch() {
+    $von = gmdate( 'Y-m-d', time() - FTIPP_MLB_BACK_DAYS * DAY_IN_SECONDS );
+    $bis = gmdate( 'Y-m-d', time() + FTIPP_MLB_FWD_DAYS * DAY_IN_SECONDS );
+    $url = add_query_arg(
+        array( 'sportId' => 1, 'startDate' => $von, 'endDate' => $bis ),
+        'https://statsapi.mlb.com/api/v1/schedule'
+    );
+    $resp = wp_remote_get( $url, array( 'timeout' => 25 ) );
+    if ( is_wp_error( $resp ) ) { return array( 'ok' => false, 'error' => $resp->get_error_message(), 'games' => array() ); }
+    $code = (int) wp_remote_retrieve_response_code( $resp );
+    $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+    if ( 200 !== $code || ! isset( $body['dates'] ) || ! is_array( $body['dates'] ) ) {
+        return array( 'ok' => false, 'error' => 'HTTP ' . $code, 'games' => array() );
+    }
+    $games = array();
+    foreach ( $body['dates'] as $tag ) {
+        foreach ( ( isset( $tag['games'] ) ? $tag['games'] : array() ) as $g ) { $games[] = $g; }
+    }
+    return array( 'ok' => true, 'error' => '', 'games' => $games );
+}
+
+/** Einen MLB-Datensatz in die Form bringen, die diese Maschinerie überall nutzt. */
+function ftipp_mlb_shape( $g ) {
+    $seite = function ( $s ) {
+        $team = isset( $s['team'] ) ? $s['team'] : array();
+        $name = isset( $team['name'] ) ? (string) $team['name'] : '';
+        $teile = explode( ' ', trim( $name ) );
+        return array(
+            'abbrev' => strtoupper( substr( end( $teile ), 0, 4 ) ),
+            'name'   => $name,
+            'score'  => isset( $s['score'] ) && null !== $s['score'] ? intval( $s['score'] ) : null,
+        );
+    };
+    $zustand = isset( $g['status']['abstractGameState'] ) ? (string) $g['status']['abstractGameState'] : '';
+    $final   = ( 'Final' === $zustand );
+    $utc     = isset( $g['gameDate'] ) ? (string) $g['gameDate'] : '';
+    $ts      = $utc ? strtotime( $utc ) : 0;
+    $tag     = $ts ? gmdate( 'Y-m-d', $ts ) : '';
+    // gameType: R = Hauptrunde, alles andere (F/D/L/W) sind die Playoff-Runden.
+    $typ  = isset( $g['gameType'] ) ? (string) $g['gameType'] : 'R';
+    $post = ( 'R' !== $typ && 'S' !== $typ && 'E' !== $typ );
+    return array(
+        'id'     => 'MLB-' . ( isset( $g['gamePk'] ) ? $g['gamePk'] : md5( $utc . wp_json_encode( $g['teams'] ?? array() ) ) ),
+        'league' => 'MLB',
+        'start'  => $ts ? gmdate( 'Y-m-d\TH:i:s\Z', $ts ) : null,
+        'date'   => $tag ? $tag : null,
+        'state'  => $final ? 'OFF' : 'FUT',
+        'type'   => $post ? 3 : 2,
+        'round'  => $post ? ( isset( $g['seriesDescription'] ) ? (string) $g['seriesDescription'] : 'Playoffs' ) : 'Hauptrunde',
+        // In der MLB wird fast täglich gespielt — deshalb nach Kalendertag gruppieren, wie bei der NHL.
+        'group'  => $tag,
+        'group_label' => '',
+        'home'   => $seite( isset( $g['teams']['home'] ) ? $g['teams']['home'] : array() ),
+        'away'   => $seite( isset( $g['teams']['away'] ) ? $g['teams']['away'] : array() ),
+        // Extra Innings sind das Gegenstück zur Verlängerung — hier nicht gesondert ausgewiesen.
+        'ot'     => false,
+        'final'  => $final,
+    );
 }
 
 /* ------------------------------------------------------------------------------------------------
@@ -2158,10 +2269,22 @@ function ftipp_hockey_sync( $trigger = 'cron' ) {
         if ( $full && $seasonStart ) {
             foreach ( $games as $id => $g ) { if ( 'NHL' === $g['league'] ) { unset( $games[ $id ] ); } }
             $d = $seasonStart; $komplett = false;
+            $fehlWochen = 0;
             for ( $i = 0; $i < 45 && $d; $i++ ) {
                 $w = ftipp_nhl_fetch( '/v1/schedule/' . $d );
                 $out['calls']++;
-                if ( ! $w['ok'] ) { $out['errors'][] = $d . ': ' . $w['error']; break; }
+                if ( ! $w['ok'] ) {
+                    // Eine einzelne Woche darf den Saison-Aufbau nicht abwürgen. Vorher brach die
+                    // Schleife hier ab, die Saison galt als unvollständig und der nächste Lauf begann
+                    // wieder von vorn — scheiterte dieselbe Woche erneut, kam die NHL NIE durch.
+                    // Jetzt wird die Woche übersprungen und um sieben Tage weitergesprungen.
+                    $out['errors'][] = $d . ': ' . $w['error'];
+                    $fehlWochen++;
+                    if ( $fehlWochen > 5 ) { break; }   // Notbremse bei anhaltendem Ausfall
+                    $d = gmdate( 'Y-m-d', strtotime( $d . ' +7 days' ) );
+                    if ( $seasonEnd && $d > $seasonEnd ) { break; }
+                    continue;
+                }
                 $take( $w['body'] );
                 $next = isset( $w['body']['nextStartDate'] ) ? $w['body']['nextStartDate'] : null;
                 if ( ! $next || $next === $d || ( $seasonEnd && $next > $seasonEnd ) ) { $komplett = true; break; }
@@ -2169,7 +2292,9 @@ function ftipp_hockey_sync( $trigger = 'cron' ) {
             }
             // Die Saison erst als geladen vermerken, wenn der Durchlauf wirklich bis zum Ende kam. Sonst
             // würde ein Abbruch mittendrin (Zeitlimit, Netzfehler) dauerhaft eine halbe Saison festschreiben.
-            if ( $komplett ) { update_option( 'ftipp_nhl_season', $seasonKey, false ); }
+            // Nur als vollständig geladen vermerken, wenn der Durchlauf wirklich bis zum Ende kam UND
+            // keine Woche fehlte — sonst holt der nächste Lauf die Lücken.
+            if ( $komplett && 0 === $fehlWochen ) { update_option( 'ftipp_nhl_season', $seasonKey, false ); }
             else { $out['errors'][] = 'NHL-Saison unvollständig geladen — wird beim nächsten Lauf fortgesetzt.'; }
         } else {
             $take( $meta );
@@ -2197,6 +2322,33 @@ function ftipp_hockey_sync( $trigger = 'cron' ) {
             $games[ $sh['id'] ] = $sh;
             if ( $sh['final'] && ! $hatteErgebnis ) { $resultsNew++; }
             $merged++;
+        }
+    }
+
+    // MLB: ein Aufruf deckt das ganze Datumsfenster ab.
+    if ( isset( ftipp_hockey_leagues()['MLB'] ) ) {
+        $mb = ftipp_mlb_fetch();
+        $out['calls']++;
+        if ( ! $mb['ok'] ) {
+            $out['errors'][] = 'MLB: ' . $mb['error'];
+        } else {
+            // Vor dem Ersetzen merken, welche Partien schon ein Ergebnis hatten — sonst zählte jeder
+            // Lauf das ganze Fenster erneut als "neue Ergebnisse".
+            $vorherMLB = array();
+            foreach ( $games as $gid => $g ) {
+                if ( 'MLB' === $g['league'] ) {
+                    if ( ! empty( $g['final'] ) ) { $vorherMLB[ $gid ] = true; }
+                    unset( $games[ $gid ] );
+                }
+            }
+            foreach ( $mb['games'] as $g ) {
+                $sh = ftipp_mlb_shape( $g );
+                if ( empty( $sh['start'] ) || '' === $sh['home']['name'] || '' === $sh['away']['name'] ) { continue; }
+                $hatteErgebnis = isset( $vorherMLB[ $sh['id'] ] );
+                $games[ $sh['id'] ] = $sh;
+                if ( $sh['final'] && ! $hatteErgebnis ) { $resultsNew++; }
+                $merged++;
+            }
         }
     }
 
@@ -2496,6 +2648,7 @@ function ftipp_hockey_special_title( $league ) {
         'NHL'  => 'Stanley-Cup-Sieger',
         'EL'   => 'EuroLeague-Sieger',
         'WNBA' => 'WNBA-Champion',
+        'MLB'  => 'World-Series-Sieger',
     );
     if ( isset( $eigen[ $league ] ) ) { return $eigen[ $league ]; }
     return ftipp_hockey_league_name( $league ) . '-Meister';
@@ -7490,7 +7643,7 @@ function ftipp_page_team_sport( $sport = 'ussport' ) {
     $meta = array(
         'ussport' => array(
             'titel'  => '🏈 US-Sport',
-            'text'   => 'Ergebnis-Tipp für NHL-Spiele. Datenquelle: <a href="https://api-web.nhle.com" target="_blank" rel="noopener">api-web.nhle.com</a> (kostenlos, kein Key nötig). Geladen werden Hauptrunde und Playoffs, keine Vorbereitungsspiele. Der Hub-Bereich „Eishockey" bleibt für die DEL und andere europäische Ligen frei.',
+            'text'   => 'Ergebnis-Tipp für NHL, MLB und WNBA. Datenquellen: <a href="https://api-web.nhle.com" target="_blank" rel="noopener">api-web.nhle.com</a> und <a href="https://statsapi.mlb.com" target="_blank" rel="noopener">statsapi.mlb.com</a> (beide offiziell, kostenlos, ohne Key), die WNBA über sportscore.com. Bei der NHL werden Hauptrunde und Playoffs geladen, keine Vorbereitungsspiele. Der Hub-Bereich „Eishockey" bleibt für die DEL und andere europäische Ligen frei, die Kachel „Baseball" für Ligen außerhalb der MLB.',
             'hinweis'=> 'Der erste Abruf lädt die komplette NHL-Saison (rund 30 Anfragen, etwa 10 Sekunden). Danach frischt der automatische Abruf alle 4 Stunden nur noch die laufende Woche und die Vorwoche auf.',
         ),
         'rugby' => array(

@@ -131,7 +131,7 @@ ohne Schlüssel). Selbst nachgemessen am 15.09.2026:
 
 | Quelle | Befund | füllt / ersetzt |
 |---|---|---|
-| **MLB** `statsapi.mlb.com` | ✅ offiziell, ohne Key. 103 Spiele in 8 Tagen, **56 von 56** vergangenen mit Endstand. | MLB-Lücke im US-Sport |
+| ~~**MLB** `statsapi.mlb.com`~~ **ERLEDIGT in v1.24.0** | ✅ offiziell, ohne Key. 103 Spiele in 8 Tagen, **56 von 56** vergangenen mit Endstand. | MLB-Lücke im US-Sport |
 | ~~**Serie A** `api-sdp.legaseriea.it`~~ **ERLEDIGT in v1.23.0** | ✅ **380 Partien der Saison in EINER Anfrage** (40 gespielt, 340 kommend), Opta-Daten vom Ligaverband, Teams/Tore/Status/Termine vollständig. Pfad: `/v1/serie-a/football/seasons/{seasonId}/matches`, Saison-Liste über die `competitions/.../seasons`-Route. | ersetzt Serie A bei SportScore (79 % Abweisungen) |
 | NBA `cdn.nba.com` | ⚠️ **HTTP 403 von hier** — vermutlich Sperre für diese Leitung, nicht generell. Vom WordPress-Server aus zu testen. | NBA-Lücke |
 | UFC `ufc.com/jsonapi` | ⚠️ **HTTP 302** von hier (Weiterleitung). Ebenfalls vom Server aus zu testen. | MMA-Kachel |
@@ -164,7 +164,7 @@ SportScore-Ligen ersetzen.
 |---|---|
 | **Eishockey** | Kachel ist da, aber **leer** — DEL und europäische Ligen fehlen. Wartet auf eine Quelle (TheSportsDB hätte sie). |
 | **EuroCup** | Läuft über dieselbe offizielle API wie die EuroLeague, 224 Spiele geprüft, ohne Frauen-Teams. Wäre ein Einzeiler in der Liga-Registry. Auf Wunsch des Nutzers zurückgestellt. |
-| **US-Sport** | NFL, MLB, NBA fehlen. |
+| **US-Sport** | NFL und NBA fehlen (MLB seit v1.24.0 drin). |
 | **Cricket** | Drin seit v1.22.0 — aber nur **ODI und T20**. Test-Partien bewusst ausgelassen (fünf Tage Spieldauer, häufige Unentschieden). Falls doch gewünscht, wäre ein eigener Wettbewerbs-Eintrag nötig. |
 | Baseball, Handball, Feldhockey, MMA, Volleyball | Kacheln im Hub vorhanden, noch nicht angebunden. |
 

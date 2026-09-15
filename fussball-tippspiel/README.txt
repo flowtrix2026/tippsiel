@@ -4,11 +4,11 @@ Tags: fussball, tippspiel, sport, community, bundesliga
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
-Stable tag: 1.23.0
+Stable tag: 1.24.0
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-Privates Tippspiel für deine Familie oder Freundesrunde — echtes WordPress-Login, eigene Tipprunden, automatischer Datenabruf. Fußball (19 Wettbewerbe), Formel 1, Tennis, US-Sport (NHL, WNBA), Basketball (EuroLeague, Liga ACB), Rugby (AFL), Sumo und Cricket.
+Privates Tippspiel für deine Familie oder Freundesrunde — echtes WordPress-Login, eigene Tipprunden, automatischer Datenabruf. Fußball (19 Wettbewerbe), Formel 1, Tennis, US-Sport (NHL, MLB, WNBA), Basketball (EuroLeague, Liga ACB), Rugby (AFL), Sumo und Cricket.
 
 == Description ==
 
@@ -19,7 +19,7 @@ Tippstube ist ein WordPress-Plugin für private Fußball-Tippspiele unter Famili
 * **19 Fußball-Wettbewerbe**: 1./2./3. Bundesliga, DFB-Pokal, Champions League, Europa League, Nations League, Premier League, LaLiga, Süper Lig, Serie A, Ligue 1, Frauen-Bundesliga, Regionalliga Nordost, Eredivisie, Primeira Liga, Saudi Pro League, Österreichische Bundesliga, Brasilianische Serie A
 * **Formel 1 (neu)**: Podium-Tipp — vor jedem Rennen Platz 1, 2 und 3 tippen, eigene Rangliste je Tipprunde, komplett unabhängig von Fußball aktivierbar; dazu eine Sonderwertung "Fahrer-Weltmeisterschaft" (wer wird Meister — Top 3 der Saison tippen, Punkte wie bei einem echten Rennen)
 * **Tennis (neu)**: Sieger-Tipp — wer gewinnt das Match? ATP & WTA Einzel (Hauptfeld), eine Karte je Match, ein Klick genügt; **eigene Rangliste je Turnier**, genau wie jeder Fußball-Wettbewerb seine eigene hat; dazu je Turnier eine Sonderwertung "Turniersieger"
-* **US-Sport (neu)**: NHL und WNBA — Ergebnis tippen exakt wie beim Fußball, komplette Saison inklusive Playoffs, nach Spieltagen sortiert; jede Liga mit eigener Rangliste (weitere Ligen wie die DEL lassen sich ergänzen); dazu die Sonderwertung "Stanley-Cup-Sieger"
+* **US-Sport (neu)**: NHL, MLB und WNBA — Ergebnis tippen exakt wie beim Fußball, komplette Saison inklusive Playoffs, nach Spieltagen sortiert; jede Liga mit eigener Rangliste (weitere Ligen wie die DEL lassen sich ergänzen); dazu die Sonderwertung "Stanley-Cup-Sieger"
 * **Rugby (neu)**: AFL (Australian Football) — Ergebnis tippen wie beim Fußball, komplette Saison bis zum Grand Final, nach Spielrunden sortiert
 * **Basketball (neu)**: Ergebnis-Tipp für EuroLeague und Liga ACB (Spanien); die WNBA liegt unter US-Sport. Die EuroLeague kommt von der offiziellen API des Veranstalters — ein Abruf lädt die komplette Saison mit echten Spieltagen („Runde 1" statt Kalendertag); ACB und WNBA über sportscore.com. Alles kostenlos und ohne Key
 * **Tabelle (neu)** in US-Sport, Rugby und Basketball: Spiele, Siege, Niederlagen, Punkte und Differenz je Liga, sortiert nach Siegquote — berechnet aus den geladenen Spielen, mit ehrlichem Hinweis, dass es nicht der amtliche Ligastand ist
@@ -39,7 +39,7 @@ Sieben Menüpunkte unter "Tippstube" im WordPress-Adminmenü:
 * **Tippstube** (die Hauptseite) — ein Tab je Sportart:
     * *Fußball* — Datenabruf der Fußball-Wettbewerbe, API-Football-Key, CSV-Import für Wettbewerbe ohne gute kostenlose Quelle
     * *Formel 1* — eigener, von Fußball unabhängiger Datenabruf (f1api.dev, kostenlos, kein Key nötig)
-    * *US-Sport* — Datenabruf der NHL über api-web.nhle.com und der WNBA über sportscore.com (beides kostenlos, ohne Key)
+    * *US-Sport* — Datenabruf der NHL über api-web.nhle.com und der MLB über statsapi.mlb.com (beides offiziell, kostenlos, ohne Key), die WNBA über sportscore.com
     * *Rugby* — Datenabruf der AFL über api.squiggle.com.au (kostenlos, ohne Key)
     * *Basketball* — EuroLeague über api-live.euroleague.net (offiziell, ein Abruf lädt die ganze Saison), Liga ACB über sportscore.com (tageweise in einem rollenden Fenster, gescheiterte Tage werden automatisch nachgeholt); beides kostenlos und ohne Key
     * *Sumo* — Datenabruf über sumo-api.com (kostenlos, ohne Key); zeigt das laufende Basho, die Kampftage und den Yusho (kostenlos, kein Key); erster Abruf lädt die ganze Saison, danach nur noch die laufende Woche
