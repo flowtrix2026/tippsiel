@@ -1872,11 +1872,13 @@ function mkNum(val,disabled,onchange){ const i=el(`<input type="number" min="0" 
 <div class="wrap">
   <div class="tabs">
     <div class="tab active" data-mode="crtippen" onclick="switchCricketMode('crtippen')">📝 Tippen</div>
+    <div class="tab" data-mode="crtabelle" onclick="switchCricketMode('crtabelle')">📊 Tabelle</div>
     <div class="tab" data-mode="crauswertung" onclick="switchCricketMode('crauswertung')">🏆 Auswertung</div>
     <div class="tab" data-mode="crsonder" onclick="switchCricketMode('crsonder')">⭐ Sonderwertungen</div>
     <div class="tab" data-mode="creinstellungen" onclick="switchCricketMode('creinstellungen')">⚙️ Einstellungen</div>
   </div>
   <section id="crmode-crtippen"></section>
+  <section id="crmode-crtabelle" style="display:none"></section>
   <section id="crmode-crauswertung" style="display:none"></section>
   <section id="crmode-crsonder" style="display:none"></section>
   <section id="crmode-creinstellungen" style="display:none"></section>
@@ -3016,10 +3018,11 @@ let crLeague = 'INT';
 
 function switchCricketMode(mode){
   document.querySelectorAll('#cricket-shell .tab').forEach(t=>t.classList.toggle('active', t.dataset.mode===mode));
-  ['crtippen','crauswertung','crsonder','creinstellungen'].forEach(m=>{
+  ['crtippen','crtabelle','crauswertung','crsonder','creinstellungen'].forEach(m=>{
     document.getElementById('crmode-'+m).style.display = (m===mode) ? '' : 'none';
   });
   if(mode==='crtippen') renderCricketTippen();
+  else if(mode==='crtabelle') renderCricketTabelle();
   else if(mode==='crauswertung') renderCricketAuswertung();
   else if(mode==='crsonder') renderCricketSonder();
   else renderCricketEinstellungen();
@@ -3123,6 +3126,41 @@ async function renderCricketTippen(){
   if(data.cfg && data.cfg.malusOn){
     box.appendChild(el(`<div class="warnbox">⚠️ Verpasste Partien geben <b>${data.cfg.malus} Punkt(e)</b> (Regel dieser Runde).</div>`));
   }
+}
+
+/* Tabelle eines Wettbewerbs. Bewusst OHNE Punktespalte: Cricket-Ergebnisse sind Runs und Wickets
+   ("225/1") und über Formate hinweg nicht vergleichbar. Gezählt werden Siege, Niederlagen, Siegquote. */
+async function renderCricketTabelle(){
+  const box = $('#crmode-crtabelle'); box.innerHTML='';
+  if(!cricketGuard(box)) return;
+  let data, matches;
+  try{
+    matches = await api_get(`cricket/matches?round=${currentRoundId}&league=${encodeURIComponent(crLeague)}`);
+    if(matches && matches.league) crLeague = matches.league;
+    data = await api_get(`cricket/table?round=${currentRoundId}&league=${encodeURIComponent(crLeague)}`);
+  }catch(e){ box.appendChild(el(`<div class="card"><div class="warnbox">⚠️ ${esc(e.message)}</div></div>`)); return; }
+
+  const ctrl = el('<div class="card"><div class="row"></div></div>');
+  ctrl.querySelector('.row').appendChild(mkCrLeagueSelect(matches && matches.leagues, renderCricketTabelle));
+  box.appendChild(ctrl);
+
+  if(!data.rows || !data.rows.length){
+    box.appendChild(el('<div class="card"><div class="hint">Noch keine gewerteten Partien — die Tabelle entsteht, sobald die ersten Ergebnisse da sind.</div></div>'));
+    return;
+  }
+  let html = `<div class="phase-h" style="margin-top:0">📊 ${esc(data.name)}</div>`;
+  html += '<table><thead><tr><th class="num">#</th><th>Mannschaft</th><th class="num">Sp</th><th class="num">S</th><th class="num">N</th><th class="num">Quote</th></tr></thead><tbody>';
+  data.rows.forEach((r,i)=>{
+    const c1 = i===0 ? 'rank1' : '';
+    const q  = r.sp ? Math.round(r.siege/r.sp*100) : 0;
+    html += `<tr><td class="num ${c1}">${i+1}</td><td class="${c1}">${esc(r.team)}</td><td class="num">${r.sp}</td><td class="num"><b>${r.siege}</b></td><td class="num">${r.nied}</td><td class="num">${q} %</td></tr>`;
+  });
+  html += '</tbody></table>';
+  html += `<div class="hint" style="margin-top:10px">Sortiert nach Siegquote. Berechnet aus <b>${data.gewertet}</b> gewerteten Partien, die in der Tippstube geladen sind — das ist nicht der amtliche Ligastand.`;
+  if(data.ohneSieger) html += ` ${data.ohneSieger} Partie(n) endeten ohne Sieger (Unentschieden, Tie oder Regenabbruch) und zählen für niemanden.`;
+  html += '</div>';
+  const karte = el('<div class="card"></div>'); karte.innerHTML = html;
+  box.appendChild(karte);
 }
 
 async function renderCricketAuswertung(){

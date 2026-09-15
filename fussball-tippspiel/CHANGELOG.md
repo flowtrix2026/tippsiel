@@ -3201,6 +3201,40 @@ aller Differenzen 0.
 
 `FTIPP_DB_VERSION` bleibt **22**.
 
+## v1.24.1 — Cricket: zwei Wettbewerbe waren unsichtbar, dazu die Tabelle
+
+- **Meldung:** „Nur Länderspiele, jetzt ein bisschen was drin." — und: „Da fehlt wieder die Tabelle."
+
+### Drei Gründe, warum nur Länderspiele kamen — zwei davon eigene Fehler
+
+1. **Die IPL wäre NIE gefunden worden.** Die Serienliste wurde vier Seiten tief durchsucht, also 100
+   Serien. Gemessen am 15.09.2026 stand die **Indian Premier League an Position 148**. Jetzt acht
+   Seiten (200 Serien); kostet einmal am Tag acht Abrufe.
+2. **The Hundred wurde aussortiert.** Die Vorprüfung verlangte in der Serien-Übersicht mindestens eine
+   ODI- oder T20-Partie. „The Hundred Men's Competition 2026" steht dort mit **0 ODI und 0 T20** —
+   obwohl der Detail-Abruf **34 Partien liefert, alle als `t20` eingetragen**, mit Ergebnissen. Die
+   Zähler der Übersicht sind unzuverlässig. Namentlich benannte Wettbewerbe werden jetzt immer
+   genommen; was zählt, entscheidet weiterhin die Prüfung an der einzelnen Partie. Der Zähler dient nur
+   noch als Vorsortierung bei der Länderspiel-Erkennung, um die vielen reinen Test-Serien herauszuhalten.
+3. **Big Bash ist schlicht noch nicht gelistet** — Saison Dezember bis Januar. Kein Fehler.
+
+Dazu: bei rund 31 beobachteten Serien holte ein Lauf nur acht im Detail, nach zwei Klicks war erst die
+Hälfte durch. Jetzt **zwölf je Lauf** — Rechnung: 8 Abrufe für die Serienliste (einmal täglich) plus
+4 Cron-Läufe à 12 = 56 von 80.
+
+### Neu: Tabelle im Cricket
+
+**Bewusst ohne Punktespalte.** Cricket-Ergebnisse sind Runs und Wickets („225/1") und über Formate
+hinweg nicht vergleichbar — eine Tordifferenz wie beim Fußball gibt es nicht. Gezählt werden Partien,
+Siege, Niederlagen und die **Siegquote**, danach wird sortiert. Partien ohne Sieger (Tie,
+Regenabbruch) zählen für niemanden und werden separat ausgewiesen.
+
+### Beim Nutzer bestätigt
+
+Nach dem Eintragen des Schlüssels: 31 Serien beobachtet, 35 Partien geladen (11 offen, 24
+entschieden), erste tippbare Partie **Indien – West Indies am 27.09.**, Tipps abgegeben. Die drei
+überfälligen Partien ohne Ergebnis wurden korrekt ausgeblendet und im Adminbereich vermerkt.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

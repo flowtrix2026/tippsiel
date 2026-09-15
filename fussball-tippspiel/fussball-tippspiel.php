@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL), Rugby (AFL) und Sumo, echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version: 1.24.0
+ * Version: 1.24.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.24.0' );
+define( 'FTIPP_VERSION', '1.24.1' );
 define( 'FTIPP_DB_VERSION', '22' );
 
 /**
@@ -3455,8 +3455,13 @@ function ftipp_tennis_compute_leaderboard( $round_id, $tournament = '' ) {
  * ============================================================================================= */
 
 if ( ! defined( 'FTIPP_CRICKET_DAILY_BUDGET' ) ) { define( 'FTIPP_CRICKET_DAILY_BUDGET', 80 ); }
-if ( ! defined( 'FTIPP_CRICKET_SERIES_PAGES' ) )   { define( 'FTIPP_CRICKET_SERIES_PAGES', 4 ); }
-if ( ! defined( 'FTIPP_CRICKET_SERIES_PER_RUN' ) ) { define( 'FTIPP_CRICKET_SERIES_PER_RUN', 8 ); }
+// Acht Seiten à 25, also 200 Serien. Vier reichten NICHT: die IPL stand bei der Messung am 15.09.2026
+// an Position 148 und wäre nie gefunden worden. Kostet einmal am Tag acht Abrufe.
+if ( ! defined( 'FTIPP_CRICKET_SERIES_PAGES' ) )   { define( 'FTIPP_CRICKET_SERIES_PAGES', 8 ); }
+// Zwoelf statt acht Serien je Lauf: bei rund 31 beobachteten Serien war nach zwei Klicks erst die
+// Haelfte im Detail geholt, und der Nutzer sah nur Laenderspiele. Rechnung: einmal taeglich 8 Abrufe
+// fuer die Serienliste plus 4 Cron-Laeufe a 12 = 56 von 80. Passt.
+if ( ! defined( 'FTIPP_CRICKET_SERIES_PER_RUN' ) ) { define( 'FTIPP_CRICKET_SERIES_PER_RUN', 12 ); }
 if ( ! defined( 'FTIPP_CRICKET_RETENTION_DAYS' ) ) { define( 'FTIPP_CRICKET_RETENTION_DAYS', 365 ); }
 
 function ftipp_cricket_api_key() { return trim( (string) get_option( 'ftipp_cricket_api_key', '' ) ); }
@@ -3651,15 +3656,22 @@ function ftipp_cricket_series_league( $serie ) {
     $name = strtolower( (string) ( isset( $serie['name'] ) ? $serie['name'] : '' ) );
     if ( '' === $name ) { return ''; }
     if ( false !== strpos( $name, 'women' ) || false !== strpos( $name, 'u19' ) || false !== strpos( $name, 'u23' ) ) { return ''; }
-    $odi = intval( isset( $serie['odi'] ) ? $serie['odi'] : 0 );
-    $t20 = intval( isset( $serie['t20'] ) ? $serie['t20'] : 0 );
-    if ( $odi + $t20 < 1 ) { return ''; }   // reine Test-Serien interessieren uns nicht
-
+    // Namentlich benannte Wettbewerbe werden IMMER genommen — ohne Rücksicht auf die ODI/T20-Zähler
+    // der Serien-Übersicht. Die sind unzuverlässig: "The Hundred Men's Competition 2026" stand dort mit
+    // 0 ODI und 0 T20, obwohl alle 34 Partien der Serie als `t20` eingetragen sind. Über den Zähler
+    // gefiltert wäre The Hundred still verschwunden. Was wirklich zählt, entscheidet später
+    // ftipp_cricket_league_of() an der einzelnen Partie.
     foreach ( ftipp_cricket_leagues() as $id => $l ) {
         foreach ( $l['match'] as $teil ) {
             if ( false !== strpos( $name, $teil ) ) { return $id; }
         }
     }
+
+    // Nur für die Länderspiel-Erkennung per Namensmuster ist der Zähler eine brauchbare Vorsortierung:
+    // er hält reine Test-Serien heraus, von denen es sehr viele gibt.
+    $odi = intval( isset( $serie['odi'] ) ? $serie['odi'] : 0 );
+    $t20 = intval( isset( $serie['t20'] ) ? $serie['t20'] : 0 );
+    if ( $odi + $t20 < 1 ) { return ''; }
     // Länderspiel-Serien erkennt man am Namensmuster; ob die Mannschaften wirklich bekannte Nationen
     // sind, entscheidet später ftipp_cricket_league_of() an der einzelnen Partie.
     foreach ( array( ' tour of ', 'world cup', 'champions trophy', 'asia cup', 'tri-series', 'tri series' ) as $teil ) {
@@ -3778,6 +3790,46 @@ function ftipp_cricket_ist_veraltet( $m ) {
     if ( null !== $m['winner'] ) { return false; }
     $ts = ! empty( $m['start'] ) ? strtotime( $m['start'] ) : 0;
     return ( $ts && $ts < ( time() - 3 * DAY_IN_SECONDS ) );
+}
+
+/**
+ * Tabelle eines Wettbewerbs, berechnet aus den Partien, die wir geladen haben.
+ * Anders als bei den Zwei-Mannschaften-Sportarten gibt es hier KEINE Punktespalte: Cricket-Ergebnisse
+ * sind Runs und Wickets ("225/1") und über Formate hinweg nicht vergleichbar. Gezählt werden deshalb
+ * Partien, Siege, Niederlagen und die Siegquote. Unentschiedene Partien (Tie, Regenabbruch) zählen
+ * für niemanden — sie stehen in einer eigenen Spalte.
+ */
+function ftipp_cricket_table( $league ) {
+    $zeilen = array(); $gewertet = 0; $ohne = 0;
+    $anlegen = function ( &$z, $name ) {
+        if ( ! isset( $z[ $name ] ) ) { $z[ $name ] = array( 'team' => $name, 'sp' => 0, 'siege' => 0, 'nied' => 0, 'ohne' => 0 ); }
+    };
+    foreach ( ftipp_cricket_games( $league ) as $g ) {
+        if ( null === $g['winner'] ) { continue; }
+        $t1 = $g['t1']['name']; $t2 = $g['t2']['name'];
+        if ( '' === $t1 || '' === $t2 ) { continue; }
+        $anlegen( $zeilen, $t1 ); $anlegen( $zeilen, $t2 );
+        if ( 0 === intval( $g['winner'] ) ) {
+            $zeilen[ $t1 ]['ohne']++; $zeilen[ $t2 ]['ohne']++; $ohne++;
+            continue;
+        }
+        $gewertet++;
+        $zeilen[ $t1 ]['sp']++; $zeilen[ $t2 ]['sp']++;
+        if ( 1 === intval( $g['winner'] ) ) { $zeilen[ $t1 ]['siege']++; $zeilen[ $t2 ]['nied']++; }
+        else                                { $zeilen[ $t2 ]['siege']++; $zeilen[ $t1 ]['nied']++; }
+    }
+    $zeilen = array_values( $zeilen );
+    usort( $zeilen, function ( $x, $y ) {
+        $qx = $x['sp'] ? $x['siege'] / $x['sp'] : 0;
+        $qy = $y['sp'] ? $y['siege'] / $y['sp'] : 0;
+        if ( $qx !== $qy ) { return $qy <=> $qx; }
+        if ( $x['siege'] !== $y['siege'] ) { return $y['siege'] <=> $x['siege']; }
+        return strcmp( $x['team'], $y['team'] );
+    } );
+    return array(
+        'league' => $league, 'name' => ftipp_cricket_league_name( $league ),
+        'gewertet' => $gewertet, 'ohneSieger' => $ohne, 'rows' => $zeilen,
+    );
 }
 
 /** Alle bekannten Partien einer Liga, aufsteigend nach Anwurf. */
@@ -6258,6 +6310,15 @@ add_action( 'rest_api_init', function () {
             $ligen = array();
             foreach ( ftipp_cricket_leagues() as $lid => $l ) { $ligen[] = array( 'id' => $lid, 'name' => $l['name'] ); }
             return array( 'matches' => $out, 'cfg' => $cfg, 'league' => $league, 'leagues' => $ligen );
+        },
+    ) );
+
+    register_rest_route( 'ftipp/v1', '/cricket/table', array(
+        'methods' => 'GET', 'permission_callback' => $auth,
+        'callback' => function ( $req ) {
+            $uid = get_current_user_id(); $rid = intval( $req->get_param( 'round' ) );
+            if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
+            return ftipp_cricket_table( ftipp_cricket_valid_league( $req->get_param( 'league' ) ) );
         },
     ) );
 
