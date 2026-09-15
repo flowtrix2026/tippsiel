@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL), Rugby (AFL) und Sumo, echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version: 1.22.0
+ * Version: 1.23.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.22.0' );
+define( 'FTIPP_VERSION', '1.23.0' );
 define( 'FTIPP_DB_VERSION', '22' );
 
 /**
@@ -905,7 +905,8 @@ function ftipp_fetch_espn_soccer( $slug, $season_start_year ) {
  */
 function ftipp_sportscore_map() {
     return array(
-        'ITA1' => 'italian-serie-a',
+        // 'ITA1' ist seit v1.23.0 an der offiziellen Ligaquelle (siehe ftipp_fetch_seriea) —
+        // eine Anfrage statt tageweisem Nachlauf gegen 79 % HTTP 503.
         'FRA1' => 'french-ligue-1',
         'TR1'  => 'turkish-super-league',
         'NED1' => 'netherlands-eredivisie',
@@ -963,6 +964,136 @@ function ftipp_fetch_sportscore_day( $slug, $date, $deadline = 0 ) {
         if ( $v < FTIPP_SPORTSCORE_TRIES ) { usleep( 400000 ); }
     }
     return array( 'ok' => false, 'error' => $letzter, 'matches' => array() );
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * Serie A über die offizielle Schnittstelle des Ligaverbands (api-sdp.legaseriea.it)
+ *
+ * EIN Aufruf liefert die komplette Saison — live gemessen am 15.09.2026: 380 Partien, davon 40
+ * gespielt und 340 kommend, mit Toren, Terminen, Status und echten Spieltagen ("Matchday 1"…"38").
+ * Die Daten kommen von Opta. Damit löst sie SportScore.com für diesen Wettbewerb ab, wo rund 79 %
+ * aller Anfragen mit HTTP 503 abgewiesen werden und der Spielplan sich tageweise vorarbeiten musste.
+ * ---------------------------------------------------------------------------------------------- */
+
+if ( ! defined( 'FTIPP_SERIEA_COMPETITION' ) ) {
+    define( 'FTIPP_SERIEA_COMPETITION', 'serie-a::Football_Competition::ec93b94f74294dc98ab5bcfd67fc0d88' );
+}
+
+function ftipp_seriea_get( $pfad ) {
+    $resp = wp_remote_get( 'https://api-sdp.legaseriea.it/v1/serie-a/football' . $pfad, array(
+        'timeout' => 25,
+        'headers' => array( 'User-Agent' => 'Tippstube/' . FTIPP_VERSION . ' (WordPress-Tippspiel; ' . get_bloginfo( 'url' ) . ')' ),
+    ) );
+    if ( is_wp_error( $resp ) ) { return array( 'ok' => false, 'error' => $resp->get_error_message(), 'body' => array() ); }
+    $code = (int) wp_remote_retrieve_response_code( $resp );
+    $body = json_decode( wp_remote_retrieve_body( $resp ), true );
+    if ( 200 !== $code || ! is_array( $body ) ) { return array( 'ok' => false, 'error' => 'HTTP ' . $code, 'body' => array() ); }
+    return array( 'ok' => true, 'error' => '', 'body' => $body );
+}
+
+/** Saison-Kennung für z.B. 2026 => "2026/2027". Wird gemerkt, damit nicht jeder Lauf die Liste holt. */
+function ftipp_seriea_season_id( $de_season ) {
+    $wunsch = $de_season . '/' . ( $de_season + 1 );
+    $cache  = get_option( 'ftipp_seriea_season', array() );
+    if ( is_array( $cache ) && ! empty( $cache['id'] ) && isset( $cache['name'] ) && $cache['name'] === $wunsch ) {
+        return $cache['id'];
+    }
+    $r = ftipp_seriea_get( '/competitions/' . FTIPP_SERIEA_COMPETITION . '/seasons' );
+    if ( ! $r['ok'] ) { return ''; }
+    foreach ( ( isset( $r['body']['seasons'] ) ? $r['body']['seasons'] : array() ) as $sea ) {
+        if ( isset( $sea['seasonName'] ) && $sea['seasonName'] === $wunsch && ! empty( $sea['seasonId'] ) ) {
+            update_option( 'ftipp_seriea_season', array( 'name' => $wunsch, 'id' => $sea['seasonId'] ), false );
+            return $sea['seasonId'];
+        }
+    }
+    return '';
+}
+
+/** Kompletter Spielplan der Serie A in unserer Fixture-Form. */
+function ftipp_fetch_seriea( $de_season ) {
+    $sid = ftipp_seriea_season_id( $de_season );
+    if ( '' === $sid ) { return array( 'ok' => false, 'error' => 'Saison ' . $de_season . '/' . ( $de_season + 1 ) . ' nicht gefunden', 'fixtures' => array() ); }
+    $r = ftipp_seriea_get( '/seasons/' . $sid . '/matches' );
+    if ( ! $r['ok'] ) { return array( 'ok' => false, 'error' => $r['error'], 'fixtures' => array() ); }
+
+    $rows = isset( $r['body']['matches'] ) ? $r['body']['matches'] : array();
+    $out  = array();
+    foreach ( $rows as $m ) {
+        if ( empty( $m['matchId'] ) || empty( $m['matchDateUtc'] ) ) { continue; }
+        $home = isset( $m['home'] ) ? $m['home'] : array();
+        $away = isset( $m['away'] ) ? $m['away'] : array();
+        $hn = isset( $home['officialName'] ) ? $home['officialName'] : ( isset( $home['shortName'] ) ? $home['shortName'] : '' );
+        $an = isset( $away['officialName'] ) ? $away['officialName'] : ( isset( $away['shortName'] ) ? $away['shortName'] : '' );
+        if ( '' === $hn || '' === $an ) { continue; }
+
+        $fertig = ( 'FINISHED' === ( isset( $m['status'] ) ? $m['status'] : '' ) );
+        $ts     = strtotime( $m['matchDateUtc'] );
+        // Echter Spieltag aus der Quelle statt chronologisch geschätzt wie bei ESPN/SportScore —
+        // die Quelle liefert ihn in matchSet.name als "Matchday 7" mit.
+        $runde  = 'Spieltag';
+        if ( isset( $m['matchSet']['name'] ) && preg_match( '/(\d+)/', (string) $m['matchSet']['name'], $tr ) ) {
+            $runde = 'Spieltag ' . intval( $tr[1] );
+        }
+        $out[] = array(
+            'id'      => 'seriea-' . $m['matchId'],
+            'round'   => $runde,
+            'date'    => $ts ? get_date_from_gmt( gmdate( 'Y-m-d H:i:s', $ts ), 'Y-m-d\TH:i' ) : '',
+            'home'    => $hn, 'away' => $an,
+            'hg'      => $fertig ? intval( isset( $m['homeScorePush'] ) ? $m['homeScorePush'] : 0 ) : null,
+            'ag'      => $fertig ? intval( isset( $m['awayScorePush'] ) ? $m['awayScorePush'] : 0 ) : null,
+            'status'  => $fertig ? 'FT' : 'NS',
+            'ko'      => false, 'decided' => null, 'winner' => null,
+        );
+    }
+    usort( $out, function ( $a, $b ) { return strcmp( $a['date'], $b['date'] ); } );
+    return array( 'ok' => true, 'error' => '', 'fixtures' => $out );
+}
+
+/**
+ * Einmaliger Umzug der Serie-A-Tipps von den alten SportScore-Spiel-IDs auf die neuen.
+ *
+ * Tipps hängen an (user_id, comp_id, fixture_id). Mit dem Quellenwechsel ändern sich die IDs von
+ * `sc-<hash>` auf `seriea-<matchId>` — ohne Umzug wären alle bisher abgegebenen Serie-A-Tipps
+ * verwaist und die dafür erspielten Punkte weg. Zugeordnet wird über Anstoßtag plus Mannschaften;
+ * die Namen unterscheiden sich zwischen den Quellen (z.B. "Inter" gegen "Internazionale"), deshalb
+ * wird auf Teilübereinstimmung geprüft. Was sich nicht zweifelsfrei zuordnen lässt, bleibt
+ * unangetastet — lieber eine verwaiste Zeile als ein Tipp am falschen Spiel.
+ */
+function ftipp_seriea_migrate_tips( $neu ) {
+    global $wpdb;
+    if ( get_option( 'ftipp_seriea_migrated' ) ) { return array( 'done' => true, 'moved' => 0, 'left' => 0 ); }
+
+    $cacheAll = get_option( 'ftipp_sportscore_cache', array() );
+    $alt = ( is_array( $cacheAll ) && isset( $cacheAll['ITA1']['fixtures'] ) ) ? $cacheAll['ITA1']['fixtures'] : array();
+    if ( ! $alt ) { update_option( 'ftipp_seriea_migrated', 1, false ); return array( 'done' => true, 'moved' => 0, 'left' => 0 ); }
+
+    $norm = function ( $s ) {
+        $s = strtolower( remove_accents( (string) $s ) );
+        return preg_replace( '/[^a-z]/', '', $s );
+    };
+    $passt = function ( $a, $b ) use ( $norm ) {
+        $a = $norm( $a ); $b = $norm( $b );
+        if ( '' === $a || '' === $b ) { return false; }
+        return ( $a === $b ) || ( strlen( $a ) >= 4 && false !== strpos( $b, $a ) ) || ( strlen( $b ) >= 4 && false !== strpos( $a, $b ) );
+    };
+
+    $moved = 0; $left = 0;
+    foreach ( $alt as $af ) {
+        $tag = substr( (string) $af['date'], 0, 10 );
+        $treffer = array();
+        foreach ( $neu as $nf ) {
+            if ( substr( (string) $nf['date'], 0, 10 ) !== $tag ) { continue; }
+            if ( $passt( $af['home'], $nf['home'] ) && $passt( $af['away'], $nf['away'] ) ) { $treffer[] = $nf; }
+        }
+        if ( 1 !== count( $treffer ) ) { $left++; continue; }   // nicht eindeutig -> Finger weg
+        $n = $wpdb->query( $wpdb->prepare(
+            "UPDATE {$wpdb->prefix}ftipp_tips SET fixture_id=%s WHERE comp_id='ITA1' AND fixture_id=%s",
+            $treffer[0]['id'], $af['id']
+        ) );
+        if ( $n ) { $moved += intval( $n ); }
+    }
+    update_option( 'ftipp_seriea_migrated', 1, false );
+    return array( 'done' => true, 'moved' => $moved, 'left' => $left );
 }
 
 /**
@@ -1133,6 +1264,22 @@ function ftipp_fetch_all( $trigger = 'cron' ) {
         } else {
             $errors[ $cid ] = $r['ok'] ? 'ESPN: keine Daten' : ( 'ESPN: ' . $r['error'] );
         }
+    }
+
+    // 1b2) Serie A über die offizielle Schnittstelle des Ligaverbands — eine Anfrage, ganze Saison,
+    //      echte Spieltage. Läuft vor SportScore, damit der Wettbewerb dort gar nicht erst anläuft.
+    $sa = ftipp_fetch_seriea( $de_season );
+    if ( $sa['ok'] && count( $sa['fixtures'] ) > 0 ) {
+        $all['ITA1'] = $sa['fixtures']; $counts['ITA1'] = count( $sa['fixtures'] );
+        $errors['ITA1'] = ''; $sources['ITA1'] = 'Lega Serie A (offiziell, ganze Saison)';
+        $um = ftipp_seriea_migrate_tips( $sa['fixtures'] );
+        if ( ! empty( $um['moved'] ) || ! empty( $um['left'] ) ) {
+            ftipp_log_history( 'seriea_migrate',
+                sprintf( 'Serie A auf die offizielle Quelle umgestellt: %d Tipps übernommen, %d Partien nicht eindeutig zuzuordnen.', $um['moved'], $um['left'] ),
+                'ITA1', '', null );
+        }
+    } else {
+        $errors['ITA1'] = 'Lega Serie A: ' . ( $sa['ok'] ? 'keine Daten' : $sa['error'] );
     }
 
     // 1c) Wettbewerbe ohne brauchbare OpenLigaDB-/ESPN-Quelle, aber mit SportScore.com-Abdeckung (siehe
@@ -7017,6 +7164,7 @@ function ftipp_page_history() {
         'sumo_manual_fetch' => '🤼⬇️ Sumo: Manueller Abruf',
         'cricket_cron_fetch' => '🏏⏱️ Cricket: Automatischer Abruf',
         'cricket_manual_fetch' => '🏏⬇️ Cricket: Manueller Abruf',
+        'seriea_migrate' => '⚽🔀 Serie A: Quellenwechsel',
         'csv_import'    => '📄 CSV-Import',
         'test_fixtures' => '🎲 Test-Spiele',
         'restore'       => '💾 Sicherung wiederhergestellt',

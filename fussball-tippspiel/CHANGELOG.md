@@ -3093,6 +3093,59 @@ Ergebnis in der Quelle und hätten sonst für immer in der Tippliste gehangen.
 
 **Erster echter Tipp-Termin:** die ODI-Serie **Indien gegen West Indies ab 27.09.2026**.
 
+## v1.23.0 — Serie A auf die offizielle Ligaquelle
+
+- **Auslöser:** Über das Verzeichnis `github.com/DanielTomaro13/sportsdata-mcp` (64 Anbieter, 44 ohne
+  Schlüssel) auf `api-sdp.legaseriea.it` gestoßen — die öffentliche Schnittstelle des Ligaverbands.
+  Der Nutzer: „Willkommen bei Serie A."
+
+### Der Vergleich, gemessen
+
+| | SportScore.com (bisher) | Lega Serie A (jetzt) |
+|---|---|---|
+| Saison laden | tageweise, ~200 Anfragen | **1 Anfrage, 0,4 Sekunden** |
+| Abweisungsquote | 79 % (HTTP 503) | 0 % |
+| Spieltage | chronologisch **geschätzt** | **echt aus der Quelle** („Matchday 7") |
+| Datenherkunft | Drittanbieter | **Opta, über den Ligaverband** |
+
+Nachgeprüft: 380 Partien, 40 gespielt, 340 kommend, 38 Spieltage, 380 eindeutige IDs, keine einzige
+ohne Datum. Der zweite Lauf braucht nur noch **eine** Anfrage, weil die Saison-Kennung gemerkt wird.
+
+### Der heikle Teil: die Tipps
+
+Tipps hängen an `(user_id, comp_id, fixture_id)`. Mit dem Quellenwechsel ändern sich die Spiel-IDs von
+`sc-<hash>` auf `seriea-<matchId>` — **ohne Umzug wären alle bisher abgegebenen Serie-A-Tipps verwaist
+und die dafür erspielten Punkte weg.**
+
+`ftipp_seriea_migrate_tips()` zieht sie einmalig um. Zugeordnet wird über **Anstoßtag plus beide
+Mannschaften**; weil die Namen sich zwischen den Quellen unterscheiden, wird auf Teilübereinstimmung
+geprüft. **Was sich nicht zweifelsfrei zuordnen lässt, bleibt unangetastet** — lieber eine verwaiste
+Zeile als ein Tipp am falschen Spiel. Das Ergebnis landet im Verlauf.
+
+Isoliert getestet mit genau den Namensvarianten, die in freier Wildbahn vorkommen:
+*Inter → Internazionale*, *AC Milan → Milan*, *Verona → Hellas Verona*, *AS Roma → Roma*,
+*SS Lazio → Lazio*. Alle fünf korrekt zugeordnet, die Partie ohne Gegenstück korrekt in Ruhe gelassen,
+der zweite Aufruf tut nichts mehr.
+
+### Geprüft
+
+- `php -l` sauber.
+- Abruf gegen die echte Ligaquelle (Zahlen oben), inklusive Gegenprobe, dass der zweite Lauf die
+  Saison-Kennung aus dem Zwischenspeicher nimmt.
+- Isolierter Test des Tipp-Umzugs mit Fake-Datenbank: 5 von 5 richtig, 1 korrekt ausgelassen,
+  Wiederholungslauf ohne Wirkung.
+
+### Nebenbei bestätigt
+
+Dasselbe Verzeichnis empfiehlt als Gratis-Quellen **EuroLeague, NHL, OpenLigaDB und Squiggle** — also
+genau die vier, die wir schon nutzen. Und es hat eine weitere baureife Quelle geliefert:
+**`statsapi.mlb.com`**, offiziell und ohne Schlüssel, live gemessen mit 56 von 56 vergangenen Spielen
+samt Endstand. Steht als nächster Kandidat in `VERBESSERUNGEN.md`.
+
+### Keine Schema-Änderung
+
+`FTIPP_DB_VERSION` bleibt **22**.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

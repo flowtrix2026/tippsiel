@@ -45,8 +45,8 @@ realistischste Weg inzwischen TheSportsDB (siehe 1.7).
 
 ### 1.2 Acht Fußball-Wettbewerbe hängen an derselben Quelle — MITTEL
 
-Serie A, Ligue 1, Eredivisie, Süper Lig, Primeira Liga, Saudi Professional League, Österreich und
-Brasilien laufen über sportscore.com und sind vom selben 79-%-Problem betroffen. Seit v1.20.0 mit
+Ligue 1, Eredivisie, Süper Lig, Primeira Liga, Saudi Professional League, Österreich und Brasilien
+laufen über sportscore.com (Serie A ist seit v1.23.0 an der offiziellen Ligaquelle) und sind vom selben 79-%-Problem betroffen. Seit v1.20.0 mit
 Wiederholungen und Zeitlimit, aber der Saison-Nachlauf bleibt langsam.
 
 **Offen:** Für jede dieser Ligen prüfen, ob es eine offizielle oder verlässlichere Gratis-Quelle gibt —
@@ -132,7 +132,7 @@ ohne Schlüssel). Selbst nachgemessen am 15.09.2026:
 | Quelle | Befund | füllt / ersetzt |
 |---|---|---|
 | **MLB** `statsapi.mlb.com` | ✅ offiziell, ohne Key. 103 Spiele in 8 Tagen, **56 von 56** vergangenen mit Endstand. | MLB-Lücke im US-Sport |
-| **Serie A** `api-sdp.legaseriea.it` | ✅ **380 Partien der Saison in EINER Anfrage** (40 gespielt, 340 kommend), Opta-Daten vom Ligaverband, Teams/Tore/Status/Termine vollständig. Pfad: `/v1/serie-a/football/seasons/{seasonId}/matches`, Saison-Liste über die `competitions/.../seasons`-Route. | ersetzt Serie A bei SportScore (79 % Abweisungen) |
+| ~~**Serie A** `api-sdp.legaseriea.it`~~ **ERLEDIGT in v1.23.0** | ✅ **380 Partien der Saison in EINER Anfrage** (40 gespielt, 340 kommend), Opta-Daten vom Ligaverband, Teams/Tore/Status/Termine vollständig. Pfad: `/v1/serie-a/football/seasons/{seasonId}/matches`, Saison-Liste über die `competitions/.../seasons`-Route. | ersetzt Serie A bei SportScore (79 % Abweisungen) |
 | NBA `cdn.nba.com` | ⚠️ **HTTP 403 von hier** — vermutlich Sperre für diese Leitung, nicht generell. Vom WordPress-Server aus zu testen. | NBA-Lücke |
 | UFC `ufc.com/jsonapi` | ⚠️ **HTTP 302** von hier (Weiterleitung). Ebenfalls vom Server aus zu testen. | MMA-Kachel |
 
