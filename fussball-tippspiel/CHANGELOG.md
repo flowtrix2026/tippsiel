@@ -3366,6 +3366,28 @@ Wenn jemand zum zweiten Mal nach etwas fragt, das es angeblich schon gibt, ist d
 Erklärung — sondern nachzusehen, warum er es nicht findet. Zweimal erklärt statt einmal hingeschaut,
 das hat Zeit gekostet.
 
+## v1.26.2 — Kein Aufklapper mehr: die Korrekturliste steht einfach da
+
+- **Meldung:** „Ich habe nichts, wo ich draufklicken kann." — trotz sichtbarer Schaltfläche im
+  Screenshot des Nutzers.
+
+### Was ich falsch gemacht hatte
+
+Mein Test in v1.26.1 hatte den Aufklapper **per Code** geöffnet (`details.open = true`) und daraus
+geschlossen, er funktioniere. Einen echten Klick hatte ich nie ausgelöst. Das nachgeholt: ein echter
+Klick **funktioniert** — `open` springt von false auf true, alle drei Mitglieder erscheinen. Der Fall
+des Nutzers ließ sich also nicht nachstellen.
+
+### Die Konsequenz
+
+Statt weiter zu raten, warum es bei ihm nicht geht: **den Aufklapper ganz weglassen.** Die Liste steht
+jetzt einfach unter jeder Sonderwertung, sobald man Runden-Admin ist — mit Überschrift
+„✏️ Tipps aller Mitspieler", einer Zeile je Mitglied und einem Textfeld, in dem „noch kein Tipp" steht,
+wenn jemand nichts eingetragen hat. Kein Klick, kein Suchen, nichts zum Übersehen.
+
+Das ist die dritte Runde an derselben Frage. Ein Bedienelement, das dreimal erklärt werden muss, ist
+das falsche Bedienelement — auch wenn es technisch funktioniert.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

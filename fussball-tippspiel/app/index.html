@@ -1280,39 +1280,41 @@ async function renderSonderConnected(){
     }
 
     if(round.is_admin){
-      const tipsDet=el(`<details style="margin-top:8px"></details>`);
-      // Deutlich als Schaltfläche erkennbar: der frühere schlichte Text wurde für eine Überschrift
-      // gehalten, obwohl er der einzige Weg ist, Tipps anderer nachzutragen.
-      tipsDet.appendChild(el(`<summary style="cursor:pointer;display:inline-block;padding:6px 11px;border:1px solid var(--line);border-radius:8px;background:#122416">✏️ Tipps aller Mitspieler ändern oder nachtragen — auch nach Fristende ▾</summary>`));
-      const tipsBody=el(`<div style="margin-top:8px"></div>`);
-      tipsDet.appendChild(tipsBody);
-      let loaded=false;
-      tipsDet.addEventListener('toggle', async()=>{
-        if(!tipsDet.open || loaded) return;
-        loaded=true;
-        tipsBody.innerHTML='<div class="meta">Lädt…</div>';
+      /* Bewusst OHNE Aufklapper: Der Nutzer fand den Knopf nicht bzw. bei ihm tat sich beim Klick
+         nichts — nachstellen liess sich das nicht. Statt weiter zu raten steht die Liste jetzt
+         einfach da. Sie erscheint nur beim Runden-Admin und nur, wenn es etwas zu korrigieren gibt. */
+      const tipsBox = el('<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px"></div>');
+      tipsBox.appendChild(el('<div class="row" style="margin-bottom:6px"><b>✏️ Tipps aller Mitspieler</b><span class="meta">ändern oder nachtragen — auch nach Fristende</span></div>'));
+      const tipsBody = el('<div class="meta">Lädt…</div>');
+      tipsBox.appendChild(tipsBody);
+      card.appendChild(tipsBox);
+      (async ()=>{
         try{
-          const res=await api_get('special/'+b.id+'/tipps');
-          const list=res.tipps||[];
+          const res = await api_get('special/'+b.id+'/tipps');
+          const list = res.tipps||[];
           tipsBody.innerHTML='';
-          if(!list.length){ tipsBody.appendChild(el(`<div class="meta">Noch keine Mitglieder.</div>`)); }
+          if(!list.length){ tipsBody.appendChild(el('<div class="meta">Noch keine Mitglieder in dieser Runde.</div>')); return; }
           list.forEach(t=>{
-            const row=el(`<div class="row" style="border-bottom:1px solid var(--line);padding:6px 0"></div>`);
+            const row=el('<div class="row" style="border-bottom:1px solid var(--line);padding:6px 0"></div>');
             row.appendChild(el(`<div style="min-width:110px"><b>${esc(t.name)}</b>${t.committed?' <span class="pill good" style="font-size:10px">fix</span>':''}</div>`));
-            const valInp=el(`<input type="text" value="${esc(t.value||'')}" placeholder="—" style="min-width:150px">`);
-            valInp.onchange=async()=>{ try{ await api_post('special/'+b.id+'/tipps/'+t.user_id+'/override', {value: valInp.value}); }catch(e){ alert(e.message); } };
+            const valInp=el(`<input type="text" value="${esc(t.value||'')}" placeholder="noch kein Tipp" style="min-width:150px">`);
+            const merk=el('<span class="meta"></span>');
+            valInp.onchange=async()=>{
+              merk.textContent='…';
+              try{ await api_post('special/'+b.id+'/tipps/'+t.user_id+'/override', {value: valInp.value}); merk.textContent='gespeichert'; }
+              catch(e){ merk.textContent=''; alert(e.message); }
+            };
             row.appendChild(valInp);
             const curVal=t.override===true?'1':(t.override===false?'0':'');
-            const sel=mkSelect('', [{v:'',label:'Automatisch (Textvergleich)'},{v:'1',label:'✅ zählt trotzdem als richtig'},{v:'0',label:'❌ zählt trotzdem als falsch'}], curVal, async v=>{
+            row.appendChild(mkSelect('', [{v:'',label:'Automatisch (Textvergleich)'},{v:'1',label:'✅ zählt trotzdem als richtig'},{v:'0',label:'❌ zählt trotzdem als falsch'}], curVal, async v=>{
               try{ await api_post('special/'+b.id+'/tipps/'+t.user_id+'/override', {override: v===''?null:(v==='1')}); }
               catch(e){ alert(e.message); }
-            });
-            row.appendChild(sel);
+            }));
+            row.appendChild(merk);
             tipsBody.appendChild(row);
           });
         }catch(e){ tipsBody.innerHTML=`<div class="warnbox">Fehler: ${esc(e.message)}</div>`; }
-      });
-      card.appendChild(tipsDet);
+      })();
     }
     box.appendChild(card);
   });
