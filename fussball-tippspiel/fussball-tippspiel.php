@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL), Rugby (AFL) und Sumo, echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version: 1.25.0
+ * Version: 1.26.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.25.0' );
+define( 'FTIPP_VERSION', '1.26.0' );
 define( 'FTIPP_DB_VERSION', '22' );
 
 /**
@@ -1297,6 +1297,13 @@ function ftipp_fetch_all( $trigger = 'cron' ) {
         }
     } else {
         $errors['ITA1'] = 'Lega Serie A: ' . ( $sa['ok'] ? 'keine Daten' : $sa['error'] );
+    }
+
+    // 1b3) Nations League: echter Spielplan aus der Quelle. Schreibt in ftipp_manual_fixtures['NL'] und
+    //      ersetzt damit die früher von Hand gepflegte CSV (siehe ftipp_nl_sync).
+    if ( microtime( true ) < $deadlineAll ) {
+        $nl = ftipp_nl_sync( $trigger );
+        if ( ! $nl['ok'] && $nl['errors'] ) { $errors['NL'] = 'Nations League: ' . $nl['errors'][0]; }
     }
 
     // 1c) Wettbewerbe ohne brauchbare OpenLigaDB-/ESPN-Quelle, aber mit SportScore.com-Abdeckung (siehe
@@ -4034,6 +4041,203 @@ add_action( 'admin_post_ftipp_demo', function () {
     wp_safe_redirect( add_query_arg( array( 'page' => 'ftipp', 'ftipp_demo_done' => '1' ), admin_url( 'admin.php' ) ) );
     exit;
 } );
+
+/* ------------------------------------------------------------------------------------------------
+ * Nations League: echter Spielplan aus der Quelle statt handgepflegter CSV
+ *
+ * Zweck: Ergebnisse automatisch nachladen, statt sie von Hand per CSV zu pflegen.
+ *
+ * WICHTIG, teuer gelernt: Der Tagesabruf MUSS mit competition=uefa-nations-league erfolgen. Ohne
+ * diesen Filter liefert die Quelle fuer denselben Tag unvollstaendige Daten — am 27.09.2026 gemessen:
+ * mit Filter 8 Partien (inklusive Deutschland gegen Griechenland), ohne Filter null. Eine Analyse ohne
+ * Filter fuehrte zu dem Fehlschluss, der bestehende Spielplan sei erfunden; mit Filter bestaetigten
+ * sich 155 von 156 Partien. Einzige Abweichung: Gibraltar gegen Malta liegt laut Quelle am 15.11.,
+ * in der CSV am 16.11.
+ *
+ * Zwei Dinge liefert die Quelle NICHT, deshalb machen wir sie selbst:
+ *   - die Einteilung in Liga A/B/C/D  -> aus den bisherigen Eintraegen abgeleitet und gemerkt
+ *   - die Spieltags-Nummer            -> aus den bisherigen Eintraegen uebernommen (die Nummerierung
+ *     der CSV ist die richtige), nur fuer wirklich neue Paarungen ersatzweise abgeleitet
+ *
+ * Die Spiel-IDs folgen bewusst exakt der Formel des CSV-Imports (comp|heim|auswärts|datum). Dadurch
+ * behalten Partien, die schon getippt wurden, ihre Kennung — die acht Tipps von Spieltag 1 bleiben
+ * ohne Umzug erhalten.
+ * ---------------------------------------------------------------------------------------------- */
+
+/** Englischer Name der Quelle => deutscher Name, wie er in der App steht. Live gegengeprüft: 54 zu 54. */
+function ftipp_nl_team_map() {
+    return array(
+        'Albania' => 'Albanien', 'Andorra' => 'Andorra', 'Armenia' => 'Armenien', 'Austria' => 'Österreich',
+        'Azerbaijan' => 'Aserbaidschan', 'Belarus' => 'Belarus', 'Belgium' => 'Belgien',
+        'Bosnia and Herzegovina' => 'Bosnien-Herzegowina', 'Bulgaria' => 'Bulgarien', 'Croatia' => 'Kroatien',
+        'Cyprus' => 'Zypern', 'Czechia' => 'Tschechien', 'Denmark' => 'Dänemark', 'England' => 'England',
+        'Estonia' => 'Estland', 'Faroe Islands' => 'Färöer', 'Finland' => 'Finnland', 'France' => 'Frankreich',
+        'Georgia' => 'Georgien', 'Germany' => 'Deutschland', 'Gibraltar' => 'Gibraltar', 'Greece' => 'Griechenland',
+        'Hungary' => 'Ungarn', 'Iceland' => 'Island', 'Ireland' => 'Irland', 'Israel' => 'Israel',
+        'Italy' => 'Italien', 'Kazakhstan' => 'Kasachstan', 'Kosovo' => 'Kosovo', 'Latvia' => 'Lettland',
+        'Liechtenstein' => 'Liechtenstein', 'Lithuania' => 'Litauen', 'Luxembourg' => 'Luxemburg',
+        'Malta' => 'Malta', 'Moldova' => 'Moldau', 'Montenegro' => 'Montenegro', 'Netherlands' => 'Niederlande',
+        'North Macedonia' => 'Nordmazedonien', 'Northern Ireland' => 'Nordirland', 'Norway' => 'Norwegen',
+        'Poland' => 'Polen', 'Portugal' => 'Portugal', 'Romania' => 'Rumänien', 'San Marino' => 'San Marino',
+        'Scotland' => 'Schottland', 'Serbia' => 'Serbien', 'Slovakia' => 'Slowakei', 'Slovenia' => 'Slowenien',
+        'Spain' => 'Spanien', 'Sweden' => 'Schweden', 'Switzerland' => 'Schweiz', 'Turkiye' => 'Türkei',
+        'Ukraine' => 'Ukraine', 'Wales' => 'Wales',
+    );
+}
+
+/**
+ * Welche Mannschaft spielt in welcher Liga (A/B/C/D)?
+ * Wird aus den vorhandenen Einträgen abgeleitet und gemerkt, damit die Zuordnung auch dann noch steht,
+ * wenn der Spielplan gleich durch den echten ersetzt wird.
+ */
+function ftipp_nl_liga_map() {
+    $gemerkt = get_option( 'ftipp_nl_ligen', array() );
+    $manual  = get_option( 'ftipp_manual_fixtures', array() );
+    $aus     = isset( $manual['NL'] ) && is_array( $manual['NL'] ) ? $manual['NL'] : array();
+    $map = is_array( $gemerkt ) ? $gemerkt : array();
+    foreach ( $aus as $f ) {
+        if ( ! preg_match( '/^(Liga [ABCD])/', (string) $f['round'], $t ) ) { continue; }
+        $map[ $f['home'] ] = $t[1];
+        $map[ $f['away'] ] = $t[1];
+    }
+    if ( $map && $map !== $gemerkt ) { update_option( 'ftipp_nl_ligen', $map, false ); }
+    return $map;
+}
+
+/**
+ * Bisherige Spieltags-Bezeichnungen, nach Paarung. Wird gemerkt, damit die Nummerierung des
+ * bestehenden Spielplans erhalten bleibt, auch nachdem er durch die Quelle ersetzt wurde.
+ */
+function ftipp_nl_runden_map() {
+    $gemerkt = get_option( 'ftipp_nl_runden', array() );
+    if ( ! is_array( $gemerkt ) ) { $gemerkt = array(); }
+    $manual = get_option( 'ftipp_manual_fixtures', array() );
+    $aus = isset( $manual['NL'] ) && is_array( $manual['NL'] ) ? $manual['NL'] : array();
+    $map = $gemerkt;
+    foreach ( $aus as $f ) {
+        if ( ! preg_match( '/^Liga [ABCD] - Spieltag \d+$/', (string) $f['round'] ) ) { continue; }
+        $map[ mb_strtolower( $f['home'] ) . '|' . mb_strtolower( $f['away'] ) ] = $f['round'];
+    }
+    if ( $map && $map !== $gemerkt ) { update_option( 'ftipp_nl_runden', $map, false ); }
+    return $map;
+}
+
+/** Spiel-ID exakt nach der Formel des CSV-Imports — damit bereits abgegebene Tipps dranbleiben. */
+function ftipp_nl_fixture_id( $heim, $ausw, $ts ) {
+    $key = 'NL|' . mb_strtolower( $heim ) . '|' . mb_strtolower( $ausw ) . '|' . gmdate( 'Y-m-d', $ts );
+    return 'csv-' . substr( md5( $key ), 0, 16 );
+}
+
+/**
+ * Spielplan und Ergebnisse der Nations League abrufen.
+ * Tageweise wie beim übrigen SportScore-Abruf, mit Fortschritts-Zeiger und Zeitlimit — die Quelle weist
+ * rund 79 % der Anfragen ab, deshalb dieselbe Vorsicht wie beim Basketball.
+ */
+function ftipp_nl_sync( $trigger = 'cron' ) {
+    $out = array( 'ok' => false, 'matches' => 0, 'days' => 0, 'errors' => array() );
+    $deadline = microtime( true ) + ( 'manual' === $trigger ? 25 : 12 );
+
+    $liga   = ftipp_nl_liga_map();          // vor dem Ersetzen sichern
+    $namen  = ftipp_nl_team_map();
+    $runden = ftipp_nl_runden_map();        // Paarung => Liga + Spieltag
+
+    $cache = get_option( 'ftipp_nl_cache', array() );
+    if ( ! is_array( $cache ) ) { $cache = array( 'fixtures' => array(), 'retry' => array(), 'cursor' => '' ); }
+    foreach ( array( 'fixtures', 'retry' ) as $k ) { if ( ! isset( $cache[ $k ] ) || ! is_array( $cache[ $k ] ) ) { $cache[ $k ] = array(); } }
+
+    // Tage mit noch offenem Ergebnis, deren Anpfiff vorbei ist — nur so kommen Ergebnisse rein.
+    $jetzt = time(); $nach = array();
+    foreach ( $cache['fixtures'] as $f ) {
+        if ( 'FT' === $f['status'] ) { continue; }
+        $ts = strtotime( $f['date'] );
+        if ( $ts && $ts < $jetzt ) { $nach[ substr( $f['date'], 0, 10 ) ] = true; }
+    }
+    // Neue Tage ab dem Zeiger. Fenster: gut einen Monat zurück bis gut zwei Monate voraus — das deckt
+    // die Länderspiel-Fenster September bis November ab.
+    $start = gmdate( 'Y-m-d', $jetzt - 40 * DAY_IN_SECONDS );
+    $ende  = gmdate( 'Y-m-d', $jetzt + 70 * DAY_IN_SECONDS );
+    $cur = (string) ( isset( $cache['cursor'] ) ? $cache['cursor'] : '' );
+    if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $cur ) || strtotime( $cur ) < strtotime( $start ) ) { $cur = $start; }
+    $neu = array(); $d = $cur;
+    for ( $i = 0; $i < 25 && strtotime( $d ) <= strtotime( $ende ); $i++ ) {
+        $neu[] = $d; $d = gmdate( 'Y-m-d', strtotime( $d . ' +1 day' ) );
+    }
+    $cache['cursor'] = $d;
+
+    $tage = array_values( array_unique( array_merge( array_keys( $cache['retry'] ), array_keys( $nach ), $neu ) ) );
+    foreach ( $tage as $nr => $tag ) {
+        if ( microtime( true ) >= $deadline ) {
+            foreach ( array_slice( $tage, $nr ) as $rest ) { $cache['retry'][ $rest ] = true; }
+            break;
+        }
+        $r = ftipp_fetch_sportscore_day( 'uefa-nations-league', $tag, $deadline );
+        if ( ! $r['ok'] ) { $cache['retry'][ $tag ] = true; $out['errors'][] = $tag . ': ' . $r['error']; continue; }
+        unset( $cache['retry'][ $tag ] );
+        $out['days']++;
+
+        // Alle bisher bekannten Partien dieses Tages verwerfen und neu setzen.
+        $cache['fixtures'] = array_values( array_filter( $cache['fixtures'], function ( $f ) use ( $tag ) {
+            return substr( $f['date'], 0, 10 ) !== $tag;
+        } ) );
+        foreach ( $r['matches'] as $m ) {
+            $h = isset( $namen[ $m['home'] ] ) ? $namen[ $m['home'] ] : null;
+            $a = isset( $namen[ $m['away'] ] ) ? $namen[ $m['away'] ] : null;
+            // Unbekannte Mannschaft: lieber auslassen als unter falschem Namen führen — sonst passt die
+            // Liga-Zuordnung nicht und ein bereits abgegebener Tipp fände sein Spiel nicht wieder.
+            if ( null === $h || null === $a ) { $out['errors'][] = 'Unbekannte Mannschaft: ' . $m['home'] . ' / ' . $m['away']; continue; }
+            $fertig = ( 'finished' === $m['status'] );
+            $ts = isset( $m['time'] ) ? strtotime( $m['time'] ) : false;
+            if ( ! $ts ) { continue; }
+            $paar = mb_strtolower( $h ) . '|' . mb_strtolower( $a );
+            $cache['fixtures'][] = array(
+                'id'     => ftipp_nl_fixture_id( $h, $a, $ts ),
+                // Bezeichnung aus dem bisherigen Spielplan uebernehmen — dessen Spieltags-Nummerierung
+                // ist die richtige. Nur fuer unbekannte Paarungen ersatzweise die Liga ohne Nummer.
+                'round'  => isset( $runden[ $paar ] ) ? $runden[ $paar ] : ( ( isset( $liga[ $h ] ) ? $liga[ $h ] : 'Liga ?' ) . ' - Spieltag ?' ),
+                'date'   => get_date_from_gmt( gmdate( 'Y-m-d H:i:s', $ts ), 'Y-m-d\TH:i' ),
+                'home'   => $h, 'away' => $a,
+                'hg'     => $fertig ? intval( $m['home_score'] ) : null,
+                'ag'     => $fertig ? intval( $m['away_score'] ) : null,
+                'status' => $fertig ? 'FT' : 'NS',
+                'ko'     => false, 'decided' => null, 'winner' => null,
+            );
+            $out['matches']++;
+        }
+    }
+    if ( count( $cache['retry'] ) > 40 ) { $cache['retry'] = array_slice( $cache['retry'], 0, 40, true ); }
+
+    // Paarungen ohne bekannte Bezeichnung an einem Spiel derselben Liga am selben Tag orientieren —
+    // so bekommt z.B. eine um einen Tag verschobene Partie trotzdem ihren richtigen Spieltag.
+    $nachTag = array();
+    foreach ( $cache['fixtures'] as $f ) {
+        if ( false === strpos( $f['round'], 'Spieltag ?' ) ) {
+            $nachTag[ substr( $f['date'], 0, 10 ) . '|' . substr( $f['round'], 0, 6 ) ] = $f['round'];
+        }
+    }
+    foreach ( $cache['fixtures'] as $i2 => $f ) {
+        if ( false === strpos( $f['round'], 'Spieltag ?' ) ) { continue; }
+        $k = substr( $f['date'], 0, 10 ) . '|' . substr( $f['round'], 0, 6 );
+        if ( isset( $nachTag[ $k ] ) ) { $cache['fixtures'][ $i2 ]['round'] = $nachTag[ $k ]; }
+    }
+
+    update_option( 'ftipp_nl_cache', $cache, false );
+
+    // Erst wenn wirklich Partien vorliegen, den bisherigen (teils erfundenen) Spielplan ersetzen.
+    if ( count( $cache['fixtures'] ) >= 8 ) {
+        $manual = get_option( 'ftipp_manual_fixtures', array() );
+        if ( ! is_array( $manual ) ) { $manual = array(); }
+        $vorher = isset( $manual['NL'] ) ? count( $manual['NL'] ) : 0;
+        $manual['NL'] = $cache['fixtures'];
+        update_option( 'ftipp_manual_fixtures', $manual, false );
+        if ( $vorher !== count( $cache['fixtures'] ) ) {
+            ftipp_log_history( 'nl_rebuild',
+                sprintf( 'Nations-League-Spielplan aus der Quelle neu aufgebaut: %d Partien statt bisher %d.', count( $cache['fixtures'] ), $vorher ),
+                'NL', '', 'manual' === $trigger ? get_current_user_id() : null );
+        }
+    }
+    $out['ok'] = ( $out['matches'] > 0 ) || ! $out['errors'];
+    return $out;
+}
 
 /**
  * Manueller Spieldaten-Import per CSV — für Wettbewerbe ohne gute kostenlose API (aktuell: Nations League).
@@ -7454,6 +7658,7 @@ function ftipp_page_history() {
         'cricket_manual_fetch' => '🏏⬇️ Cricket: Manueller Abruf',
         'seriea_migrate' => '⚽🔀 Serie A: Quellenwechsel',
         'tip_override' => '✏️ Tipp vom Runden-Admin korrigiert',
+        'nl_rebuild' => '🇪🇺🔀 Nations League: Spielplan neu aufgebaut',
         'csv_import'    => '📄 CSV-Import',
         'test_fixtures' => '🎲 Test-Spiele',
         'restore'       => '💾 Sicherung wiederhergestellt',

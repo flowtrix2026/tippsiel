@@ -3281,6 +3281,61 @@ beide geleert → genau eine mit Löschwirkung.
   Nachtrag geht mit korrekter Runde, Wettbewerb, Spiel und Nutzer-Kennung raus, Rückmeldungen
   „gespeichert" und „entfernt" stimmen.
 
+## v1.26.0 — Nations League holt ihre Ergebnisse selbst (und eine Richtigstellung)
+
+- **Anfrage:** „Nations League richtig machen" — nachdem der Nutzer die Ergebnisse zweimal per CSV
+  nachtragen musste.
+
+### Richtigstellung: der Spielplan war NICHT erfunden
+
+Am Vortag hatte ich berichtet, der per CSV gepflegte Nations-League-Spielplan entspreche ab Spieltag 2
+nicht der Wirklichkeit — 156 statt 102 Partien, Paarungen wie Deutschland–Griechenland, die es angeblich
+gar nicht gibt. **Das war falsch, und der Fehler lag bei meiner Messung.**
+
+Ursache: Ich hatte den Tagesabruf der Quelle **ohne** Wettbewerbs-Filter ausgewertet. Der liefert
+unvollständige Daten. Am 27.09.2026 gegengeprüft:
+
+| Abruf | Nations-League-Partien |
+|---|---|
+| `?date=2026-09-27` (ohne Filter) | **0** |
+| `?date=2026-09-27&competition=uefa-nations-league` | **8**, inklusive Deutschland–Griechenland |
+
+Mit Filter über alle 18 Termine: **155 von 156 CSV-Partien bestätigt.** Einzige echte Abweichung:
+Gibraltar–Malta liegt laut Quelle am 15.11., in der CSV am 16.11.
+
+Die Lehre steht als Warnung im Code: Der Tagesabruf **muss** den Wettbewerbs-Filter mitgeben.
+
+### Was jetzt gebaut ist
+
+`ftipp_nl_sync()` holt Spielplan **und Ergebnisse** tageweise aus der Quelle und schreibt sie in den
+Speicher, in dem bisher die CSV lag. Damit entfällt das manuelle Nachtragen.
+
+- **Spiel-IDs folgen exakt der Formel des CSV-Imports** (`NL|heim|auswärts|datum`). Dadurch behalten
+  bereits getippte Partien ihre Kennung — im Test blieben **alle acht** Tipps von Spieltag 1 erhalten,
+  ganz ohne Umzug.
+- **Liga A/B/C/D** liefert die Quelle nicht. Die Zuordnung wird aus den vorhandenen Einträgen
+  abgeleitet und in einer eigenen Option gemerkt, damit sie das Ersetzen überlebt.
+- **Die Spieltags-Nummern ebenso wenig.** Erster Versuch: je Liga chronologisch aus den Terminen
+  ableiten — ergab 18 Spieltage für Liga A statt 6, weil dort an vielen Tagen gespielt wird. Jetzt
+  werden die vorhandenen Bezeichnungen **übernommen** (die der CSV sind richtig); nur wirklich neue
+  Paarungen orientieren sich an einem Spiel derselben Liga am selben Tag.
+- **Ein weiterer eigener Fehler, vom Test gefunden:** Die Bezeichnung wurde bei jedem Lauf erneut
+  angehängt — nach vier Läufen stand dort „Liga A - Spieltag 1 - Spieltag 1 - Spieltag 1 - Spieltag 1".
+- Ersetzt wird **erst**, wenn mindestens acht Partien vorliegen, damit ein halb gescheiterter Lauf den
+  Spielplan nicht abräumt. Läuft im normalen Fußball-Abruf mit, mit Fortschritts-Zeiger, Retry-Liste
+  und Zeitlimit (12 s automatisch, 25 s beim Klick) — die Quelle weist rund 79 % der Anfragen ab.
+
+### Geprüft
+
+Sechs aufeinanderfolgende Läufe gegen die echte Quelle, ausgehend vom echten CSV-Stand des Nutzers:
+
+| | |
+|---|---|
+| Endstand | **156 Partien**, Liga A/B/C/D mit **je 6 Spieltagen** |
+| Getippte Partien mit erhaltener Kennung | **8 von 8** |
+| Ergebnis vom 24.09. | automatisch aus der Quelle (Niederlande 1:1 Deutschland) |
+| Aufwand | vier Läufe à ~25 Anfragen, danach null |
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
