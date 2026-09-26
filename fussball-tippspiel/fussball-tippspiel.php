@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL), Rugby (AFL) und Sumo, echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version: 1.24.1
+ * Version: 1.25.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.24.1' );
+define( 'FTIPP_VERSION', '1.25.0' );
 define( 'FTIPP_DB_VERSION', '22' );
 
 /**
@@ -5273,6 +5273,7 @@ add_action( 'rest_api_init', function () {
                 if ( ! isset( $roundLockTs[ $rn ] ) || $ts < $roundLockTs[ $rn ] ) { $roundLockTs[ $rn ] = $ts; }
             }
 
+            $istAdmin = ftipp_is_round_admin( $rid, $uid );
             $out = array();
             foreach ( $fixtures as $f ) {
                 $locked = time() >= $roundLockTs[ $f['round'] ];
@@ -5294,7 +5295,24 @@ add_action( 'rest_api_init', function () {
                         }
                     }
                 }
-                $out[ $f['id'] ] = array( 'mine' => $mine, 'locked' => $locked, 'revealed' => $revealed, 'others' => $others );
+                $eintrag = array( 'mine' => $mine, 'locked' => $locked, 'revealed' => $revealed, 'others' => $others );
+                // Für den Runden-Admin zusätzlich ALLE Mitglieder samt Tipp — auch die, die gar nicht
+                // getippt haben. Nur so kann er einen vergessenen Tipp überhaupt nachtragen.
+                if ( $istAdmin ) {
+                    $alle = array();
+                    foreach ( $members as $m ) {
+                        $t = isset( $byUserFixture[ $m['id'] ][ $f['id'] ] ) ? $byUserFixture[ $m['id'] ][ $f['id'] ] : null;
+                        $alle[] = array(
+                            'user_id'   => intval( $m['id'] ),
+                            'name'      => $m['name'],
+                            'h'         => ( $t && null !== $t['hg'] ) ? intval( $t['hg'] ) : null,
+                            'a'         => ( $t && null !== $t['ag'] ) ? intval( $t['ag'] ) : null,
+                            'committed' => $t ? (bool) intval( $t['committed'] ) : false,
+                        );
+                    }
+                    $eintrag['alle'] = $alle;
+                }
+                $out[ $f['id'] ] = $eintrag;
             }
             return array( 'fixtures' => $out );
         },
@@ -5331,6 +5349,62 @@ add_action( 'rest_api_init', function () {
                 'committed' => $existing ? intval( $existing['committed'] ) : 0,
                 'updated_at' => current_time( 'mysql' ),
             ) );
+            return array( 'ok' => true );
+        },
+    ) );
+
+    /**
+     * Der Runden-Admin korrigiert oder ergänzt den Spieltipp eines Mitglieds — bewusst OHNE Fristprüfung.
+     * Gedacht für den Fall "jemand hat vergessen zu tippen" oder eine nachträgliche Richtigstellung.
+     * Das Gegenstück zur Korrekturliste bei den Sonderwertungen.
+     *
+     * Bewusst eine eigene Route statt einer Sonderbehandlung in /tip: dort schützt die Fristprüfung alle
+     * Mitspieler gleichermaßen, auch den Admin. Die Ausnahme soll eine klar benannte Admin-Handlung sein
+     * und nicht eine stille Lücke im normalen Tipp-Weg.
+     */
+    register_rest_route( 'ftipp/v1', '/tip/override', array(
+        'methods' => 'POST', 'permission_callback' => $auth,
+        'args' => array( 'round_id' => array( 'required' => true ), 'comp_id' => array( 'required' => true ),
+                         'fixture_id' => array( 'required' => true ), 'user_id' => array( 'required' => true ) ),
+        'callback' => function ( $req ) {
+            global $wpdb; $uid = get_current_user_id();
+            $rid = intval( $req['round_id'] ); $comp = sanitize_text_field( $req['comp_id'] );
+            $fid = sanitize_text_field( $req['fixture_id'] ); $ziel = intval( $req['user_id'] );
+            if ( ! ftipp_is_round_admin( $rid, $uid ) ) {
+                return new WP_Error( 'forbidden', 'Nur der Runden-Admin darf Tipps korrigieren.', array( 'status' => 403 ) );
+            }
+            if ( ! ftipp_fixture_by_id( $comp, $fid ) ) { return new WP_Error( 'not_found', 'Spiel nicht gefunden.', array( 'status' => 404 ) ); }
+            // Nur Mitglieder dieser Runde — sonst könnte man Tipps für Fremde anlegen.
+            $istMitglied = false;
+            foreach ( ftipp_round_members( $rid ) as $m ) { if ( intval( $m['id'] ) === $ziel ) { $istMitglied = true; break; } }
+            if ( ! $istMitglied ) { return new WP_Error( 'not_member', 'Diese Person ist kein Mitglied der Runde.', array( 'status' => 400 ) ); }
+
+            $h = ( null === $req->get_param( 'h' ) || '' === $req->get_param( 'h' ) ) ? null : max( 0, intval( $req->get_param( 'h' ) ) );
+            $a = ( null === $req->get_param( 'a' ) || '' === $req->get_param( 'a' ) ) ? null : max( 0, intval( $req->get_param( 'a' ) ) );
+            $vorher = $wpdb->get_row( $wpdb->prepare(
+                "SELECT * FROM {$wpdb->prefix}ftipp_tips WHERE user_id=%d AND comp_id=%s AND fixture_id=%s", $ziel, $comp, $fid
+            ), ARRAY_A );
+
+            if ( null === $h && null === $a ) {
+                // Beide Felder leer = Tipp entfernen. Sonst bliebe ein halber Eintrag stehen.
+                $wpdb->delete( "{$wpdb->prefix}ftipp_tips", array( 'user_id' => $ziel, 'comp_id' => $comp, 'fixture_id' => $fid ) );
+            } else {
+                $wpdb->replace( "{$wpdb->prefix}ftipp_tips", array(
+                    'user_id' => $ziel, 'comp_id' => $comp, 'fixture_id' => $fid,
+                    'hg' => $h, 'ag' => $a,
+                    'ko_decided' => $vorher ? $vorher['ko_decided'] : null,
+                    'ko_winner'  => $vorher ? $vorher['ko_winner'] : null,
+                    // Vom Admin nachgetragen heißt: gilt als abgegeben, sonst zählte er nicht.
+                    'committed' => 1,
+                    'updated_at' => current_time( 'mysql' ),
+                ) );
+            }
+            $u = get_userdata( $ziel );
+            ftipp_log_history( 'tip_override',
+                sprintf( 'Tipp von %s korrigiert: %s %s → %s',
+                    $u ? ftipp_public_name( $u ) : ( 'Spieler #' . $ziel ), $comp, $fid,
+                    ( null === $h && null === $a ) ? 'entfernt' : ( $h . ':' . $a ) ),
+                $comp, '', $uid );
             return array( 'ok' => true );
         },
     ) );
@@ -7379,6 +7453,7 @@ function ftipp_page_history() {
         'cricket_cron_fetch' => '🏏⏱️ Cricket: Automatischer Abruf',
         'cricket_manual_fetch' => '🏏⬇️ Cricket: Manueller Abruf',
         'seriea_migrate' => '⚽🔀 Serie A: Quellenwechsel',
+        'tip_override' => '✏️ Tipp vom Runden-Admin korrigiert',
         'csv_import'    => '📄 CSV-Import',
         'test_fixtures' => '🎲 Test-Spiele',
         'restore'       => '💾 Sicherung wiederhergestellt',

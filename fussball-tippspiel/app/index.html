@@ -996,6 +996,40 @@ function mkMatchRowConnected(f, td, cfg, round){
       body=`${shown}<details style="margin-top:4px"><summary>+${others.length-LIMIT} weitere anzeigen</summary><div style="margin-top:4px">${rest}</div></details>`;
     }
     row.appendChild(el(`<div class="others">👀 Tipps der Mitspieler: ${body}</div>`));
+
+    /* Korrekturliste für den Runden-Admin. Bewusst erst nach der Sperre und zugeklappt: es ist ein
+       Werkzeug für Ausnahmen ("jemand hat vergessen zu tippen"), nicht der normale Weg. Beide Felder
+       leeren entfernt den Tipp wieder. */
+    if(round && round.is_admin && Array.isArray(td.alle)){
+      const det = el('<details class="others" style="margin-top:6px"><summary style="cursor:pointer">✏️ Tipps korrigieren oder nachtragen (nur Runden-Admin)</summary></details>');
+      const box = el('<div style="margin-top:8px"></div>');
+      td.alle.forEach(p=>{
+        const z = el('<div class="row" style="gap:6px;align-items:center;padding:3px 0"></div>');
+        z.appendChild(el(`<span style="min-width:120px">${esc(p.name)}</span>`));
+        const ih = el(`<input type="number" min="0" inputmode="numeric" value="${p.h==null?'':p.h}" style="width:58px">`);
+        const ia = el(`<input type="number" min="0" inputmode="numeric" value="${p.a==null?'':p.a}" style="width:58px">`);
+        const hinweis = el('<span class="meta"></span>');
+        const speichern = async ()=>{
+          // Nur speichern, wenn BEIDE Felder gefüllt sind (oder beide leer = löschen). Sonst entstünde
+          // beim Tippen ins erste Feld ein halber Tipp, der als abgegeben gilt und nicht wertbar ist.
+          const leer = (ih.value==='' && ia.value==='');
+          const voll = (ih.value!=='' && ia.value!=='');
+          if(!leer && !voll){ hinweis.textContent='beide Felder ausfüllen'; return; }
+          hinweis.textContent='…';
+          try{
+            await api_post('tip/override', {round_id: round.id, comp_id: tCompSel, fixture_id: f.id,
+                                            user_id: p.user_id, h: ih.value, a: ia.value});
+            hinweis.textContent = (ih.value===''&&ia.value==='') ? 'entfernt' : 'gespeichert';
+          }catch(e){ hinweis.textContent=''; alert('Fehler: '+e.message); }
+        };
+        ih.onchange=speichern; ia.onchange=speichern;
+        z.appendChild(ih); z.appendChild(el('<span>:</span>')); z.appendChild(ia); z.appendChild(hinweis);
+        box.appendChild(z);
+      });
+      box.appendChild(el('<div class="meta" style="margin-top:6px">Änderungen greifen sofort. Beide Felder leeren löscht den Tipp. Jede Korrektur steht im Verlauf.</div>'));
+      det.appendChild(box);
+      row.appendChild(det);
+    }
   } else {
     row.appendChild(el(`<div class="others">🔒 Tipps der Mitspieler sichtbar, sobald das <b>erste Spiel dieses Spieltags</b> angepfiffen hat.</div>`));
   }

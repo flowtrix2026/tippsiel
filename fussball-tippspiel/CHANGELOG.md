@@ -3235,6 +3235,52 @@ Nach dem Eintragen des Schlüssels: 31 Serien beobachtet, 35 Partien geladen (11
 entschieden), erste tippbare Partie **Indien – West Indies am 27.09.**, Tipps abgegeben. Die drei
 überfälligen Partien ohne Ergebnis wurden korrekt ausgeblendet und im Adminbereich vermerkt.
 
+## v1.25.0 — Der Runden-Admin darf Spieltipps nachtragen und korrigieren
+
+- **Anfrage:** „Wenn wir jetzt Nations League spielen und jemand vergisst, Spanien–Italien zu tippen,
+  will ich als Gruppenadmin das immer noch ändern können." — ausdrücklich auch für andere Mitspieler.
+
+### Was es schon gab und was fehlte
+
+Bei den **Sonderwertungen** existierte das längst: „👀 Alle Tipps ansehen & korrigieren" lässt den
+Runden-Admin den Text jedes Mitglieds überschreiben, ohne Fristprüfung. Bei den **Spieltipps** gab es
+das **nicht** — die Route `/tip` schreibt ausschließlich den eigenen Tipp des Aufrufers und prüft hart
+auf die Spieltags-Sperre. Ein vergessener Tipp war nicht nachtragbar.
+
+### Gebaut
+
+- **Neue Route `POST /tip/override`** — nur für den Runden-Admin, bewusst **ohne** Fristprüfung.
+  Geprüft wird stattdessen: Ist der Aufrufer Runden-Admin? Gibt es das Spiel? Ist die Zielperson
+  überhaupt Mitglied dieser Runde? Sind beide Tore leer, wird der Tipp **gelöscht** statt ein halber
+  Eintrag hinterlassen. Ein nachgetragener Tipp gilt als abgegeben (`committed = 1`), sonst zählte er
+  bei der Auswertung nicht mit.
+- **Bewusst eine eigene Route** statt einer Ausnahme in `/tip`: dort schützt die Fristprüfung alle
+  Mitspieler gleichermaßen, auch den Admin. Die Ausnahme soll eine klar benannte Admin-Handlung sein
+  und keine stille Lücke im normalen Tipp-Weg.
+- **`/tips` liefert dem Admin zusätzlich `alle`** — jedes Mitglied samt Tipp, **auch die ohne**. Nur so
+  lässt sich ein vergessener Tipp überhaupt nachtragen; die bisherige `others`-Liste enthielt
+  ausschließlich Leute, die getippt hatten.
+- **Oberfläche:** unter jedem gesperrten Spiel ein zugeklappter Bereich
+  „✏️ Tipps korrigieren oder nachtragen (nur Runden-Admin)" mit einer Zeile je Mitspieler. Zugeklappt
+  und erst nach der Sperre, weil es ein Werkzeug für Ausnahmen ist und nicht der normale Weg.
+- **Jede Korrektur landet im Verlauf** (`tip_override`) — wer, für wen, welches Spiel, welcher Wert.
+  Ein Admin-Eingriff in fremde Tipps soll nachvollziehbar bleiben.
+
+### Ein Fehler, den der Browser-Test gefunden hat
+
+Die erste Fassung speicherte bei **jeder** Feldänderung. Tippte der Admin die Heimtore ein, ging sofort
+ein Tipp mit leerem Auswärtstor raus — ein halber Eintrag, der als abgegeben gilt und nicht wertbar
+ist. Jetzt wird nur gespeichert, wenn **beide** Felder gefüllt sind (oder beide leer = löschen);
+dazwischen steht „beide Felder ausfüllen". Nachgemessen: ein Feld → keine Anfrage, beide → genau eine,
+beide geleert → genau eine mit Löschwirkung.
+
+### Geprüft
+
+- `php -l` sauber, alle Inline-Skriptblöcke geprüft.
+- Browser-Test mit drei Mitspielern, davon einer **ohne** Tipp: alle drei erscheinen in der Liste, der
+  Nachtrag geht mit korrekter Runde, Wettbewerb, Spiel und Nutzer-Kennung raus, Rückmeldungen
+  „gespeichert" und „entfernt" stimmen.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
