@@ -1281,7 +1281,9 @@ async function renderSonderConnected(){
 
     if(round.is_admin){
       const tipsDet=el(`<details style="margin-top:8px"></details>`);
-      tipsDet.appendChild(el(`<summary>👀 Alle Tipps ansehen &amp; korrigieren</summary>`));
+      // Deutlich als Schaltfläche erkennbar: der frühere schlichte Text wurde für eine Überschrift
+      // gehalten, obwohl er der einzige Weg ist, Tipps anderer nachzutragen.
+      tipsDet.appendChild(el(`<summary style="cursor:pointer;display:inline-block;padding:6px 11px;border:1px solid var(--line);border-radius:8px;background:#122416">✏️ Tipps aller Mitspieler ändern oder nachtragen — auch nach Fristende ▾</summary>`));
       const tipsBody=el(`<div style="margin-top:8px"></div>`);
       tipsDet.appendChild(tipsBody);
       let loaded=false;

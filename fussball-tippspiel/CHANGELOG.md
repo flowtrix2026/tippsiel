@@ -3336,6 +3336,36 @@ Sechs aufeinanderfolgende Läufe gegen die echte Quelle, ausgehend vom echten CS
 | Ergebnis vom 24.09. | automatisch aus der Quelle (Niederlande 1:1 Deutschland) |
 | Aufwand | vier Läufe à ~25 Anfragen, danach null |
 
+## v1.26.1 — Die Admin-Korrektur war unsichtbar
+
+- **Meldung:** Der Nutzer fragte dreimal nach derselben Sache: „Ich möchte als Admin für jemanden
+  nachtragen, der vergessen hat, die Sonderwertung zu tippen." Zweimal hatte ich geantwortet, das gebe
+  es bereits.
+
+### Die Funktion war da — man sah sie nur nicht
+
+Statt ein drittes Mal zu erklären, habe ich sie im Browser durchgespielt: Die Liste öffnet sich, zeigt
+alle drei Mitglieder samt dem, der **gar nicht** getippt hat, und das Nachtragen schickt korrekt
+`POST special/7/tipps/3/override {value:"Portugal"}` los. Technisch einwandfrei.
+
+Das Problem war die Darstellung. Der Aufklapper war ein schlichter grüner Text:
+
+> 👀 Alle Tipps ansehen & korrigieren
+
+Kein Rahmen, kein Mauszeiger-Wechsel, kein Pfeil — auf dem Bildschirm des Nutzers sah das aus wie eine
+Überschrift, nicht wie etwas Anklickbares. Und es ist der **einzige** Weg, Tipps anderer nachzutragen.
+
+**Jetzt** ist es eine erkennbare Schaltfläche mit Rahmen, Hintergrund, Zeiger und Pfeil — und der Text
+sagt, was sie tut:
+
+> ✏️ Tipps aller Mitspieler ändern oder nachtragen — auch nach Fristende ▾
+
+### Lehre fürs nächste Mal
+
+Wenn jemand zum zweiten Mal nach etwas fragt, das es angeblich schon gibt, ist die Antwort nicht die
+Erklärung — sondern nachzusehen, warum er es nicht findet. Zweimal erklärt statt einmal hingeschaut,
+das hat Zeit gekostet.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
