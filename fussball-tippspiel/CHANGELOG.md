@@ -3388,6 +3388,106 @@ wenn jemand nichts eingetragen hat. Kein Klick, kein Suchen, nichts zum Überseh
 Das ist die dritte Runde an derselben Frage. Ein Bedienelement, das dreimal erklärt werden muss, ist
 das falsche Bedienelement — auch wenn es technisch funktioniert.
 
+
+## v1.26.3 — Die Sonderwertungs-Punkte waren richtig, zwei Kleinigkeiten drumherum nicht
+
+- **Meldung:** „Ich habe jetzt für alle nachträglich mitgetippt, aber da müsste es ja auch angezeigt
+  werden. Das wird ja nicht angezeigt." — dazu ein Screenshot der Nations-League-Sonderwertungen.
+
+### Erst geprüft, dann repariert
+
+Der Screenshot war stark verkleinert (274 px breit). Herangezoomt zeigte er die Antwort auf die Frage
+aus dem vorigen Durchgang, warum nur ein Mitspieler Sonderpunkte hat:
+
+| Sonderwertung | eingetragenes Ergebnis | Floh | Ramona | geli |
+|---|---|---|---|---|
+| Nations-League-Sieger (15) | Frankreich | Frankreich ✅ | Deutschland | Deutschland |
+| Torschützenkönig (10) | Kane | Kane ✅ | Haaland | Mbappé |
+| Gruppensieger A5 (5) | *— leer —* | Frankreich | Frankreich | Frankreich |
+| weitere Gruppensieger | *— leer —* | … | … | … |
+
+15 + 10 = **25** — exakt der beanstandete Wert. Die Wertung arbeitet also korrekt: nachgetragene Tipps
+werden gespeichert, angezeigt und gewertet, sie stimmten nur nicht mit dem überein, was oben im Feld
+„Ergebnis" steht. Wertungen ohne Ergebnis zählen für niemanden, auch nicht für den Admin.
+
+**Wichtiger Nebenbefund:** Die Ergebnisse „Frankreich" und „Kane" waren von Hand eingetragen, obwohl die
+Nations League noch bis März 2026 läuft. Die Wertung vergleicht ausschließlich gegen dieses Feld, nie
+gegen die Realität. Ein voreilig gefülltes Ergebnisfeld verteilt also echte Punkte für einen noch nicht
+feststehenden Ausgang.
+
+### Zwei echte Fehler, die der Screenshot aufgedeckt hat
+
+**1. Ein gesetztes „zählt trotzdem als richtig" verschwand still.**
+Textfeld und Auswahlfeld sind zwei getrennte Bedienelemente und schicken jeweils nur ihren eigenen Wert.
+Die Route setzte aber immer beide: kam kein `override` mit, wurde es auf `null` zurückgeschrieben. Wer
+also erst „✅ zählt trotzdem als richtig" wählte und danach noch den Text korrigierte, verlor die
+Freigabe wieder — ohne jede Rückmeldung. Jetzt bleibt ein Feld, das gar nicht mitgeschickt wurde,
+unverändert (`has_param()` statt `get_param() === null`).
+
+**2. Vom Admin nachgetragene Tipps trugen keine „fix"-Kennzeichnung.**
+`committed` blieb bei 0, weil die Route den Wert nur aus einem schon vorhandenen Datensatz übernahm.
+Im Screenshot gut zu sehen: Floh hat die grüne „fix"-Plakette, Ramona und geli nicht — obwohl ihre
+Tipps genauso gültig sind. Ein vom Runden-Admin eingetragener Tipp ist ein vollwertiger, endgültiger
+Tipp und wird jetzt auch so markiert.
+
+### Test
+
+Sechs Fälle gegen die **aus der Plugin-Datei extrahierte** Logik (nicht gegen eine Nachbildung):
+neuer Tipp vom Admin, Override setzen, Text danach ändern (der eigentliche Fehler), Override bewusst
+zurück auf automatisch, Textfeld leeren, Override bei noch gar keinem Tipp. Alle sechs bestanden.
+
+
+## v1.26.4 — Der Aufklapper war auch bei den Spieltipps noch drin
+
+- **Meldung:** „Für die dritte Person, die mitspielt — ich hab alles reingegeben, einfach abgespeichert,
+  aber es wird nicht mit übernommen. Kannst du mir als Admin machen, dass ich das nochmal ändern kann?"
+  Dazu ein Screenshot von „Liga A - Spieltag 2": bei allen drei Spielen steht nur
+  „👀 Tipps der Mitspieler: **Ramona**" — geli fehlt komplett.
+
+### Was der Screenshot zeigte
+
+Unter jedem Spiel klebt dreimal derselbe zugeklappte Balken:
+**„✏️ Tipps korrigieren oder nachtragen (nur Runden-Admin)"**.
+
+Das ist exakt das Bedienelement, das in v1.26.2 bei den **Sonderwertungen** rausgeflogen ist, weil der
+Nutzer es nicht bedienen konnte. Bei den **Spieltipps** stand es noch unverändert drin. Ich hatte damals
+nur die eine Stelle angefasst, obwohl es dasselbe Werkzeug an zwei Orten ist — genau der Fehler, den die
+Regel „Konsistenz über alle Sportarten, einen Schritt weiterdenken" verhindern soll.
+
+### Zwei Ursachen, beide behoben
+
+**1. Kein Aufklapper mehr.** Die Liste „✏️ Tipps aller Mitspieler" steht jetzt offen unter jedem
+gesperrten Spiel, mit einer Zeile je Mitglied — auch für die, die gar nicht getippt haben.
+
+**2. Ein sichtbarer Speichern-Knopf.** Gespeichert wurde bisher **ausschließlich** beim Verlassen eines
+Feldes (`onchange`). Wer die Zahlen eintippte und danach wegscrollte, den Tab wechselte oder neu lud,
+verlor die Eingabe **ohne jede Rückmeldung** — nichts blinkte, nichts warnte. Das passt genau auf
+„ich hab alles reingegeben, abgespeichert, wird nicht übernommen". Jetzt hat jede Zeile
+„💾 Speichern" und meldet „gespeichert ✓" bzw. „entfernt". `onchange` bleibt zusätzlich aktiv.
+
+**Nachgezogen:** Denselben Knopf haben die Sonderwertungen jetzt auch — dort galt dieselbe onchange-Falle.
+
+### Sofort sichtbare Wirkung
+
+Nach dem Speichern wird die Zeile „👀 Tipps der Mitspieler" **direkt neu gezeichnet**. Vorher stand der
+nachgetragene Tipp zwar in der Datenbank, tauchte oben aber erst nach einem Neuladen auf — was den
+Eindruck „wird nicht übernommen" zusätzlich bestätigt hätte, selbst wenn das Speichern geklappt hat.
+
+### Test (Browser, gegen die echte App mit abgefangenem `fetch`)
+
+| Fall | Ergebnis |
+|---|---|
+| Liste ohne jeden Klick sichtbar, geli gelistet | ✅ 0 `<details>` in der Tippen-Ansicht |
+| Tipp für geli eintippen, **nur** Knopf drücken (kein Feldwechsel) | ✅ POST `tip/override` mit `user_id:3`, `2:1` |
+| „👀 Tipps der Mitspieler" danach | ✅ „Ramona 3:1 · geli 2:1" ohne Neuladen |
+| nur ein Feld gefüllt | ✅ kein POST, Hinweis „beide Felder ausfüllen" |
+| beide Felder geleert | ✅ POST mit leeren Werten, Hinweis „entfernt", geli verschwindet aus der Zeile |
+| Sonderwertungs-Liste: Text + Knopf | ✅ POST `special/7/tipps/3/override`, „gespeichert ✓" |
+
+Serverseitig war nichts kaputt: `/tip/override` schreibt `committed = 1` und protokolliert jede
+Korrektur im Verlauf, und `/tips` liefert dem Runden-Admin ohnehin **alle** Mitglieder mit. Der Fehler
+saß allein in der Bedienung.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

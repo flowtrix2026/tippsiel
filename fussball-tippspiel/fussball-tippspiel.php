@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL), Rugby (AFL) und Sumo, echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version: 1.26.2
+ * Version: 1.26.4
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.26.2' );
+define( 'FTIPP_VERSION', '1.26.4' );
 define( 'FTIPP_DB_VERSION', '22' );
 
 /**
@@ -5807,18 +5807,32 @@ add_action( 'rest_api_init', function () {
             $bet = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}ftipp_special WHERE id=%d", $id ), ARRAY_A );
             if ( ! $bet ) { return new WP_Error( 'not_found', 'Nicht gefunden.', array( 'status' => 404 ) ); }
             if ( ! ftipp_is_round_admin( $bet['round_id'], $uid ) ) { return new WP_Error( 'forbidden', 'Nur der Runden-Admin darf das korrigieren.', array( 'status' => 403 ) ); }
-            $override = $req->get_param( 'override' ); // true/false = erzwingen, null = zurück auf automatischen Textvergleich
             $existing = $wpdb->get_row( $wpdb->prepare(
                 "SELECT * FROM {$wpdb->prefix}ftipp_special_tips WHERE special_id=%d AND user_id=%d", $id, $targetUid
             ), ARRAY_A );
-            // Der Admin darf hier zusätzlich (auf Nutzerwunsch) auch den eingetippten Text selbst direkt
-            // ändern — z.B. wenn ein Mitspieler nicht mehr selbst ändern kann/darf und den Admin bittet.
-            $newValue = $req->get_param( 'value' );
+            // Textfeld und Auswahlfeld sind zwei getrennte Bedienelemente und schicken jeweils NUR ihren
+            // eigenen Wert. Deshalb hier strikt: ein Feld, das gar nicht mitgeschickt wurde, bleibt
+            // unverändert. Früher wurde 'override' auf null zurückgesetzt, sobald jemand hinterher noch
+            // den Text änderte — ein vorher gesetztes "zählt trotzdem als richtig" verschwand dabei still.
+            $hasValue    = $req->has_param( 'value' );
+            $hasOverride = $req->has_param( 'override' );
+            $newValue    = $req->get_param( 'value' );
+            $override    = $req->get_param( 'override' ); // true/false = erzwingen, null = zurück auf automatischen Textvergleich
+
+            $value = $hasValue ? sanitize_text_field( (string) $newValue ) : ( $existing ? $existing['value'] : null );
+            if ( $hasOverride ) {
+                $ovr = null === $override ? null : ( $override ? 1 : 0 );
+            } else {
+                $ovr = ( $existing && null !== $existing['override'] ) ? intval( $existing['override'] ) : null;
+            }
+            // Ein vom Runden-Admin eingetragener Tipp ist ein vollwertiger, endgültiger Tipp — sonst
+            // stünde er ohne "fix"-Kennzeichnung da und sähe aus wie ein halb abgegebener Entwurf.
+            $committed = $existing ? intval( $existing['committed'] ) : 0;
+            if ( $hasValue && '' !== trim( (string) $value ) ) { $committed = 1; }
+
             $wpdb->replace( "{$wpdb->prefix}ftipp_special_tips", array(
                 'special_id' => $id, 'user_id' => $targetUid,
-                'value' => null !== $newValue ? sanitize_text_field( $newValue ) : ( $existing ? $existing['value'] : null ),
-                'override' => null === $override ? null : ( $override ? 1 : 0 ),
-                'committed' => $existing ? intval( $existing['committed'] ) : 0,
+                'value' => $value, 'override' => $ovr, 'committed' => $committed,
             ) );
             return array( 'ok' => true );
         },

@@ -984,30 +984,41 @@ function mkMatchRowConnected(f, td, cfg, round){
   }
 
   if(td.revealed || locked){
-    const others=td.others||[];
     const fmt=o=> `<b>${esc(o.name)}</b> ${o.h!=null&&o.a!=null?`${o.h}:${o.a}`:'—'}`;
     const LIMIT=5;
-    let body;
-    if(!others.length){ body='—'; }
-    else if(others.length<=LIMIT){ body=others.map(fmt).join(' · '); }
-    else {
-      const shown=others.slice(0,LIMIT).map(fmt).join(' · ');
-      const rest=others.slice(LIMIT).map(fmt).join(' · ');
-      body=`${shown}<details style="margin-top:4px"><summary>+${others.length-LIMIT} weitere anzeigen</summary><div style="margin-top:4px">${rest}</div></details>`;
-    }
-    row.appendChild(el(`<div class="others">👀 Tipps der Mitspieler: ${body}</div>`));
+    // Als eigene Funktion, weil die Zeile nach einer Admin-Korrektur sofort neu gezeichnet wird —
+    // sonst sieht der Admin seine gerade nachgetragene Eingabe hier erst nach einem Neuladen.
+    const othersBox=el('<div class="others"></div>');
+    const paintOthers=()=>{
+      const others=td.others||[];
+      let body;
+      if(!others.length){ body='—'; }
+      else if(others.length<=LIMIT){ body=others.map(fmt).join(' · '); }
+      else {
+        const shown=others.slice(0,LIMIT).map(fmt).join(' · ');
+        const rest=others.slice(LIMIT).map(fmt).join(' · ');
+        body=`${shown}<details style="margin-top:4px"><summary>+${others.length-LIMIT} weitere anzeigen</summary><div style="margin-top:4px">${rest}</div></details>`;
+      }
+      othersBox.innerHTML=`👀 Tipps der Mitspieler: ${body}`;
+    };
+    paintOthers();
+    row.appendChild(othersBox);
 
-    /* Korrekturliste für den Runden-Admin. Bewusst erst nach der Sperre und zugeklappt: es ist ein
-       Werkzeug für Ausnahmen ("jemand hat vergessen zu tippen"), nicht der normale Weg. Beide Felder
-       leeren entfernt den Tipp wieder. */
+    /* Korrekturliste für den Runden-Admin. Bewusst OHNE Aufklapper — aus demselben Grund, aus dem er
+       in v1.26.2 schon bei den Sonderwertungen geflogen ist: der Nutzer fand ihn nicht bzw. bei ihm tat
+       sich beim Klick nichts. Die Liste steht jetzt einfach da. Zusätzlich ein sichtbarer Speichern-
+       Knopf: vorher wurde ausschließlich beim Verlassen eines Feldes gespeichert (onchange), und wer
+       nach dem Tippen wegscrollte oder neu lud, verlor seine Eingabe ohne jede Rückmeldung.
+       Beide Felder leeren entfernt den Tipp wieder. */
     if(round && round.is_admin && Array.isArray(td.alle)){
-      const det = el('<details class="others" style="margin-top:6px"><summary style="cursor:pointer">✏️ Tipps korrigieren oder nachtragen (nur Runden-Admin)</summary></details>');
-      const box = el('<div style="margin-top:8px"></div>');
+      const box = el('<div class="others" style="margin-top:6px"></div>');
+      box.appendChild(el('<div class="row" style="margin-bottom:4px"><b>✏️ Tipps aller Mitspieler</b><span class="meta">ändern oder nachtragen — auch nach Fristende</span></div>'));
       td.alle.forEach(p=>{
         const z = el('<div class="row" style="gap:6px;align-items:center;padding:3px 0"></div>');
-        z.appendChild(el(`<span style="min-width:120px">${esc(p.name)}</span>`));
-        const ih = el(`<input type="number" min="0" inputmode="numeric" value="${p.h==null?'':p.h}" style="width:58px">`);
-        const ia = el(`<input type="number" min="0" inputmode="numeric" value="${p.a==null?'':p.a}" style="width:58px">`);
+        z.appendChild(el(`<span style="min-width:120px">${esc(p.name)}${p.committed?' <span class="pill good" style="font-size:10px">fix</span>':''}</span>`));
+        const ih = el(`<input type="number" min="0" inputmode="numeric" placeholder="–" value="${p.h==null?'':p.h}" style="width:58px">`);
+        const ia = el(`<input type="number" min="0" inputmode="numeric" placeholder="–" value="${p.a==null?'':p.a}" style="width:58px">`);
+        const btn = el('<button class="mini sec">💾 Speichern</button>');
         const hinweis = el('<span class="meta"></span>');
         const speichern = async ()=>{
           // Nur speichern, wenn BEIDE Felder gefüllt sind (oder beide leer = löschen). Sonst entstünde
@@ -1019,16 +1030,23 @@ function mkMatchRowConnected(f, td, cfg, round){
           try{
             await api_post('tip/override', {round_id: round.id, comp_id: tCompSel, fixture_id: f.id,
                                             user_id: p.user_id, h: ih.value, a: ia.value});
-            hinweis.textContent = (ih.value===''&&ia.value==='') ? 'entfernt' : 'gespeichert';
+            // Wirkung sofort dort zeigen, wo der Admin sie erwartet: in der Zeile darüber.
+            p.h = leer ? null : parseInt(ih.value,10);
+            p.a = leer ? null : parseInt(ia.value,10);
+            p.committed = !leer;
+            td.others = td.alle.filter(x=> x.user_id!==BOOT.userId && x.h!=null && x.a!=null)
+                               .map(x=> ({name:x.name, h:x.h, a:x.a}));
+            paintOthers();
+            hinweis.textContent = leer ? 'entfernt' : 'gespeichert ✓';
           }catch(e){ hinweis.textContent=''; alert('Fehler: '+e.message); }
         };
-        ih.onchange=speichern; ia.onchange=speichern;
-        z.appendChild(ih); z.appendChild(el('<span>:</span>')); z.appendChild(ia); z.appendChild(hinweis);
+        ih.onchange=speichern; ia.onchange=speichern; btn.onclick=speichern;
+        z.appendChild(ih); z.appendChild(el('<span>:</span>')); z.appendChild(ia);
+        z.appendChild(btn); z.appendChild(hinweis);
         box.appendChild(z);
       });
       box.appendChild(el('<div class="meta" style="margin-top:6px">Änderungen greifen sofort. Beide Felder leeren löscht den Tipp. Jede Korrektur steht im Verlauf.</div>'));
-      det.appendChild(box);
-      row.appendChild(det);
+      row.appendChild(box);
     }
   } else {
     row.appendChild(el(`<div class="others">🔒 Tipps der Mitspieler sichtbar, sobald das <b>erste Spiel dieses Spieltags</b> angepfiffen hat.</div>`));
@@ -1299,12 +1317,19 @@ async function renderSonderConnected(){
             row.appendChild(el(`<div style="min-width:110px"><b>${esc(t.name)}</b>${t.committed?' <span class="pill good" style="font-size:10px">fix</span>':''}</div>`));
             const valInp=el(`<input type="text" value="${esc(t.value||'')}" placeholder="noch kein Tipp" style="min-width:150px">`);
             const merk=el('<span class="meta"></span>');
-            valInp.onchange=async()=>{
+            // Gleiche Behandlung wie bei den Spieltipps: nicht nur onchange (feuert erst beim Verlassen
+            // des Feldes), sondern auch ein sichtbarer Knopf — sonst geht eine Eingabe verloren, wenn
+            // jemand nach dem Tippen wegscrollt oder neu lädt.
+            const speichern=async()=>{
               merk.textContent='…';
-              try{ await api_post('special/'+b.id+'/tipps/'+t.user_id+'/override', {value: valInp.value}); merk.textContent='gespeichert'; }
+              try{ await api_post('special/'+b.id+'/tipps/'+t.user_id+'/override', {value: valInp.value}); merk.textContent='gespeichert ✓'; }
               catch(e){ merk.textContent=''; alert(e.message); }
             };
+            valInp.onchange=speichern;
+            const spBtn=el('<button class="mini sec">💾 Speichern</button>');
+            spBtn.onclick=speichern;
             row.appendChild(valInp);
+            row.appendChild(spBtn);
             const curVal=t.override===true?'1':(t.override===false?'0':'');
             row.appendChild(mkSelect('', [{v:'',label:'Automatisch (Textvergleich)'},{v:'1',label:'✅ zählt trotzdem als richtig'},{v:'0',label:'❌ zählt trotzdem als falsch'}], curVal, async v=>{
               try{ await api_post('special/'+b.id+'/tipps/'+t.user_id+'/override', {override: v===''?null:(v==='1')}); }
