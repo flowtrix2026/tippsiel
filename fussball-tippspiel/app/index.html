@@ -1304,6 +1304,26 @@ async function renderSonderConnected(){
     } else {
       card.appendChild(el(`<div class="row" style="margin-bottom:8px"><b>${esc(b.label)}</b>${b.teams&&b.teams.length?`<span class="meta">${b.teams.map(esc).join(', ')}</span>`:''}<span class="pill gold">${b.points} Punkte</span><span class="meta">Frist ${fmtDate(b.deadline)}</span>${b.result?`<span class="pill gold">Ergebnis: ${esc(b.result)}</span>`:''}</div>`));
     }
+    /* Laufender Gruppenstand (nur Nations-League-Gruppensieger). Bewusst als Hinweiszeile und NICHT
+       automatisch ins Ergebnisfeld: Der Tabellenführer nach einem Spieltag ist kein Gruppensieger,
+       und ein gefülltes Ergebnisfeld verteilt sofort echte Punkte. Eingetragen wird erst, wenn die
+       Gruppe fertig ausgespielt ist — das macht der Server von selbst (ftipp_nl_sonder_autoresolve). */
+    if(b.stand && b.stand.gesamt){
+      const st=b.stand;
+      let txt, farbe='var(--muted)';
+      if(!st.gespielt){
+        txt=`📊 Noch kein Spiel in dieser Gruppe ausgetragen.`;
+      } else if(!st.fertig){
+        txt=`📊 Führt aktuell: <b style="color:var(--gold)">${esc(st.fuehrend||'—')}</b> <span class="meta">(${st.gespielt} von ${st.gesamt} Spielen) — Zwischenstand, noch kein Gruppensieger.</span>`;
+      } else if(!st.eindeutig){
+        txt=`⚠️ Gruppe ausgespielt, aber <b>punktgleich an der Spitze</b> (${esc(st.fuehrend||'—')} liegt nur nach Tordifferenz vorn). Die UEFA entscheidet zuerst über den direkten Vergleich — bitte das Ergebnis von Hand eintragen.`;
+        farbe='var(--warn)';
+      } else {
+        txt=`✅ Gruppe ausgespielt — Sieger: <b style="color:var(--gold)">${esc(st.fuehrend||'—')}</b>${b.result?'':' <span class="meta">(wird beim nächsten Laden eingetragen)</span>'}`;
+      }
+      card.appendChild(el(`<div class="meta" style="margin-top:6px;color:${farbe}">${txt}</div>`));
+    }
+
     const locked=b.locked;
     const editing=!!b._editing;
     const inputsDisabled = locked || (b.my_committed && !editing);

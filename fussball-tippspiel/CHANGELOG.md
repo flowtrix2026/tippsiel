@@ -3533,6 +3533,67 @@ nicht Spiel für Spiel. Wählt man „geli", steht unter jedem Spiel genau eine 
 | „aus" wählen | ✅ keine Korrekturfelder mehr, Auswahl in localStorage gemerkt |
 | Sonderwertungs-Tab | ✅ gleiches Auswahlfeld, gleiche Auswahl, Titel „✏️ Tipp von geli" |
 
+
+## v1.27.0 — Gruppensieger lösen sich selbst auf (aber erst, wenn sie feststehen)
+
+- **Wunsch:** „Könntest du die Tabelle, immer der erste ist, einfach im Ergebnis eintragen, dass die
+  Sondersachen immer schon angezeigt werden?" — dazu zwei Screenshots: die Gruppe A1 der Nations League
+  (Belgien 3, Frankreich 3, Türkei 0, Italien 0) und die Sonderwertung „Gruppensieger A1" mit leerem
+  Ergebnisfeld.
+
+### Warum nicht einfach eintragen
+
+Belgien steht in dem Screenshot nach **einem** Spieltag vorn — nur wegen der Tordifferenz (+2 zu +1),
+punktgleich mit Frankreich. Trüge man das ins Ergebnisfeld, bekäme jeder Belgien-Tipper **sofort echte
+5 Punkte** für etwas, das noch elf Spieltage offen ist. Genau die Falle war zwei Tage vorher schon
+zugeschnappt (25 Punkte aus zwei voreilig gefüllten Ergebnisfeldern).
+
+Dazu kommt ein handfestes Regelproblem: Die UEFA entscheidet bei Punktgleichheit **zuerst über den
+direkten Vergleich**, nicht über die Tordifferenz. `ftipp_mini_table()` sortiert nach Punkten →
+Tordifferenz → Tore und bildet den direkten Vergleich bewusst nicht ab. Ein automatischer Eintrag
+könnte also den falschen Gruppensieger küren.
+
+### Die Umsetzung: zweistufig
+
+**Laufend anzeigen** — unter jeder Gruppensieger-Sonderwertung steht jetzt der Stand:
+
+| Lage | Anzeige |
+|---|---|
+| läuft noch | 📊 Führt aktuell: **Belgien** (1 von 12 Spielen) — Zwischenstand, noch kein Gruppensieger. |
+| nichts gespielt | 📊 Noch kein Spiel in dieser Gruppe ausgetragen. |
+| fertig, klarer Sieger | ✅ Gruppe ausgespielt — Sieger: **Spanien** |
+| fertig, oben punktgleich | ⚠️ … bitte das Ergebnis von Hand eintragen (UEFA entscheidet zuerst per direktem Vergleich) |
+
+**Automatisch eintragen** erst, wenn `ftipp_nl_sonder_autoresolve()` alle drei Bedingungen erfüllt
+sieht: Gruppe komplett ausgespielt, Tabellenerster hat **mehr Punkte** als der Zweite, und das
+Ergebnisfeld ist noch leer. Ein vom Admin gesetztes Ergebnis wird **nie** überschrieben. Jede
+automatische Auflösung landet im Verlauf („🇪🇺⭐ Nations League: Gruppensieger automatisch eingetragen").
+
+Aufgerufen wird das an zwei Stellen: nach jedem Nations-League-Abruf (`ftipp_nl_sync()`) und beim
+Laden der Sonderwertungen — sonst hinge ein fertiges Ergebnis bis zum nächsten Spieldaten-Abruf in
+der Luft.
+
+### Neu
+
+- `ftipp_nl_group_state( $teams )` — Tabelle, Tabellenführer, gespielte/gesamte Partien, `fertig`,
+  `eindeutig`. Demo-Spiele (`demo-`-Präfix) werden ausgeschlossen, sonst verfälschen sie den Stand.
+- `ftipp_nl_sonder_autoresolve()` — trägt fertige Gruppen ein, gibt die Anzahl zurück.
+- `/special` liefert je Sonderwertung zusätzlich `stand` (nur bei Nations-League-Gruppen, sonst `null`).
+
+### Test
+
+**PHP, gegen die aus der Plugin-Datei extrahierten Funktionen** (5 Fälle, alle bestanden):
+Screenshot-Stand (Belgien per Tordifferenz vorn → `fertig=false`, `eindeutig=false`), Gruppe fertig mit
+9 zu 6 Punkten (→ wird eingetragen), Gruppe fertig mit 6 zu 6 Punkten (→ wird **nicht** eingetragen),
+gar nichts gespielt, und Demo-Spiele werden ignoriert.
+
+*Anmerkung zum Ablauf:* Mein dritter Testfall war zunächst falsch gebaut — Frankreich hatte darin 9
+statt 6 Punkte, es gab also gar keine Punktgleichheit zu prüfen. Der Code war richtig, der Test war es
+nicht; korrigiert und erneut laufen lassen.
+
+**Browser, gegen die echte App:** alle vier Anzeigezustände erscheinen korrekt, und eine Sonderwertung
+ohne Gruppenbezug (Torschützenkönig, `stand: null`) bekommt keine Standzeile.
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.

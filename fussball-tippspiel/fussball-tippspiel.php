@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Tippstube
  * Description:       Tippstube — das private Tippspiel für deine Tipprunde. Fußball, Formel 1, Tennis, US-Sport (NHL), Rugby (AFL) und Sumo, echtes WordPress-Login, Statistik/Achievements, Pinnwand-Chat pro Runde. Spieldaten laufen komplett automatisch und kostenlos.
- * Version: 1.26.5
+ * Version: 1.27.0
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Florian Henschke
@@ -12,7 +12,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'FTIPP_VERSION', '1.26.5' );
+define( 'FTIPP_VERSION', '1.27.0' );
 define( 'FTIPP_DB_VERSION', '22' );
 
 /**
@@ -4235,8 +4235,77 @@ function ftipp_nl_sync( $trigger = 'cron' ) {
                 'NL', '', 'manual' === $trigger ? get_current_user_id() : null );
         }
     }
+    // Fertige Gruppen direkt auflösen, damit die Sonderwertungen nicht auf den nächsten
+    // Admin-Besuch warten müssen.
+    $out['sonder'] = ftipp_nl_sonder_autoresolve();
+
     $out['ok'] = ( $out['matches'] > 0 ) || ! $out['errors'];
     return $out;
+}
+
+/**
+ * Aktueller Stand einer Nations-League-Gruppe: Tabelle, Tabellenführer, gespielte Partien und ob die
+ * Gruppe fertig ausgespielt ist. Grundlage für die "Gruppensieger"-Sonderwertungen.
+ */
+function ftipp_nl_group_state( $teams ) {
+    $set = array_flip( $teams );
+    $fx  = array();
+    foreach ( ftipp_fixtures_for( 'NL' ) as $f ) {
+        if ( 0 === strpos( $f['id'], 'demo-' ) ) { continue; }
+        if ( isset( $set[ $f['home'] ], $set[ $f['away'] ] ) ) { $fx[] = $f; }
+    }
+    $gespielt = 0;
+    foreach ( $fx as $f ) { if ( ftipp_has_result( $f ) ) { $gespielt++; } }
+    $rows = ftipp_mini_table( $teams, $fx );
+    return array(
+        'rows'      => $rows,
+        'fuehrend'  => ( $rows && intval( $rows[0]['matches'] ) > 0 ) ? $rows[0]['team'] : null,
+        'gespielt'  => $gespielt,
+        'gesamt'    => count( $fx ),
+        'fertig'    => ( count( $fx ) > 0 && $gespielt === count( $fx ) ),
+        // "Eindeutig" heißt hier bewusst: mehr PUNKTE als alle anderen. Bei Punktgleichheit entscheidet
+        // bei der UEFA zuerst der direkte Vergleich, nicht die Tordifferenz — das bildet
+        // ftipp_mini_table() nicht ab. Lieber gar nichts eintragen, als per Tordifferenz einen
+        // womöglich falschen Gruppensieger zu küren und dafür echte Punkte zu verteilen.
+        'eindeutig' => ( count( $rows ) > 1 && intval( $rows[0]['points'] ) > intval( $rows[1]['points'] ) ),
+    );
+}
+
+/**
+ * Trägt bei fertig ausgespielten Nations-League-Gruppen den Gruppensieger automatisch als Ergebnis
+ * der passenden Sonderwertung ein. Bewusst zurückhaltend:
+ *  - NIE ein bereits eingetragenes Ergebnis überschreiben (der Admin hat immer das letzte Wort),
+ *  - NIE eintragen, solange die Gruppe noch läuft — der Tabellenführer nach einem Spieltag ist kein
+ *    Gruppensieger, ein voreiliger Eintrag würde sofort echte Punkte verteilen,
+ *  - NIE eintragen, wenn oben Punktgleichheit herrscht (siehe ftipp_nl_group_state()).
+ * Gibt die Zahl der neu aufgelösten Sonderwertungen zurück.
+ */
+function ftipp_nl_sonder_autoresolve() {
+    global $wpdb;
+    $groups = ftipp_nl_groups();
+    if ( ! $groups ) { return 0; }
+    $byLabel = array();
+    foreach ( $groups as $g ) { $byLabel[ $g['label'] ] = $g; }
+
+    $bets = $wpdb->get_results(
+        "SELECT id, round_id, label, result FROM {$wpdb->prefix}ftipp_special WHERE comp_id='NL'", ARRAY_A );
+    if ( ! $bets ) { return 0; }
+
+    $cache = array(); $n = 0;
+    foreach ( $bets as $b ) {
+        if ( ! isset( $byLabel[ $b['label'] ] ) ) { continue; }
+        if ( null !== $b['result'] && '' !== trim( (string) $b['result'] ) ) { continue; }
+        $key = $b['label'];
+        if ( ! isset( $cache[ $key ] ) ) { $cache[ $key ] = ftipp_nl_group_state( $byLabel[ $key ]['teams'] ); }
+        $st = $cache[ $key ];
+        if ( ! $st['fertig'] || ! $st['eindeutig'] || ! $st['fuehrend'] ) { continue; }
+        $wpdb->update( "{$wpdb->prefix}ftipp_special", array( 'result' => $st['fuehrend'] ), array( 'id' => intval( $b['id'] ) ) );
+        ftipp_log_history( 'nl_sonder_auto',
+            sprintf( '%s automatisch aufgelöst: %s (Gruppe fertig ausgespielt).', $b['label'], $st['fuehrend'] ),
+            'NL', '', null );
+        $n++;
+    }
+    return $n;
 }
 
 /**
@@ -5648,6 +5717,9 @@ add_action( 'rest_api_init', function () {
             $rid = intval( $req->get_param( 'round' ) ); $comp = sanitize_text_field( $req->get_param( 'comp' ) );
             if ( ! ftipp_is_round_member( $rid, $uid ) ) { return new WP_Error( 'forbidden', 'Kein Mitglied dieser Runde.', array( 'status' => 403 ) ); }
             ftipp_seed_default_specials( $rid, $comp );
+            // Fertig ausgespielte Gruppen auflösen, bevor gelesen wird — sonst hinge das Ergebnis bis
+            // zum nächsten Spieldaten-Abruf in der Luft.
+            if ( 'NL' === $comp ) { ftipp_nl_sonder_autoresolve(); }
             $bets = $wpdb->get_results( $wpdb->prepare(
                 "SELECT * FROM {$wpdb->prefix}ftipp_special WHERE round_id=%d AND comp_id=%s ORDER BY id ASC", $rid, $comp
             ), ARRAY_A );
@@ -5655,8 +5727,21 @@ add_action( 'rest_api_init', function () {
             // Bei der Nations League ist z.B. "Gruppensieger A1" allein nicht selbsterklärend — dafür hier
             // die zugehörigen Teams mitgeben (nachschlagbar über das identische Label aus ftipp_nl_groups()).
             $nlTeamsByLabel = array();
+            $nlStandByLabel = array();
             if ( 'NL' === $comp ) {
-                foreach ( ftipp_nl_groups() as $g ) { $nlTeamsByLabel[ $g['label'] ] = $g['teams']; }
+                foreach ( ftipp_nl_groups() as $g ) {
+                    $nlTeamsByLabel[ $g['label'] ] = $g['teams'];
+                    $st = ftipp_nl_group_state( $g['teams'] );
+                    // Nur das Nötige mitgeben: wer führt, wie weit die Gruppe ist und ob die Sache
+                    // entschieden ist. Die ganze Tabelle steht im Tab "📊 Tabelle".
+                    $nlStandByLabel[ $g['label'] ] = array(
+                        'fuehrend'  => $st['fuehrend'],
+                        'gespielt'  => $st['gespielt'],
+                        'gesamt'    => $st['gesamt'],
+                        'fertig'    => $st['fertig'],
+                        'eindeutig' => $st['eindeutig'],
+                    );
+                }
             }
             $out = array();
             foreach ( $bets as $b ) {
@@ -5684,6 +5769,7 @@ add_action( 'rest_api_init', function () {
                     'my_committed' => $mine ? (bool) intval( $mine['committed'] ) : false,
                     'locked' => $locked, 'others' => $others,
                     'teams' => isset( $nlTeamsByLabel[ $b['label'] ] ) ? $nlTeamsByLabel[ $b['label'] ] : null,
+                    'stand' => isset( $nlStandByLabel[ $b['label'] ] ) ? $nlStandByLabel[ $b['label'] ] : null,
                 );
             }
             return array( 'bets' => $out );
@@ -7673,6 +7759,7 @@ function ftipp_page_history() {
         'seriea_migrate' => '⚽🔀 Serie A: Quellenwechsel',
         'tip_override' => '✏️ Tipp vom Runden-Admin korrigiert',
         'nl_rebuild' => '🇪🇺🔀 Nations League: Spielplan neu aufgebaut',
+        'nl_sonder_auto' => '🇪🇺⭐ Nations League: Gruppensieger automatisch eingetragen',
         'csv_import'    => '📄 CSV-Import',
         'test_fixtures' => '🎲 Test-Spiele',
         'restore'       => '💾 Sicherung wiederhergestellt',
