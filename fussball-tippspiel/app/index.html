@@ -348,6 +348,24 @@ let viewer = 0;
 let tCompSel = 'BL1', aCompSel = 'BL1', sCompSel = 'BL1', tabelleCompSel = 'BL1';
 let tRoundSel = null; // gewählter Spieltag/Runde im Tippen-Tab, pro Wettbewerb neu ermittelt
 let tGroupSel = null; // gewählte Gruppe/Liga im Tippen-Tab, nur bei zweistufigen Wettbewerben (z.B. Nations-League-Ligen A-D)
+/* Korrektur-Ansicht des Runden-Admins: 'aus' | 'alle' | "<user_id>".
+   Bei 50 Mitspielern stünden sonst 50 Zeilen unter JEDEM Spiel. Die Wahl gilt für die ganze
+   Tippen-Ansicht (nicht pro Spiel), weil man einen Zettel Person für Person abarbeitet, nicht
+   Spiel für Spiel. Pro Runde gemerkt, damit man sie nicht bei jedem Aufruf neu setzen muss. */
+let korrSel = null, korrSelRid = null;
+const KORR_AUTO_GRENZE = 8; // bis hierhin standardmäßig alle zeigen, darüber standardmäßig aus
+function korrKey(rid){ return 'ftipp_korr_'+rid; }
+function korrGet(round){
+  // Die Runden-ID mitprüfen: sonst schleppt ein Rundenwechsel die Auswahl der vorigen Runde mit,
+  // deren Mitglieder-IDs es hier gar nicht gibt — die Liste bliebe dann einfach leer.
+  if(korrSel!==null && korrSelRid===round.id) return korrSel;
+  let v=null; try{ v=localStorage.getItem(korrKey(round.id)); }catch(e){}
+  const ids=(round.members||[]).map(m=>String(m.id));
+  if(v && v!=='aus' && v!=='alle' && !ids.includes(v)) v=null; // Person nicht mehr in der Runde
+  if(!v) v = (round.members||[]).length > KORR_AUTO_GRENZE ? 'aus' : 'alle';
+  korrSel=v; korrSelRid=round.id; return v;
+}
+function korrSet(round,v){ korrSel=v; korrSelRid=round.id; try{ localStorage.setItem(korrKey(round.id), v); }catch(e){} }
 
 function save(){ localStorage.setItem(STORE, JSON.stringify(S)); }
 function load(){
@@ -859,7 +877,17 @@ async function renderTippenConnected(){
     navRow.appendChild(prevBtn); navRow.appendChild(nextBtn);
     ctrl.appendChild(navWrap);
   }
+  if(round.is_admin){
+    const mitglieder = round.members||[];
+    const opts = [{v:'aus',label:'aus — nichts einblenden'},
+                  {v:'alle',label:'alle Mitspieler ('+mitglieder.length+')'}]
+                 .concat(mitglieder.map(m=>({v:String(m.id), label:m.name})));
+    ctrl.appendChild(mkSelect('✏️ Tipps korrigieren', opts, korrGet(round), v=>{ korrSet(round,v); renderTippenConnected(); }));
+  }
   head.appendChild(ctrl); box.appendChild(head);
+  if(round.is_admin && korrGet(round)==='aus' && (round.members||[]).length>KORR_AUTO_GRENZE){
+    head.appendChild(el('<div class="meta" style="margin-top:6px">Bei '+(round.members||[]).length+' Mitspielern sind die Korrekturfelder ausgeblendet. Oben eine Person wählen, um für sie nachzutragen.</div>'));
+  }
 
   if(!myComps.length){ box.appendChild(el(`<div class="card"><div class="hint">Du bist noch bei keinem Wettbewerb angemeldet. Wähle unter <b>👥 Runden</b> deine Wettbewerbe.</div></div>`)); return; }
 
@@ -1010,10 +1038,13 @@ function mkMatchRowConnected(f, td, cfg, round){
        Knopf: vorher wurde ausschließlich beim Verlassen eines Feldes gespeichert (onchange), und wer
        nach dem Tippen wegscrollte oder neu lud, verlor seine Eingabe ohne jede Rückmeldung.
        Beide Felder leeren entfernt den Tipp wieder. */
-    if(round && round.is_admin && Array.isArray(td.alle)){
+    const korr = round && round.is_admin ? korrGet(round) : 'aus';
+    if(round && round.is_admin && korr!=='aus' && Array.isArray(td.alle)){
+      const zeigen = korr==='alle' ? td.alle : td.alle.filter(p=>String(p.user_id)===String(korr));
       const box = el('<div class="others" style="margin-top:6px"></div>');
-      box.appendChild(el('<div class="row" style="margin-bottom:4px"><b>✏️ Tipps aller Mitspieler</b><span class="meta">ändern oder nachtragen — auch nach Fristende</span></div>'));
-      td.alle.forEach(p=>{
+      const titel = korr==='alle' ? 'Tipps aller Mitspieler' : ('Tipp von '+(zeigen[0]?zeigen[0].name:'—'));
+      box.appendChild(el(`<div class="row" style="margin-bottom:4px"><b>✏️ ${esc(titel)}</b><span class="meta">ändern oder nachtragen — auch nach Fristende</span></div>`));
+      zeigen.forEach(p=>{
         const z = el('<div class="row" style="gap:6px;align-items:center;padding:3px 0"></div>');
         z.appendChild(el(`<span style="min-width:120px">${esc(p.name)}${p.committed?' <span class="pill good" style="font-size:10px">fix</span>':''}</span>`));
         const ih = el(`<input type="number" min="0" inputmode="numeric" placeholder="–" value="${p.h==null?'':p.h}" style="width:58px">`);
@@ -1231,6 +1262,15 @@ async function renderSonderConnected(){
   const ctrl=el(`<div class="row"></div>`);
   const rs=mkRoundSwitcher(); if(rs) ctrl.appendChild(rs);
   ctrl.appendChild(mkSelect('Wettbewerb', COMPS.map(c=>({v:c.id,label:c.name})), sCompSel, v=>{sCompSel=v; renderSonderConnected();}));
+  // Dieselbe Auswahl wie im Tippen-Tab und derselbe Merker — es wäre verwirrend, wenn man die
+  // Korrektur-Ansicht an zwei Stellen getrennt einstellen müsste.
+  if(round.is_admin){
+    const mitglieder = round.members||[];
+    const opts = [{v:'aus',label:'aus — nichts einblenden'},
+                  {v:'alle',label:'alle Mitspieler ('+mitglieder.length+')'}]
+                 .concat(mitglieder.map(m=>({v:String(m.id), label:m.name})));
+    ctrl.appendChild(mkSelect('✏️ Tipps korrigieren', opts, korrGet(round), v=>{ korrSet(round,v); renderSonderConnected(); }));
+  }
   head.appendChild(ctrl); box.appendChild(head);
 
   const wrapBox=el(`<div class="card"><div class="meta">Lädt…</div></div>`); box.appendChild(wrapBox);
@@ -1297,19 +1337,23 @@ async function renderSonderConnected(){
       card.appendChild(el(`<div class="row" style="margin-top:6px;flex-wrap:wrap"><div class="meta">👀 Tipps der Mitspieler: ${b.others.map(o=>`<b>${esc(o.name)}</b> ${esc(o.value)}`).join(' · ')}</div></div>`));
     }
 
-    if(round.is_admin){
+    if(round.is_admin && korrGet(round)!=='aus'){
       /* Bewusst OHNE Aufklapper: Der Nutzer fand den Knopf nicht bzw. bei ihm tat sich beim Klick
          nichts — nachstellen liess sich das nicht. Statt weiter zu raten steht die Liste jetzt
-         einfach da. Sie erscheint nur beim Runden-Admin und nur, wenn es etwas zu korrigieren gibt. */
+         einfach da. Über das Auswahlfeld oben lässt sie sich auf eine Person eingrenzen oder ganz
+         abschalten — bei 50 Mitspielern stünden hier sonst 50 Zeilen je Sonderwertung. */
+      const korr = korrGet(round);
       const tipsBox = el('<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px"></div>');
-      tipsBox.appendChild(el('<div class="row" style="margin-bottom:6px"><b>✏️ Tipps aller Mitspieler</b><span class="meta">ändern oder nachtragen — auch nach Fristende</span></div>'));
+      const korrName = korr==='alle' ? null : ((round.members||[]).find(m=>String(m.id)===String(korr))||{}).name;
+      tipsBox.appendChild(el(`<div class="row" style="margin-bottom:6px"><b>✏️ ${korr==='alle'?'Tipps aller Mitspieler':esc('Tipp von '+(korrName||'—'))}</b><span class="meta">ändern oder nachtragen — auch nach Fristende</span></div>`));
       const tipsBody = el('<div class="meta">Lädt…</div>');
       tipsBox.appendChild(tipsBody);
       card.appendChild(tipsBox);
       (async ()=>{
         try{
           const res = await api_get('special/'+b.id+'/tipps');
-          const list = res.tipps||[];
+          const alle = res.tipps||[];
+          const list = korr==='alle' ? alle : alle.filter(t=>String(t.user_id)===String(korr));
           tipsBody.innerHTML='';
           if(!list.length){ tipsBody.appendChild(el('<div class="meta">Noch keine Mitglieder in dieser Runde.</div>')); return; }
           list.forEach(t=>{

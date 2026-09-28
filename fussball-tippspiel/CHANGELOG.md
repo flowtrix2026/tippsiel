@@ -3488,6 +3488,51 @@ Serverseitig war nichts kaputt: `/tip/override` schreibt `committed = 1` und pro
 Korrektur im Verlauf, und `/tips` liefert dem Runden-Admin ohnehin **alle** Mitglieder mit. Der Fehler
 saß allein in der Bedienung.
 
+
+## v1.26.5 — Korrekturliste ist jetzt einstellbar (50 Mitspieler passen nicht untereinander)
+
+- **Meldung:** „Können wir eine Option machen, dass man das einschalten kann? Weil wenn wir jetzt mit
+  50 Leuten spielen, ist das natürlich sehr extrem lang untereinander. Vielleicht mit so einem
+  Dropdown-Menü."
+
+Völlig richtig: die offene Liste aus v1.26.4 ist bei drei Mitspielern angenehm und bei fünfzig
+unbenutzbar — 50 Zeilen unter **jedem** Spiel.
+
+### Die Entscheidung: eine Auswahl für die ganze Ansicht, nicht pro Spiel
+
+Ein Aufklapper je Spiel wäre der naheliegende Reflex gewesen — und genau das Ding, das hier schon
+dreimal durchgefallen ist. Ein Auswahlfeld **pro Spiel** wäre auch nicht besser: bei zehn Spielen
+zehnmal dieselbe Person heraussuchen.
+
+Stattdessen steht die Auswahl **einmal oben** in der Kopfzeile, neben Wettbewerb und Spieltag:
+
+> ✏️ Tipps korrigieren: `aus — nichts einblenden` · `alle Mitspieler (50)` · dann jeder Name einzeln
+
+Das entspricht der tatsächlichen Arbeitsweise: Man arbeitet einen Zettel **Person für Person** ab,
+nicht Spiel für Spiel. Wählt man „geli", steht unter jedem Spiel genau eine Zeile — „✏️ Tipp von geli".
+
+### Verhalten
+
+- **Standard richtet sich nach der Rundengröße:** bis 8 Mitspieler „alle" (bestehende Runden ändern
+  sich also nicht), darüber „aus" — mit Hinweiszeile, damit niemand rätselt, wo die Felder hin sind.
+- Die Wahl wird **pro Runde** im Browser gemerkt.
+- **Dasselbe Auswahlfeld und derselbe Merker im Tab „⭐ Sonderwertungen"** — es wäre verwirrend, das
+  an zwei Stellen getrennt einstellen zu müssen.
+- Ist eine gemerkte Person nicht mehr in der Runde, fällt die Auswahl auf den Standard zurück
+  (sonst bliebe die Liste wortlos leer). Ebenso beim Rundenwechsel: die Runden-ID wird mitgeprüft.
+
+### Test (Browser, gegen die echte App, zwei Rundengrößen)
+
+| Fall | Ergebnis |
+|---|---|
+| Runde mit 50 Mitspielern, erster Aufruf | ✅ Standard „aus", Hinweis „Bei 50 Mitspielern sind die Korrekturfelder ausgeblendet" |
+| Auswahlfeld | ✅ 52 Einträge: aus, alle (50), dann alle Namen |
+| „geli" wählen | ✅ genau **1** Zeile je Spiel, Titel „✏️ Tipp von geli" |
+| dort 2:0 nachtragen | ✅ POST mit `user_id 3`, „gespeichert ✓", Zeile oben zeigt „geli 2:0" |
+| Runde mit 3 Mitspielern | ✅ Standard „alle", 3 Zeilen je Spiel — unverändert zu v1.26.4 |
+| „aus" wählen | ✅ keine Korrekturfelder mehr, Auswahl in localStorage gemerkt |
+| Sonderwertungs-Tab | ✅ gleiches Auswahlfeld, gleiche Auswahl, Titel „✏️ Tipp von geli" |
+
 ## OFFENE AUFGABEN / TODO
 - [x] ~~Phase 2 / Stufe 2: echtes WordPress-Plugin~~ → fertig, live verifiziert (siehe oben).
 - [x] ~~E-Mail-Versand (Fristen/Newsletter)~~ → v0.6.0, noch nicht live getestet.
